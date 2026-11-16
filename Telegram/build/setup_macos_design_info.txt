@@ -1,0 +1,25 @@
+Telegram macOS Design 7.4.4 — Windows x64
+
+Неофициальная тестовая Debug-сборка Telegram Desktop с оформлением macOS.
+Установите приложение в отдельную папку, предложенную установщиком.
+После установки запустите Telegram macOS Design и войдите в свой аккаунт.
+
+Масштаб: Настройки → Оформление → Масштаб интерфейса.
+Liquid Glass: Настройки → Оформление → Liquid Glass.
+
+Данные аккаунта хранятся в папке TelegramForcePortable рядом с Telegram.exe.
+Установщик создаёт пустую папку; чужих аккаунтов в комплекте нет.
+При удалении приложения данные аккаунта сохраняются в этой папке.
+Для полного удаления сначала выйдите из аккаунта в приложении, затем
+удалите оставшуюся папку TelegramForcePortable вручную.
+Обновление этой сборки выполняется новым установщиком вручную.
+
+Unofficial Debug build of Telegram Desktop with a macOS-inspired interface.
+Install into the separate folder suggested by Setup, then sign in.
+Account data is stored in TelegramForcePortable beside Telegram.exe.
+Setup contains no account data. Uninstall preserves your account folder.
+To remove all data, log out first and delete the remaining folder manually.
+Install updates manually using a new installer for this custom build.
+
+Telegram Desktop authors retain their original copyrights.
+See LICENSE and LEGAL for licensing information.
