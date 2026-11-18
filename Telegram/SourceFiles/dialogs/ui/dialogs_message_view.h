@@ -87,6 +87,7 @@ public:
 
 private:
 	struct LoadingContext;
+	struct SenderUserpic;
 
 	[[nodiscard]] int countWidth() const;
 	void paintJumpToLast(
@@ -99,6 +100,8 @@ private:
 	mutable Text::String _senderCache;
 	mutable std::unique_ptr<TopicsView> _topics;
 	mutable Text::String _textCache;
+	mutable Text::String _separateTextCache;
+	mutable std::unique_ptr<SenderUserpic> _senderUserpic;
 	mutable std::vector<ItemPreviewImage> _imagesCache;
 	mutable std::unique_ptr<SpoilerAnimation> _spoiler;
 	mutable std::unique_ptr<LoadingContext> _loadingContext;

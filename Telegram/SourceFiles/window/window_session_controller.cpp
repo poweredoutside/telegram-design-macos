@@ -81,6 +81,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_utilities.h"
 #include "core/ui_integration.h"
 #include "base/options.h"
+#include "base/platform/base_platform_info.h"
 #include "base/unixtime.h"
 #include "info/channel_statistics/earn/earn_icons.h"
 #include "ui/controls/userpic_button.h"
@@ -90,6 +91,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/boost_box.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/chat_theme.h"
+#include "ui/chat/chat_theme_macos.h"
 #include "ui/effects/message_sending_animation_controller.h"
 #include "ui/style/style_palette_colorizer.h"
 #include "ui/toast/toast.h"
@@ -3875,6 +3877,13 @@ void SessionController::pushDefaultChatBackground() {
 		if (variant) {
 			bubbles = Theme::PrepareBubblesData(cloud, *variant);
 		}
+	}
+	const auto &path = background->themeObject().pathAbsolute;
+	if (Platform::IsWindows()
+		&& !cloud.id
+		&& (path.isEmpty() || path.startsWith(u":/gui/"_q))
+		&& bubbles.colors.empty()) {
+		bubbles.colors = Ui::MacOutgoingGradient(st::msgOutBg->c);
 	}
 	if (bubbles.colors != _defaultChatThemeBubblesColors) {
 		_defaultChatThemeBubblesColors = bubbles.colors;

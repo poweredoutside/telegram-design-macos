@@ -11,21 +11,45 @@ using "chat_helpers/chat_helpers.style"; // GroupCallUserpics
 using "ui/layers/layers.style"; // boxRoundShadow
 using "ui/widgets/widgets.style";
 
-dialogsNavigationHeight: 58px;
-dialogsNavigationIconTop: 7px;
-dialogsNavigationTextTop: 35px;
-dialogsNavigationLabelSkip: 3px;
-dialogsNavigationFont: font(11px);
+dialogsNavigationHeight: 64px;
+dialogsNavigationBarHeight: 48px;
+dialogsNavigationSideInset: 20px;
+dialogsNavigationInnerInset: 4px;
+dialogsNavigationMaxWidth: 500px;
+dialogsNavigationBadgeFont: font(11px bold);
+dialogsMacHeaderHeight: 90px;
+dialogsMacStatusHeight: 50px;
+dialogsMacSearchInset: 10px;
+dialogsMacComposeInset: 14px;
+dialogsMacCreateCall: SettingsButton(defaultSettingsButton) {
+	height: 18px;
+	padding: margins(50px, 11px, 10px, 11px);
+	iconLeft: 10px;
+	textFg: windowBgActive;
+	textFgOver: windowBgActive;
+	textBg: dialogsBg;
+	textBgOver: dialogsBgOver;
+	style: TextStyle(defaultTextStyle) {
+		font: font(14px);
+	}
+}
+dialogsMacCreateCallIcon: icon {{ "macos/create_call", windowBgActive }};
+dialogsMacCallSection: FlatLabel(defaultFlatLabel) {
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(12px);
+	}
+}
 macContactsIcon: icon {{ "macos/contacts", windowSubTextFg }};
 macCallsIcon: icon {{ "macos/calls", windowSubTextFg }};
 macChatsIcon: icon {{ "macos/chats", windowSubTextFg }};
 macSettingsIcon: icon {{ "macos/settings", windowSubTextFg }};
 macCompose: IconButton(defaultIconButton) {
-	width: 40px;
-	height: 40px;
+	width: 30px;
+	height: 30px;
 	icon: icon {{ "macos/compose", windowBgActive }};
 	iconOver: icon {{ "macos/compose", windowBgActive }};
-	iconPosition: point(5px, 5px);
+	iconPosition: point(0px, 0px);
 }
 macMore: IconButton(macCompose) {
 	icon: icon {{ "macos/more", windowBgActive }};
@@ -96,7 +120,7 @@ infoForumTopicIcon: ForumTopicIcon {
 	textTop: 4px;
 }
 
-dialogsUnreadFont: font(12px bold);
+dialogsUnreadFont: font(11px semibold);
 dialogsUnreadHeight: 19px;
 dialogsUnreadPadding: 5px;
 
@@ -104,25 +128,48 @@ dialogsRipple: RippleAnimation(defaultRippleAnimation) {
 	color: dialogsRippleBg;
 }
 
-dialogsTextFont: normalFont;
+dialogsNameFont: font(14px semibold);
+dialogsNameStyle: TextStyle(semiboldTextStyle) {
+	font: dialogsNameFont;
+}
+dialogsMacPeerListItem: PeerListItem(defaultPeerListItem) {
+	height: 50px;
+	photoSize: 36px;
+	photoPosition: point(10px, 7px);
+	namePosition: point(56px, 6px);
+	statusPosition: point(56px, 26px);
+	nameStyle: dialogsNameStyle;
+}
+dialogsMacPeerList: PeerList(defaultPeerList) {
+	item: dialogsMacPeerListItem;
+}
+dialogsMacCallList: PeerList(dialogsMacPeerList) {
+	item: PeerListItem(dialogsMacPeerListItem) {
+		height: 46px;
+		photoPosition: point(10px, 5px);
+		namePosition: point(56px, 4px);
+		statusPosition: point(56px, 24px);
+	}
+}
+dialogsTextFont: font(13px);
 dialogsTextStyle: defaultTextStyle;
-dialogsDateFont: font(13px);
+dialogsDateFont: font(12px);
 dialogsDateSkip: 5px;
 
 dialogsRowHeight: 70px;
-dialogsRowInset: margins(7px, 3px, 7px, 3px);
-dialogsRowRadius: 10px;
+dialogsRowInset: margins(3px, 3px, 3px, 3px);
+dialogsRowRadius: 14px;
 dialogsFilterPadding: point(7px, 7px);
 dialogsFilterSkip: 4px;
 
 defaultDialogRow: DialogRow {
 	height: dialogsRowHeight;
-	padding: margins(10px, 10px, 12px, 10px);
+	padding: margins(10px, 10px, 9px, 10px);
 	photoSize: 50px;
 	nameLeft: 70px;
-	nameTop: 13px;
+	nameTop: 8px;
 	textLeft: 70px;
-	textTop: 37px;
+	textTop: 27px;
 }
 communityRequestableListItem: PeerListItem(defaultPeerListItem) {
 	height: dialogsRowHeight;
@@ -353,12 +400,18 @@ dialogsFilter: InputField(defaultInputField) {
 
 	border: 1px;
 	borderActive: 2px;
-	borderRadius: 10px;
+	borderRadius: 15px;
 	borderDenominator: 2;
 
 	style: defaultTextStyle;
 
 	heightMin: 36px;
+}
+dialogsFilterMac: InputField(dialogsFilter) {
+	textMargins: margins(12px, 5px, 30px, 5px);
+	heightMin: 30px;
+	border: 0px;
+	borderActive: 0px;
 }
 dialogsCancelSearchInPeer: IconButton(dialogsMenuToggle) {
 	icon: icon {{ "dialogs/dialogs_cancel_search", dialogsMenuIconFg }};

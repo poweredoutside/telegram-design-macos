@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/settings_common.h"
 
+#include "base/platform/base_platform_info.h"
 #include "base/timer.h"
 #include "lottie/lottie_icon.h"
 #include "menu/menu_send_details.h"
@@ -26,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/scroll_area.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/text/text_entity.h"
+#include "ui/style/style_core_scale.h"
 #include "styles/style_edit_peer_members.h"
 #include "styles/style_info.h"
 #include "styles/style_menu_icons.h"
@@ -33,9 +35,69 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_widgets.h"
 
 #include <QAction>
+#include <QtGui/QPainterPath>
+#include <array>
 
 namespace Settings {
 namespace {
+
+class GroupedSettingsContent final : public Ui::RpWidget {
+public:
+	explicit GroupedSettingsContent(QWidget *parent);
+	[[nodiscard]] not_null<Ui::VerticalLayout*> content() const;
+
+protected:
+	int resizeGetHeight(int newWidth) override;
+
+private:
+	const not_null<Ui::VerticalLayout*> _content;
+
+};
+
+GroupedSettingsContent::GroupedSettingsContent(QWidget *parent)
+: RpWidget(parent)
+, _content(Ui::CreateChild<Ui::VerticalLayout>(this)) {
+	_content->heightValue() | rpl::on_next([=](int height) {
+		resize(width(), height);
+	}, lifetime());
+}
+
+not_null<Ui::VerticalLayout*> GroupedSettingsContent::content() const {
+	return _content;
+}
+
+int GroupedSettingsContent::resizeGetHeight(int newWidth) {
+	const auto innerWidth = std::clamp(
+		newWidth - 2 * st::macSettingsPageInset,
+		0,
+		style::ConvertScale(600));
+	_content->resizeToWidth(innerWidth);
+	_content->move((newWidth - innerWidth) / 2, 0);
+	return _content->height();
+}
+
+const auto &MacButtonStyles() {
+	static const auto Styles = std::array{
+		std::pair{ &st::settingsButton, &st::macSettingsPageButton },
+		std::pair{ &st::settingsButtonNoIcon, &st::macSettingsPageButtonNoIcon },
+		std::pair{ &st::settingsButtonLight, &st::macSettingsPageButtonLight },
+		std::pair{ &st::settingsButtonLightNoIcon, &st::macSettingsPageButtonLightNoIcon },
+		std::pair{ &st::settingsButtonActive, &st::macSettingsPageButtonActive },
+		std::pair{ &st::settingsAttentionButton, &st::macSettingsPageAttentionButton },
+		std::pair{ &st::settingsAttentionButtonWithIcon, &st::macSettingsPageAttentionButtonWithIcon },
+		std::pair{ &st::settingsButtonRightLabelSpoiler, &st::macSettingsPageButtonRightLabelSpoiler },
+		std::pair{ &st::settingsButtonNoIconLocked, &st::macSettingsPageButtonNoIconLocked },
+		std::pair{ &st::settingsButtonDisabledWithIcon, &st::macSettingsPageButtonDisabled },
+		std::pair{ &st::settingsOptionDisabled, &st::macSettingsPageOptionDisabled },
+	};
+	return Styles;
+}
+
+bool IsMacButtonStyle(const style::SettingsButton &st) {
+	return ranges::any_of(MacButtonStyles(), [&](const auto &pair) {
+		return pair.second == &st;
+	});
+}
 
 [[nodiscard]] HighlightArgs MaybeFillFromRipple(
 		not_null<QWidget*> target,
@@ -422,6 +484,113 @@ QSize Icon::size() const {
 	return _icon->size();
 }
 
+not_null<Ui::VerticalLayout*> AddGroupedSettingsContent(
+		not_null<Ui::VerticalLayout*> container) {
+	return container->add(object_ptr<GroupedSettingsContent>(container))->content();
+}
+
+bool IsGroupedSettingsContent(not_null<QWidget*> widget) {
+	for (auto ancestor = widget.get(); ancestor; ancestor = ancestor->parentWidget()) {
+		if (dynamic_cast<GroupedSettingsContent*>(ancestor)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+not_null<Ui::VerticalLayout*> AddGroupedSettingsRows(
+		not_null<Ui::VerticalLayout*> container) {
+	return container->add(object_ptr<Ui::VerticalLayout>(container));
+}
+
+void FinishGroupedSettingsRows(not_null<Ui::VerticalLayout*> group) {
+	const auto overlay = Ui::CreateChild<Ui::RpWidget>(group);
+	overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+	group->sizeValue() | rpl::on_next([=](QSize size) {
+		overlay->setGeometry(QRect(QPoint(), size));
+		overlay->raise();
+		overlay->update();
+	}, overlay->lifetime());
+	style::PaletteChanged() | rpl::on_next([=] {
+		overlay->update();
+	}, overlay->lifetime());
+	overlay->paintRequest() | rpl::on_next([=] {
+		auto p = QPainter(overlay);
+		const auto plain = (st::boxSearchBg->c == st::windowBg->c);
+		auto rows = std::vector<not_null<Ui::RpWidget*>>();
+		for (auto i = 0; i != group->count(); ++i) {
+			const auto row = group->widgetAt(i);
+			if (row->height() > 0) {
+				rows.push_back(row);
+			}
+		}
+		const auto inset = style::ConvertScale(14);
+		for (auto i = 0; i != int(rows.size()); ++i) {
+			if (plain || i + 1 != rows.size()) {
+				p.fillRect(inset,
+					rows[i]->y() + rows[i]->height() - st::lineWidth,
+					std::max(0, group->width() - 2 * inset),
+					st::lineWidth, st::shadowFg);
+			}
+		}
+		if (!plain && !rows.empty()) {
+			p.setRenderHint(QPainter::Antialiasing);
+			auto outside = QPainterPath();
+			outside.setFillRule(Qt::OddEvenFill);
+			outside.addRect(overlay->rect());
+			const auto radius = std::min(
+				st::macSettingsRadius, overlay->height() / 2);
+			outside.addRoundedRect(overlay->rect(), radius, radius);
+			p.fillPath(outside, st::boxSearchBg);
+		}
+	}, overlay->lifetime());
+	for (auto i = 0; i != group->count(); ++i) {
+		group->widgetAt(i)->geometryValue() | rpl::on_next([=] {
+			overlay->raise();
+			overlay->update();
+		}, overlay->lifetime());
+	}
+	overlay->raise();
+	overlay->show();
+}
+
+not_null<Ui::FlatLabel*> AddGroupedSettingsHeader(
+		not_null<Ui::VerticalLayout*> container,
+		rpl::producer<QString> text) {
+	return container->add(object_ptr<Ui::FlatLabel>(
+		container, std::move(text), st::macSettingsPageHeader),
+		style::margins(style::ConvertScale(14), style::ConvertScale(20),
+			style::ConvertScale(14), style::ConvertScale(5)));
+}
+
+void AddGroupedSettingsFooter(
+		not_null<Ui::VerticalLayout*> container,
+		rpl::producer<QString> text) {
+	container->add(object_ptr<Ui::FlatLabel>(
+		container, std::move(text), st::macSettingsPageHeader),
+		style::margins(style::ConvertScale(14), style::ConvertScale(5),
+			style::ConvertScale(14), 0));
+}
+
+const style::SettingsButton &ResolveButtonStyle(
+		not_null<QWidget*> parent,
+		const style::SettingsButton &st) {
+	if (!Platform::IsWindows()) {
+		return st;
+	}
+	for (auto ancestor = parent.get(); ancestor; ancestor = ancestor->parentWidget()) {
+		if (dynamic_cast<AbstractSection*>(ancestor)) {
+			for (const auto &[original, replacement] : MacButtonStyles()) {
+				if (original == &st) {
+					return *replacement;
+				}
+			}
+			break;
+		}
+	}
+	return st;
+}
+
 void AddButtonIcon(
 		not_null<Ui::AbstractButton*> button,
 		const style::SettingsButton &st,
@@ -459,8 +628,9 @@ void AddButtonIcon(
 object_ptr<Button> CreateButtonWithIcon(
 		not_null<QWidget*> parent,
 		rpl::producer<QString> text,
-		const style::SettingsButton &st,
+		const style::SettingsButton &original,
 		IconDescriptor &&descriptor) {
+	const auto &st = ResolveButtonStyle(parent, original);
 	auto result = object_ptr<Button>(parent, std::move(text), st);
 	const auto button = result.data();
 	button->setAllowTextLines();
@@ -475,20 +645,28 @@ not_null<Button*> AddButtonWithIcon(
 		rpl::producer<QString> text,
 		const style::SettingsButton &st,
 		IconDescriptor &&descriptor) {
-	return container->add(
-		CreateButtonWithIcon(
-			container,
-			std::move(text),
-			st,
-			std::move(descriptor)));
+	auto button = CreateButtonWithIcon(
+		container,
+		std::move(text),
+		st,
+		std::move(descriptor));
+	const auto inset = IsMacButtonStyle(button->st())
+		&& !IsGroupedSettingsContent(container)
+		? st::macSettingsPageInset
+		: 0;
+	return container->add(std::move(button), { inset, 0, inset, 0 });
 }
 
 void CreateRightLabel(
 		not_null<Button*> button,
 		v::text::data &&label,
-		const style::SettingsButton &st,
+		const style::SettingsButton &original,
 		rpl::producer<QString> buttonText,
 		Ui::Text::MarkedContext context) {
+	const auto &st = ResolveButtonStyle(button, original);
+	const auto rightSkip = IsMacButtonStyle(st)
+		? st.padding.right()
+		: st::settingsButtonRightSkip;
 	const auto name = Ui::CreateChild<Ui::FlatLabel>(
 		button.get(),
 		st.rightLabel);
@@ -497,7 +675,7 @@ void CreateRightLabel(
 		const auto full = button->width()
 			- st.padding.left()
 			- st.padding.right()
-			- st::settingsButtonRightSkip;
+			- rightSkip;
 		const auto textWidth = st.style.font->width(buttonText);
 		const auto natural = name->textMaxWidth();
 		auto widestWord = 0;
@@ -517,7 +695,7 @@ void CreateRightLabel(
 		auto padding = st.padding;
 		if (sideBySide) {
 			padding.setRight(padding.right()
-				+ st::settingsButtonRightSkip
+				+ rightSkip
 				+ name->width());
 		} else {
 			padding.setBottom(padding.bottom() + name->height());
@@ -527,7 +705,7 @@ void CreateRightLabel(
 			+ st.height
 			+ st.padding.bottom();
 		name->moveToRight(
-			st::settingsButtonRightSkip,
+			rightSkip,
 			(sideBySide
 				? (st.padding.top() + (button->height() - single) / 2)
 				: (button->height() - st.padding.bottom() - name->height())));

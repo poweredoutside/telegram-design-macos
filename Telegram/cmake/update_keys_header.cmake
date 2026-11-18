@@ -20,6 +20,7 @@ function(append_array name file)
 endfunction()
 
 set(result "// This file was generated from Telegram/Resources/update/,\n// see Telegram/cmake/update_keys_header.cmake.\n#pragma once\n\nnamespace Core::Updates::details {\n\n")
+string(APPEND result "inline constexpr bool kMacosDesignFeed = ${macos_design_feed};\n\n")
 append_array(kRootPublicKeyPem ${root_pem})
 append_array(kEmbeddedManifest ${manifest})
 append_array(kEmbeddedManifestSig ${manifest_sig})

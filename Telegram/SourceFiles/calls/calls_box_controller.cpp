@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/popup_menu.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/painter.h"
+#include "ui/style/style_core_scale.h"
 #include "ui/vertical_list.h"
 #include "core/application.h"
 #include "calls/group/calls_group_common.h"
@@ -263,7 +264,15 @@ void ListController::rowRightActionClicked(not_null<PeerListRow*> row) {
 
 class BoxController::Row : public PeerListRow {
 public:
-	Row(not_null<HistoryItem*> item);
+	Row(
+		not_null<HistoryItem*> item,
+		Presentation presentation,
+		const style::PeerListItem &rowStyle);
+
+	QString generateName() override;
+	[[nodiscard]] QString navigationStatus() const;
+	[[nodiscard]] QString navigationDate() const;
+	[[nodiscard]] bool missed() const;
 
 	enum class Type {
 		Out,
@@ -374,6 +383,8 @@ private:
 	static Type ComputeType(not_null<const HistoryItem*> item);
 	static CallType ComputeCallType(not_null<const HistoryItem*> item);
 
+	const Presentation _presentation;
+	const style::PeerListItem &_rowStyle;
 	std::vector<not_null<HistoryItem*>> _items;
 	QDate _date;
 	Type _type;
@@ -383,8 +394,13 @@ private:
 
 };
 
-BoxController::Row::Row(not_null<HistoryItem*> item)
+BoxController::Row::Row(
+	not_null<HistoryItem*> item,
+	Presentation presentation,
+	const style::PeerListItem &rowStyle)
 : PeerListRow(item->history()->peer, item->id.bare)
+, _presentation(presentation)
+, _rowStyle(rowStyle)
 , _items(1, item)
 , _date(ItemDateTime(item).date())
 , _type(ComputeType(item))
@@ -392,6 +408,72 @@ BoxController::Row::Row(not_null<HistoryItem*> item)
 		? &st::callReDial
 		: &st::callCameraReDial) {
 	refreshStatus();
+}
+
+QString BoxController::Row::generateName() {
+	const auto name = PeerListRow::generateName();
+	return (_presentation == Presentation::MacNavigation && _items.size() > 1)
+		? name + u" (%1)"_q.arg(_items.size())
+		: name;
+}
+
+QString BoxController::Row::navigationStatus() const {
+	if (!hasItems()) {
+		return QString();
+	}
+	const auto media = _items.front()->media();
+	const auto call = media ? media->call() : nullptr;
+	const auto type = (call && call->conferenceId)
+		? tr::lng_call_navigation_group(tr::now)
+		: (_type == Type::Missed)
+		? tr::lng_call_navigation_missed(tr::now)
+		: (_type == Type::Out)
+		? tr::lng_call_navigation_outgoing(tr::now)
+		: tr::lng_call_navigation_incoming(tr::now);
+	if (_items.size() != 1
+		|| !call
+		|| call->conferenceId
+		|| _type == Type::Missed
+		|| call->duration <= 0) {
+		return type;
+	}
+	const auto duration = (call->duration >= 60)
+		? tr::lng_duration_minsec_minutes(tr::now, lt_count, call->duration / 60)
+		: tr::lng_call_navigation_seconds(tr::now, lt_count, call->duration);
+	return tr::lng_call_type_and_duration(
+		tr::now, lt_type, type, lt_duration, duration);
+}
+
+QString BoxController::Row::navigationDate() const {
+	if (!hasItems()) {
+		return QString();
+	}
+	const auto dateTime = ItemDateTime(_items.back());
+	const auto date = dateTime.date();
+	const auto today = QDate::currentDate();
+	const auto locale = QLocale();
+	if (date == today) {
+		return locale.toString(dateTime.time(), QLocale::ShortFormat);
+	}
+	const auto days = date.daysTo(today);
+	if (date.year() == today.year() && days > 0 && days < 7) {
+		return langDayOfWeek(date);
+	}
+	const auto pattern = locale.dateFormat(QLocale::ShortFormat);
+	const auto separator = pattern.contains('.')
+		? '.'
+		: pattern.contains('/')
+		? '/'
+		: pattern.contains('-')
+		? '-'
+		: '.';
+	const auto monthFirst = pattern.indexOf('M') < pattern.indexOf('d');
+	return locale.toString(date, (monthFirst ? u"M/d/yy"_q : u"d/MM/yy"_q)
+		.replace('/', separator));
+}
+
+bool BoxController::Row::missed() const {
+	return _type == Type::Missed;
 }
 
 void BoxController::Row::paintStatusText(Painter &p, const style::PeerListItem &st, int x, int y, int availableWidth, int outerWidth, bool selected) {
@@ -435,6 +517,11 @@ void BoxController::Row::rightActionPaint(
 }
 
 void BoxController::Row::refreshStatus() {
+	if (_presentation == Presentation::MacNavigation) {
+		refreshName(_rowStyle);
+		setCustomStatus(navigationStatus());
+		return;
+	}
 	if (!hasItems()) {
 		return;
 	}
@@ -504,9 +591,86 @@ void BoxController::Row::rightActionStopLastRipple() {
 	}
 }
 
-BoxController::BoxController(not_null<::Window::SessionController*> window)
+BoxController::BoxController(
+	not_null<::Window::SessionController*> window,
+	Presentation presentation)
 : _window(window)
-, _api(&_window->session().mtp()) {
+, _api(&_window->session().mtp())
+, _presentation(presentation) {
+}
+
+void BoxController::setNavigationWidth(int width) {
+	_navigationWidth = width;
+}
+
+int BoxController::customRowHeight() {
+	return computeListSt().item.height;
+}
+
+void BoxController::customRowPaint(
+		Painter &p,
+		crl::time now,
+		not_null<PeerListRow*> row,
+		bool selected) {
+	const auto call = static_cast<Row*>(row.get());
+	const auto &st = computeListSt().item;
+	const auto width = _navigationWidth;
+	p.fillRect(0, 0, width, st.height,
+		selected ? st.button.textBgOver : st.button.textBg);
+	row->paintRipple(p, st, 0, 0, width);
+	row->paintUserpic(p, st,
+		st.photoPosition.x(), st.photoPosition.y(), width);
+	const auto dateFont = style::font(
+		style::ConvertScale(13), {}, st.nameStyle.font->family());
+	const auto statusFont = style::font(
+		style::ConvertScale(13), {}, st.nameStyle.font->family());
+	const auto nameY = (st.height - st.nameStyle.font->height
+		- statusFont->height - style::ConvertScale(1)) / 2;
+	const auto statusY = nameY + st.nameStyle.font->height
+		+ style::ConvertScale(1);
+	const auto date = call->navigationDate();
+	const auto dateWidth = dateFont->width(date);
+	const auto right = st.photoPosition.x();
+	const auto available = std::max(0,
+		width - st.namePosition.x() - right
+			- dateWidth - style::ConvertScale(10));
+	p.setPen(call->missed() ? st::attentionButtonFg : st.nameFg);
+	row->name().drawLeftElided(p,
+		st.namePosition.x(), nameY, available, width);
+	p.setPen(st.statusFg);
+	p.setFont(dateFont);
+	p.drawTextLeft(width - right - dateWidth,
+		(st.height - dateFont->height) / 2, width, date);
+	const auto status = call->navigationStatus();
+	const auto &icon = st::callNavigationOutgoing;
+	const auto iconY = statusY + style::ConvertScale(2);
+	icon.paint(p, st.statusPosition.x(), iconY, width);
+	const auto statusX = st.statusPosition.x()
+		+ icon.width() + style::ConvertScale(4);
+	p.setFont(statusFont);
+	p.drawTextLeft(statusX, statusY, width,
+		statusFont->elided(status, std::max(0,
+			width - right - dateWidth - style::ConvertScale(10) - statusX)));
+	const auto count = delegate()->peerListFullRowsCount();
+	if (!selected && count && delegate()->peerListRowAt(count - 1) != row) {
+		p.fillRect(st.namePosition.x(), st.height - st::lineWidth,
+			std::max(0, width - st.namePosition.x()),
+			st::lineWidth, st::shadowFg);
+	}
+}
+
+bool BoxController::customRowSelectionPoint(
+		not_null<PeerListRow*> row,
+		int x,
+		int y) {
+	return QRect(0, 0, _navigationWidth, customRowHeight()).contains(x, y);
+}
+
+Fn<QImage()> BoxController::customRowRippleMaskGenerator() {
+	return [=] {
+		return Ui::RippleAnimation::RectMask(
+			QSize(_navigationWidth, customRowHeight()));
+	};
 }
 
 Main::Session &BoxController::session() const {
@@ -535,6 +699,10 @@ void BoxController::prepare() {
 		return (media != nullptr) && (media->call() != nullptr);
 	}) | rpl::on_next([=](const Data::MessageUpdate &update) {
 		insertRow(update.item, InsertWay::Prepend);
+		if (_presentation == Presentation::MacNavigation) {
+			refreshAbout();
+			delegate()->peerListRefreshRows();
+		}
 	}, lifetime());
 
 	delegate()->peerListSetTitle(tr::lng_call_box_title());
@@ -619,6 +787,12 @@ void BoxController::refreshAbout() {
 }
 
 void BoxController::rowClicked(not_null<PeerListRow*> row) {
+	if (_presentation == Presentation::MacNavigation) {
+		if (const auto user = row->peer()->asUser()) {
+			Core::App().calls().startOutgoingCall(user, {});
+			return;
+		}
+	}
 	const auto itemsRow = static_cast<Row*>(row.get());
 	const auto itemId = itemsRow->maxItemId();
 	const auto window = _window;
@@ -727,7 +901,7 @@ BoxController::Row *BoxController::rowForItem(not_null<const HistoryItem*> item)
 
 std::unique_ptr<PeerListRow> BoxController::createRow(
 		not_null<HistoryItem*> item) const {
-	return std::make_unique<Row>(item);
+	return std::make_unique<Row>(item, _presentation, computeListSt().item);
 }
 
 void ClearCallsBox(

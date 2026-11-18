@@ -128,13 +128,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/send_as_button.h"
 #include "ui/controls/silent_toggle.h"
 #include "ui/chat/choose_send_as.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/effects/spoiler_mess.h"
 #include "ui/effects/reaction_fly_animation.h"
 #include "webrtc/webrtc_environment.h"
+#include "window/themes/window_theme_glass.h"
+#include "window/section_widget.h"
 #include "window/window_adaptive.h"
 #include "window/window_columns.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
+#include "mainwidget.h"
 #include "mainwindow.h"
 #include "styles/style_calls.h"
 #include "styles/style_chat.h"
@@ -169,6 +173,19 @@ constexpr auto kCommonModifiers = 0
 	| Qt::ShiftModifier
 	| Qt::MetaModifier
 	| Qt::ControlModifier;
+
+[[nodiscard]] const style::ComposeControls &ComposeStyle(
+		const ComposeControlsDescriptor &descriptor) {
+	const auto override = descriptor.stOverride;
+	if (Platform::IsWindows()) {
+		if (!override || override == &st::defaultComposeControls) {
+			return st::defaultComposeControlsMac;
+		} else if (override == &st::repliesComposeControls) {
+			return st::repliesComposeControlsMac;
+		}
+	}
+	return override ? *override : st::defaultComposeControls;
+}
 
 base::options::toggle MacCmdReplyImmediately({
 	.id = Controls::kOptionMacCmdReplyImmediately,
@@ -1195,9 +1212,7 @@ ComposeControls::StarEffect::StarEffect(
 ComposeControls::ComposeControls(
 	not_null<Ui::RpWidget*> parent,
 	ComposeControlsDescriptor descriptor)
-: _st(descriptor.stOverride
-	? *descriptor.stOverride
-	: st::defaultComposeControls)
+: _st(ComposeStyle(descriptor))
 , _features(descriptor.features)
 , _parent(parent)
 , _panelsParent(descriptor.panelsParent
@@ -2924,9 +2939,12 @@ void ComposeControls::init() {
 	_wrap->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
 		auto p = QPainter(_wrap.get());
-		paintBackground(p, _wrap->rect(), clip);
+		if (usesFloatingInput() && !_recording.current()) {
+			paintFloatingInput(p);
+		} else {
+			paintBackground(p, _wrap->rect(), clip);
+		}
 	}, _wrap->lifetime());
-
 
 	_header->editMsgIdValue(
 	) | rpl::on_next([=](const auto &id) {
@@ -3307,7 +3325,9 @@ void ComposeControls::initField() {
 		}
 		return false;
 	});
-	InitMessageFieldFade(_field, _st.field.textBg);
+	if (!usesFloatingInput()) {
+		InitMessageFieldFade(_field, _st.field.textBg);
+	}
 	_field->setEditLinkCallback(
 		DefaultEditLinkCallback(_show, _field, &_st.boxField));
 	_field->setEditLanguageCallback(DefaultEditLanguageCallback(_show));
@@ -4167,7 +4187,13 @@ void ComposeControls::initSendButton() {
 
 	_send->widthValue() | rpl::skip(1) | rpl::on_next([=] {
 		updateControlsGeometry(_wrap->size());
+		_wrap->update();
 	}, _send->lifetime());
+	if (usesFloatingInput()) {
+		Window::Theme::GlassStyleValue() | rpl::on_next([=] {
+			_wrap->update();
+		}, _wrap->lifetime());
+	}
 }
 
 void ComposeControls::setupSendMenu(
@@ -5005,6 +5031,7 @@ bool ComposeControls::canReplyToForward() const {
 
 void ComposeControls::updateSendButtonType() {
 	using Type = Ui::SendButton::Type;
+	const auto wasInField = sendButtonInField();
 	const auto type = showStopButton()
 		? Type::Stop
 		: computeSendButtonType();
@@ -5068,6 +5095,10 @@ void ComposeControls::updateSendButtonType() {
 			|| type == Type::Record
 			|| type == Type::Round));
 	updateSendLockBadge();
+	if (wasInField != sendButtonInField()) {
+		updateControlsGeometry(_wrap->size());
+		_wrap->update();
+	}
 }
 
 void ComposeControls::updateSendLockBadge() {
@@ -5100,6 +5131,14 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 			? (st::historyBotMenuSkip + _botMenu->width())
 			: 0)
 		- (_attachToggle ? _attachToggle->width() : 0)
+		- ((usesFloatingInput() && _attachToggle)
+			? st::historyComposeMacGap
+			: 0)
+		- (usesFloatingInput()
+			? (sendButtonInField()
+				? st::historyComposeMacSendInset + st::historyComposeMacSendGap
+				: st::historyComposeMacGap)
+			: 0)
 		- (_sendAs ? _sendAs->width() : 0)
 		- _st.padding.right()
 		- _send->width()
@@ -5124,7 +5163,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 			? (_st.starsSkip + _starsReaction->width())
 			: 0);
 	{
-		_field->resizeToWidth(fieldWidth);
+		_field->resizeToWidth(std::max(1, fieldWidth));
 		if (_richDraftPreview) {
 			[[maybe_unused]] const auto previewHeight
 				= _richDraftPreview->resizeGetHeight(
@@ -5139,7 +5178,8 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		}
 	}
 
-	const auto buttonsTop = size.height() - _st.attach.height;
+	const auto buttonsTop = size.height() - _st.attach.height
+		- (usesFloatingInput() ? _st.padding.bottom() : 0);
 
 	auto left = 0;
 	if (commentsShown) {
@@ -5158,6 +5198,9 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	if (_attachToggle) {
 		_attachToggle->moveToLeft(left, buttonsTop);
 		left += _attachToggle->width();
+		if (usesFloatingInput()) {
+			left += st::historyComposeMacGap;
+		}
 	}
 	if (_sendAs) {
 		_sendAs->moveToLeft(left, buttonsTop);
@@ -5170,7 +5213,9 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		_richDraftPreview->moveToLeft(left, fieldTop);
 	}
 	if (_fieldDisabled) {
-		_fieldDisabled->resize(size.width(), st::historySendSize.height());
+		_fieldDisabled->resize(
+			usesFloatingInput() ? std::max(1, fieldWidth) : size.width(),
+			usesFloatingInput() ? fieldHeight : st::historySendSize.height());
 		_fieldDisabled->moveToLeft(left, fieldTop);
 	}
 
@@ -5185,8 +5230,15 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		right += _starsReaction->width() + _st.starsSkip;
 	}
 	right += _st.padding.right();
+	if (sendButtonInField()) {
+		right += st::historyComposeMacSendInset;
+	}
 	_send->moveToRight(right, buttonsTop);
 	right += _send->width();
+	if (usesFloatingInput()) {
+		right += sendButtonInField()
+			? st::historyComposeMacSendGap : st::historyComposeMacGap;
+	}
 	if (_editStars) {
 		_editStars->moveToRight(right, buttonsTop);
 		right += _editStars->width();
@@ -5791,6 +5843,77 @@ void ComposeControls::updateAttachBotsMenu() {
 	}, _attachBotsMenu->lifetime());
 }
 
+bool ComposeControls::usesFloatingInput() const {
+	return !_st.send.sendFillSize.isEmpty();
+}
+
+bool ComposeControls::sendButtonInField() const {
+	using Type = Ui::SendButton::Type;
+	return usesFloatingInput()
+		&& (_send->type() == Type::Send
+			|| _send->type() == Type::Save
+			|| _send->type() == Type::Schedule);
+}
+
+void ComposeControls::paintFloatingInput(QPainter &p) {
+	const auto glass = Window::Theme::GlassStyle();
+	const auto outside = _starsReaction
+		? _starsReaction->width() + _st.starsSkip : 0;
+	const auto right = _st.padding.right() + outside
+		+ (sendButtonInField() ? 0 : _send->width() + st::historyComposeMacGap);
+	const auto logicalLeft = rtl()
+		? _wrap->width() - _field->x() - _field->width() : _field->x();
+	const auto fieldRect = QRect(
+		rtl() ? right : logicalLeft,
+		_field->y(),
+		std::max(0, _wrap->width() - logicalLeft - right),
+		composeFieldHeight());
+	const auto backdropFor = [&](QRect area) {
+		if (!glass.enabled || !_regularWindow || area.isEmpty()) {
+			return QImage();
+		}
+		const auto ratio = _wrap->devicePixelRatioF();
+		auto image = QImage(
+			area.size() * ratio,
+			QImage::Format_ARGB32_Premultiplied);
+		image.setDevicePixelRatio(ratio);
+		image.fill(Qt::transparent);
+		auto painter = QPainter(&image);
+		const auto from = _regularWindow->content()->backgroundFromY()
+			- _wrap->y();
+		painter.translate(-area.x(), from - area.y());
+		Window::SectionWidget::PaintBackground(
+			painter,
+			_regularWindow->currentChatTheme(),
+			QSize(_wrap->width(), _regularWindow->content()->height()),
+			area.translated(0, -from),
+			_regularWindow->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+		return image;
+	};
+	const auto paint = [&](QRect area) {
+		Ui::PaintLiquidGlass(
+			p,
+			area,
+			backdropFor(area),
+			_st.bg->c,
+			glass,
+			st::historyComposeMacRadius);
+	};
+	paint(fieldRect);
+	if (_attachToggle) {
+		paint(_attachToggle->geometry());
+	}
+	if (!sendButtonInField() && !_send->isHidden()) {
+		paint(_send->geometry());
+	}
+	if (_botMenu && !_botMenu->isHidden()) {
+		paint(_botMenu->geometry());
+	}
+	if (_commentsShown && !_commentsShown->isHidden()) {
+		paint(_commentsShown->geometry());
+	}
+}
+
 void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 	if (_backgroundRect) {
 		auto hq = PainterHighQualityEnabler(p);
@@ -5909,7 +6032,7 @@ void ComposeControls::toggleTabbedSelectorMode() {
 
 int ComposeControls::composeFieldHeight() const {
 	return fieldDisabledShown()
-		? (st::historySendSize.height() - 2 * st::historySendPadding)
+		? _st.field.heightMin
 		: shouldShowRichDraftPreview()
 		? _richDraftPreview->height()
 		: _field->height();

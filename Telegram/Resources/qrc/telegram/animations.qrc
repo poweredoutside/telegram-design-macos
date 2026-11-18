@@ -1,5 +1,9 @@
 <RCC>
   <qresource prefix="/animations">
+    <file alias="macos/tab_contacts.tgs">../../animations/macos/tab_contacts.tgs</file>
+    <file alias="macos/tab_calls.tgs">../../animations/macos/tab_calls.tgs</file>
+    <file alias="macos/tab_chats.tgs">../../animations/macos/tab_chats.tgs</file>
+    <file alias="macos/tab_settings.tgs">../../animations/macos/tab_settings.tgs</file>
     <file alias="blocked_peers_empty.tgs">../../animations/blocked_peers_empty.tgs</file>
     <file alias="bot_menu.tgs">../../animations/bot_menu.tgs</file>
     <file alias="change_number.tgs">../../animations/change_number.tgs</file>

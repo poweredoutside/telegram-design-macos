@@ -12,9 +12,12 @@ set(TDESKTOP_API_HASH "" CACHE STRING "Provide 'api_hash' for the Telegram API a
 if (TDESKTOP_API_TEST)
     set(TDESKTOP_API_ID 17349)
     set(TDESKTOP_API_HASH 344583e45741c457fe1862106095a5eb)
+elseif (DEFINED ENV{TDESKTOP_RELEASE_API_ID} OR DEFINED ENV{TDESKTOP_RELEASE_API_HASH})
+    set(TDESKTOP_API_ID "$ENV{TDESKTOP_RELEASE_API_ID}")
+    set(TDESKTOP_API_HASH "$ENV{TDESKTOP_RELEASE_API_HASH}")
 endif()
 
-if (TDESKTOP_API_ID STREQUAL "0" OR TDESKTOP_API_HASH STREQUAL "")
+if (TDESKTOP_API_ID STREQUAL "0" OR TDESKTOP_API_ID STREQUAL "" OR TDESKTOP_API_HASH STREQUAL "")
     message(FATAL_ERROR
     " \n"
     " PROVIDE: -D TDESKTOP_API_ID=[API_ID] -D TDESKTOP_API_HASH=[API_HASH]\n"
@@ -36,6 +39,16 @@ if (TDESKTOP_API_ID STREQUAL "0" OR TDESKTOP_API_HASH STREQUAL "")
     " > if you deploy an app using those 'api_id' and 'api_hash'.\n"
     " ")
 endif()
+
+string(LENGTH "${TDESKTOP_API_HASH}" api_hash_length)
+if (NOT TDESKTOP_API_ID MATCHES "^[1-9][0-9]*$"
+    OR TDESKTOP_API_ID GREATER 2147483647
+    OR NOT TDESKTOP_API_HASH MATCHES "^[0-9a-fA-F]+$"
+    OR NOT api_hash_length EQUAL 32)
+    message(FATAL_ERROR "Invalid Telegram application API credentials.")
+endif()
+configure_file(cmake/api_credentials.cpp.in gen/api_credentials.cpp @ONLY)
+target_sources(Telegram PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gen/api_credentials.cpp")
 
 if (DESKTOP_APP_DISABLE_AUTOUPDATE)
     target_compile_definitions(Telegram PRIVATE TDESKTOP_DISABLE_AUTOUPDATE)

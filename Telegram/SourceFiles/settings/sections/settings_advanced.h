@@ -27,6 +27,7 @@ class SessionController;
 namespace Settings {
 
 [[nodiscard]] Type AdvancedId();
+[[nodiscard]] Type DataStorageId();
 
 void SetupConnectionType(
 	not_null<Window::Controller*> controller,

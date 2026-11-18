@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/info_wrap_widget.h"
 
+#include "base/platform/base_platform_info.h"
 #include "info/profile/info_profile_widget.h"
 #include "info/profile/info_profile_values.h"
 #include "info/media/info_media_widget.h"
@@ -61,7 +62,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Info {
 namespace {
 
-const style::InfoTopBar &TopBarStyle(Wrap wrap) {
+const style::InfoTopBar &TopBarStyle(Wrap wrap, bool settings) {
+	if (Platform::IsWindows() && settings) {
+		return (wrap == Wrap::Layer)
+			? st::infoSettingsLayerTopBar
+			: st::infoSettingsTopBar;
+	}
 	return (wrap == Wrap::Layer)
 		? st::infoLayerTopBar
 		: st::infoTopBar;
@@ -448,13 +454,15 @@ void WrapWidget::setupTop() {
 
 void WrapWidget::createTopBar() {
 	const auto wrapValue = wrap();
+	const auto settings = Platform::IsWindows()
+		&& _controller->section().type() == Section::Type::Settings;
 	auto selectedItems = _topBar
 		? _topBar->takeSelectedItems()
 		: SelectedItems(Section::MediaType::kCount);
 	_topBar.create(
 		this,
 		_controller.get(),
-		TopBarStyle(wrapValue),
+		TopBarStyle(wrapValue, settings),
 		std::move(selectedItems));
 	_topBar->selectionActionRequests(
 	) | rpl::on_next([=](SelectionAction action) {
@@ -471,7 +479,7 @@ void WrapWidget::createTopBar() {
 		auto close = _topBar->addButton(
 			base::make_unique_q<Ui::IconButton>(
 				_topBar,
-				st::infoTopBarClose));
+				settings ? st::infoSettingsTopBarClose : st::infoTopBarClose));
 		close->setAccessibleName(tr::lng_sr_close_panel(tr::now));
 		close->addClickHandler([this] {
 			_controller->parentController()->closeThirdSection();
@@ -486,7 +494,7 @@ void WrapWidget::createTopBar() {
 		auto close = _topBar->addButton(
 			base::make_unique_q<Ui::IconButton>(
 				_topBar,
-				st::infoLayerTopBarClose));
+				settings ? st::infoSettingsTopBarClose : st::infoLayerTopBarClose));
 		close->setAccessibleName(tr::lng_sr_close_panel(tr::now));
 		close->addClickHandler([this] {
 			checkBeforeClose([=] {
@@ -523,7 +531,9 @@ void WrapWidget::setupTopBarMenuToggle() {
 	} else if (section.type() == Section::Type::Settings) {
 		addTopBarMenuButton();
 		if (section.settingsType() == ::Settings::MainId()) {
-			const auto &st = (wrap() == Wrap::Layer)
+			const auto &st = Platform::IsWindows()
+				? st::infoSettingsTopBarSearch
+				: (wrap() == Wrap::Layer)
 				? st::infoLayerTopBarSearch
 				: st::infoTopBarSearch;
 			const auto button = _topBar->addButton(
@@ -533,7 +543,9 @@ void WrapWidget::setupTopBarMenuToggle() {
 				_controller->showSettings(::Settings::Search::Id());
 			});
 		} else if (section.settingsType() == ::Settings::ShortcutsId()) {
-			const auto &st = (wrap() == Wrap::Layer)
+			const auto &st = Platform::IsWindows()
+				? st::infoSettingsTopBarKeysLegend
+				: (wrap() == Wrap::Layer)
 				? st::infoLayerTopBarKeysLegend
 				: st::infoTopBarKeysLegend;
 			const auto button = _topBar->addButton(
@@ -546,7 +558,9 @@ void WrapWidget::setupTopBarMenuToggle() {
 			const auto controller = _controller->parentController();
 			const auto self = controller->session().user();
 			const auto show = controller->uiShow();
-			const auto &st = (wrap() == Wrap::Layer)
+			const auto &st = Platform::IsWindows()
+				? st::infoSettingsTopBarQr
+				: (wrap() == Wrap::Layer)
 				? st::infoLayerTopBarQr
 				: st::infoTopBarQr;
 			const auto button = _topBar->addButton(
@@ -634,10 +648,14 @@ void WrapWidget::addTopBarMenuButton() {
 		return;
 	}
 
+	const auto settings = Platform::IsWindows()
+		&& _controller->section().type() == Section::Type::Settings;
 	_topBarMenuToggle.reset(_topBar->addButton(
 		base::make_unique_q<Ui::IconButton>(
 			_topBar,
-			(wrap() == Wrap::Layer
+			(settings
+				? st::infoSettingsTopBarMenu
+				: wrap() == Wrap::Layer
 				? st::infoLayerTopBarMenu
 				: st::infoTopBarMenu))));
 	_topBarMenuToggle->setAccessibleName(tr::lng_sr_profile_menu(tr::now));

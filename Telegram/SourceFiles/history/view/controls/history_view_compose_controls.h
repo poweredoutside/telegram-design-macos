@@ -419,6 +419,9 @@ private:
 	void startMediaReplace();
 	void updateOuterGeometry(QRect rect);
 	void paintBackground(QPainter &p, QRect full, QRect clip);
+	void paintFloatingInput(QPainter &p);
+	[[nodiscard]] bool usesFloatingInput() const;
+	[[nodiscard]] bool sendButtonInField() const;
 
 	[[nodiscard]] auto baseSendButtonType() const;
 	[[nodiscard]] auto computeSendButtonType() const;

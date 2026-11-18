@@ -427,8 +427,13 @@ int main(int argc, char *argv[]) {
 			&error);
 		Check(embedded.has_value(), "embedded manifest verifies");
 		Check(embedded && embedded->version >= 1, "embedded manifest version");
-		Check(embedded && embedded->channels.size() == 4,
-			"embedded manifest lists all four channels");
+		if (Core::Updates::UsesMacosDesignFeed()) {
+			Check(embedded && embedded->channels.contains("stable"),
+				"fork manifest lists the stable channel");
+		} else {
+			Check(embedded && embedded->channels.size() == 4,
+				"embedded manifest lists all four channels");
+		}
 		Check(embedded && !embedded->keys.empty(),
 			"embedded manifest has usable keys");
 	}

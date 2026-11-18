@@ -388,6 +388,7 @@ private:
 	std::vector<std::unique_ptr<Suggestions>> _hidingSuggestions;
 	object_ptr<BottomButton> _updateTelegram = { nullptr };
 	std::unique_ptr<NavigationBar> _navigation;
+	std::unique_ptr<Ui::RpWidget> _navigationList;
 	std::unique_ptr<Settings::Sidebar> _settingsSidebar;
 	object_ptr<Ui::IconButton> _compose = { nullptr };
 	object_ptr<BottomButton> _loadMoreChats = { nullptr };

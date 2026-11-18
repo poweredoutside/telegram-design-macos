@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/ui/dialogs_message_view.h"
 
+#include "base/platform/base_platform_info.h"
+#include "data/data_changes.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
@@ -17,9 +19,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/ui/dialogs_layout.h"
 #include "dialogs/ui/dialogs_topics_view.h"
 #include "ui/effects/spoiler_mess.h"
+#include "ui/style/style_core_scale.h"
 #include "ui/text/custom_emoji_helper.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
+#include "ui/userpic_view.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
 #include "ui/power_saving.h"
@@ -27,6 +31,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "lang/lang_text_entity.h"
 #include "styles/style_dialogs.h"
+
+#include <cmath>
 
 namespace {
 
@@ -123,9 +129,37 @@ struct MessageView::LoadingContext {
 	rpl::lifetime lifetime;
 };
 
+struct MessageView::SenderUserpic {
+	SenderUserpic(not_null<PeerData*> peer, Fn<void()> repaint)
+	: peer(peer)
+	, view(peer->createUserpicView()) {
+		peer->session().changes().peerUpdates(
+			peer,
+			Data::PeerUpdate::Flag::Photo
+		) | rpl::on_next([=, this] {
+			view = peer->createUserpicView();
+			loading = PeerUserpicLoading(view);
+			repaint();
+		}, lifetime);
+		peer->session().downloaderTaskFinished(
+		) | rpl::on_next([=, this] {
+			if (loading && !PeerUserpicLoading(view)) {
+				loading = false;
+				repaint();
+			}
+		}, lifetime);
+	}
+
+	not_null<PeerData*> peer;
+	PeerUserpicView view;
+	bool loading = false;
+	rpl::lifetime lifetime;
+};
+
 MessageView::MessageView()
 : _senderCache(st::dialogsTextWidthMin)
-, _textCache(st::dialogsTextWidthMin) {
+, _textCache(st::dialogsTextWidthMin)
+, _separateTextCache(st::dialogsTextWidthMin) {
 }
 
 MessageView::~MessageView() = default;
@@ -200,7 +234,20 @@ void MessageView::prepare(
 	const auto senderTill = (preview.arrowInTextPosition > 0)
 		? preview.arrowInTextPosition
 		: preview.imagesInTextPosition;
-	if ((hasImages || _leftIcon) && senderTill > 0) {
+	if (Platform::IsWindows() && senderTill > 0) {
+		auto separateText = Text::Mid(
+			preview.text,
+			std::max(senderTill, preview.imagesInTextPosition));
+		TextUtilities::Trim(separateText);
+		_separateTextCache.setMarkedText(
+			st::dialogsTextStyle,
+			DialogsPreviewText(std::move(separateText)),
+			DialogTextOptions(),
+			context);
+	} else {
+		_separateTextCache = { st::dialogsTextWidthMin };
+	}
+	if ((hasImages || _leftIcon || Platform::IsWindows()) && senderTill > 0) {
 		auto sender = Text::Mid(preview.text, 0, senderTill);
 		TextUtilities::Trim(sender);
 		_senderCache.setMarkedText(
@@ -210,6 +257,21 @@ void MessageView::prepare(
 		preview.text = Text::Mid(preview.text, senderTill);
 	} else {
 		_senderCache = { st::dialogsTextWidthMin };
+	}
+	const auto senderPeer = (Platform::IsWindows()
+		&& !_senderCache.isEmpty()
+		&& !history->peer->isUser()
+		&& !history->peer->isBroadcast()
+		&& !forum
+		&& !monoforum)
+		? item->displayFrom()
+		: nullptr;
+	if (!senderPeer || senderPeer->isSelf()) {
+		_senderUserpic = nullptr;
+	} else if (!_senderUserpic || _senderUserpic->peer != senderPeer) {
+		_senderUserpic = std::make_unique<SenderUserpic>(
+			senderPeer,
+			customEmojiRepaint);
 	}
 	TextUtilities::Trim(preview.text);
 	auto textToCache = DialogsPreviewText(std::move(preview.text));
@@ -315,7 +377,14 @@ void MessageView::prepare(
 	_textCache.setMarkedText(
 		st::dialogsTextStyle,
 		std::move(textToCache),
-		DialogTextOptions(),
+		[&] {
+			auto result = DialogTextOptions();
+			if (Platform::IsWindows()) {
+				result.flags |= TextParseMultiline;
+				result.maxh = 2 * st::dialogsTextFont->height;
+			}
+			return result;
+		}(),
 		std::move(context));
 	_textCachedFor = item;
 	_unreadMedia = item->isUnreadMedia();
@@ -457,15 +526,69 @@ void MessageView::paint(
 	}
 	const auto pausedSpoiler = context.paused
 		|| On(PowerSaving::kChatSpoiler);
+	const auto separateSender = Platform::IsWindows()
+		&& !context.search
+		&& context.st == &st::defaultDialogRow
+		&& !_senderCache.isEmpty();
 	if (!_senderCache.isEmpty()) {
+		auto senderPalette = *palette;
+		auto senderPosition = rect.topLeft()
+			+ QPoint(0, separateSender ? style::ConvertScale(1) : 0);
+		auto senderWidth = rect.width();
+		p.save();
+		if (separateSender) {
+			const auto color = context.active
+				? st::dialogsNameFgActive
+				: context.selected
+				? st::dialogsNameFgOver
+				: st::dialogsNameFg;
+			p.setPen(color);
+			senderPalette.linkFg = color;
+			if (_senderUserpic) {
+				const auto &metrics = st::dialogsTextFont->metrics();
+				const auto advance = metrics.horizontalAdvance(u"\U0001F921"_q);
+				const auto glyphWidth = int(std::ceil(advance));
+				const auto evenWidth = glyphWidth + (glyphWidth % 2);
+				const auto size = evenWidth + style::ConvertScale(4)
+					- style::ConvertScale(7);
+				const auto skip = int(std::ceil(advance
+					+ metrics.horizontalAdvance(u" "_q)));
+				const auto lineHeight = std::floor(metrics.height());
+				const auto lineSpacing = std::floor(lineHeight * 0.12);
+				const auto top = int(std::floor(lineHeight - lineSpacing * 2)
+					- std::ceil(metrics.ascent()) + style::ConvertScale(1));
+				if (size > 0 && senderWidth > skip) {
+					_senderUserpic->peer->paintUserpic(
+						p,
+						_senderUserpic->view,
+						senderPosition.x() - style::ConvertScale(1),
+						senderPosition.y() + top,
+						size,
+						true);
+					_senderUserpic->loading = PeerUserpicLoading(
+						_senderUserpic->view);
+					senderPosition.rx() += skip;
+					senderWidth -= skip;
+				}
+			}
+		}
 		_senderCache.draw(p, {
-			.position = rect.topLeft(),
-			.availableWidth = rect.width(),
-			.palette = palette,
-			.elisionHeight = rect.height(),
+			.position = senderPosition,
+			.availableWidth = senderWidth,
+			.palette = &senderPalette,
+			.elisionHeight = separateSender
+				? st::dialogsTextFont->height
+				: rect.height(),
 		});
-		rect.setLeft(rect.x() + _senderCache.maxWidth());
-		if (!_imagesCache.empty() && !_leftIcon) {
+		p.restore();
+		if (separateSender) {
+			rect.setTop(rect.top()
+				+ std::min(st::dialogsTextFont->height, style::ConvertScale(17))
+				+ style::ConvertScale(2));
+		} else {
+			rect.setLeft(rect.x() + _senderCache.maxWidth());
+		}
+		if (!separateSender && !_imagesCache.empty() && !_leftIcon) {
 			const auto skip = st::dialogsMiniPreviewSkip
 				+ st::dialogsMiniPreviewRight;
 			rect.setLeft(rect.x() + skip);
@@ -533,7 +656,8 @@ void MessageView::paint(
 	static const auto ellipsisWidth = st::dialogsTextStyle.font->width(
 		kQEllipsis);
 	if (rect.width() > ellipsisWidth) {
-		_textCache.draw(p, {
+		const auto &textCache = separateSender ? _separateTextCache : _textCache;
+		textCache.draw(p, {
 			.position = rect.topLeft(),
 			.availableWidth = rect.width(),
 			.palette = palette,

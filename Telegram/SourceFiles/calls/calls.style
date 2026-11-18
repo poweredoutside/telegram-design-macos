@@ -408,6 +408,7 @@ callBarInfoLabel: FlatLabel(defaultFlatLabel) {
 }
 callBarLabelTop: 10px;
 
+callNavigationOutgoing: icon {{ "macos/call_outgoing", menuIconFg }};
 callArrowPosition: point(-2px, 1px);
 callArrowIn: icon {{ "calls/call_arrow_in", callArrowFg }};
 callArrowOut: icon {{ "calls/call_arrow_out", callArrowFg }};

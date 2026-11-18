@@ -10,6 +10,59 @@ using "ui/widgets/widgets.style";
 using "info/info.style";
 using "boxes/boxes.style";
 
+macSettingsRowHeight: 42px;
+macSettingsHeaderHeight: 90px;
+macSettingsStatusHeight: 40px;
+macSettingsInset: 12px;
+macSettingsIconLeft: 26px;
+macSettingsIconSize: 24px;
+macSettingsTextLeft: 60px;
+macSettingsRadius: 20px;
+macSettingsFont: font(14px);
+macSettingsVersionFont: font(13px);
+macSettingsAddAccount: icon {{ "macos/add_account", windowBgActive }};
+macSettingsNext: icon {{ "macos/next", windowSubTextFg }};
+macSettingsEdit: LinkButton(defaultLinkButton) {
+	font: font(14px semibold);
+}
+macSettingsQr: IconButton(defaultIconButton) {
+	width: 30px;
+	height: 30px;
+	icon: icon {{ "macos/qr", windowBgActive }};
+	iconOver: icon {{ "macos/qr", windowBgActive }};
+	iconPosition: point(-1px, -1px);
+}
+macSettingsSearch: InputField(defaultInputField) {
+	textBg: windowBg;
+	textBgActive: windowBg;
+	borderRadius: 15px;
+	textMargins: margins(30px, 6px, 10px, 6px);
+	border: 1px;
+	borderActive: 1px;
+	borderFg: shadowFg;
+	borderFgActive: shadowFg;
+	placeholderScale: 0.;
+	placeholderShift: 0px;
+	placeholderFont: font(13px);
+	placeholderMargins: margins(0px, 0px, 0px, 0px);
+	heightMin: 30px;
+	style: defaultTextStyle;
+}
+macSettingsSearchIcon: IconButton(defaultIconButton) {
+	width: 30px;
+	height: 30px;
+	icon: icon {{ "macos/search", windowSubTextFg }};
+	iconOver: icon {{ "macos/search", windowSubTextFg }};
+	iconPosition: point(-1px, -1px);
+}
+macSettingsProfileHeight: 90px;
+macSettingsProfileTextLeft: 97px;
+macSettingsProfilePhotoLeft: 28px;
+macSettingsProfilePhoto: UserpicButton(defaultUserpicButton) {
+	size: size(60px, 60px);
+	photoSize: 60px;
+}
+
 settingsButton: SettingsButton(infoProfileButton) {
 	style: boxTextStyle;
 	padding: margins(60px, 12px, 22px, 12px);
@@ -48,6 +101,74 @@ settingsAttentionButton: SettingsButton(settingsButtonNoIcon) {
 settingsAttentionButtonWithIcon: SettingsButton(settingsButton) {
 	textFg: attentionButtonFg;
 	textFgOver: attentionButtonFgOver;
+}
+macSettingsPageInset: 20px;
+macSettingsPageHeader: FlatLabel(defaultFlatLabel) {
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(12px);
+	}
+}
+macSettingsPageRightLabel: FlatLabel(defaultSettingsRightLabel) {
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(14px);
+	}
+}
+macSettingsPageButton: SettingsButton(settingsButton) {
+	height: 18px;
+	padding: margins(48px, 12px, 14px, 12px);
+	iconLeft: 14px;
+	toggleSkip: 14px;
+	style: TextStyle(defaultTextStyle) {
+		font: font(14px);
+	}
+	rightLabel: macSettingsPageRightLabel;
+}
+macSettingsPageButtonNoIcon: SettingsButton(macSettingsPageButton) {
+	padding: margins(14px, 12px, 14px, 12px);
+}
+macSettingsPageButtonLight: SettingsButton(macSettingsPageButton) {
+	textFg: lightButtonFg;
+	textFgOver: lightButtonFgOver;
+}
+macSettingsPageButtonLightNoIcon: SettingsButton(macSettingsPageButtonLight, macSettingsPageButtonNoIcon) {
+}
+macSettingsPageButtonActive: SettingsButton(macSettingsPageButtonLight) {
+}
+macSettingsPageAttentionButton: SettingsButton(macSettingsPageButtonNoIcon) {
+	textFg: attentionButtonFg;
+	textFgOver: attentionButtonFgOver;
+}
+macSettingsPageAttentionButtonWithIcon: SettingsButton(macSettingsPageButton) {
+	textFg: attentionButtonFg;
+	textFgOver: attentionButtonFgOver;
+}
+macSettingsPageButtonRightLabelSpoiler: SettingsButton(macSettingsPageButton) {
+	rightLabel: FlatLabel(macSettingsPageRightLabel) {
+		palette: TextPalette(defaultTextPalette) {
+			spoilerFg: windowActiveTextFg;
+		}
+	}
+}
+macSettingsPageButtonNoIconLocked: SettingsButton(macSettingsPageButtonNoIcon) {
+	toggle: Toggle(infoProfileToggle) {
+		lockIcon: icon {{ "info/info_rights_lock", menuIconFg }};
+	}
+	toggleOver: Toggle(infoProfileToggleOver) {
+		lockIcon: icon {{ "info/info_rights_lock", menuIconFgOver }};
+	}
+}
+macSettingsPageButtonDisabled: SettingsButton(macSettingsPageButton) {
+	textFg: windowSubTextFg;
+	textFgOver: windowSubTextFg;
+}
+macSettingsPageOptionDisabled: SettingsButton(macSettingsPageButtonNoIcon) {
+	textFg: windowSubTextFg;
+	textFgOver: windowSubTextFg;
+	textBg: windowBg;
+	textBgOver: windowBg;
+	toggleOver: infoProfileToggle;
 }
 settingsFaqKeysLegendIcon: icon {{ "menu/keyboard", menuIconColor }};
 settingsFaqKeysLegendIconOver: icon {{ "menu/keyboard", windowBoldFgOver }};

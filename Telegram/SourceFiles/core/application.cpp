@@ -109,10 +109,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QStandardPaths>
 #include <QtCore/QMimeDatabase>
+#include <QtGui/QFontDatabase>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QScreen>
 
 #include <ksandbox.h>
+
+#ifdef Q_OS_WIN
+#include "platform/win/bundled_tg_ws_proxy.h"
+
+#include <QtCore/QTimer>
+#endif
 
 namespace Core {
 namespace {
@@ -161,6 +168,9 @@ struct Application::Private {
 	UiIntegration uiIntegration;
 	Settings settings;
 	std::unique_ptr<ProxyRotationManager> proxyRotation;
+#ifdef Q_OS_WIN
+	Platform::BundledTgWsProxy bundledProxy;
+#endif
 };
 
 Application::Application()
@@ -319,7 +329,9 @@ void Application::run() {
 
 	const auto customFont = settings().customFontFamily();
 	style::SetCustomFont((Platform::IsWindows() && customFont.isEmpty())
-		? u"Segoe UI"_q
+		? (QFontDatabase::families().contains(u"SF Pro Text"_q)
+			? u"SF Pro Text"_q
+			: u"Segoe UI"_q)
 		: customFont);
 	style::internal::StartFonts();
 
@@ -328,6 +340,12 @@ void Application::run() {
 	ValidateScale();
 
 	refreshGlobalProxy(); // Depends on app settings being read.
+
+#ifdef Q_OS_WIN
+	QTimer::singleShot(1500, this, [=] {
+		_private->bundledProxy.start();
+	});
+#endif
 
 	if (const auto old = Local::oldSettingsVersion(); old < AppVersion) {
 		autoRegisterUrlScheme();

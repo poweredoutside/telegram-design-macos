@@ -10,11 +10,23 @@ namespace Ui {
 
 struct LiquidGlassStyle {
 	bool enabled = true;
-	int opacity = 72;
-	int blur = 18;
+	int opacity = 15;
+	int blur = 32;
 	int refraction = 35;
 
 	friend bool operator==(const LiquidGlassStyle&, const LiquidGlassStyle&) = default;
+};
+
+class LiquidGlassBackdropCache {
+public:
+	[[nodiscard]] QImage prepare(const QImage &image, QSize size, int blur);
+
+private:
+	QImage _source;
+	QImage _filtered;
+	QSize _size;
+	int _blur = 0;
+
 };
 
 void PaintLiquidGlass(
@@ -23,6 +35,7 @@ void PaintLiquidGlass(
 	const QImage &backdrop,
 	QColor tint,
 	const LiquidGlassStyle &style,
-	int radius);
+	int radius,
+	LiquidGlassBackdropCache *cache = nullptr);
 
 } // namespace Ui

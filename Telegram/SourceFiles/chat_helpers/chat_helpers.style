@@ -188,6 +188,7 @@ EmojiButton {
 SendButton {
 	sendIconPosition: point;
 	sendIconFillPadding: pixels;
+	sendFillSize: size;
 	inner: IconButton;
 	stars: RoundButton;
 	recordSize: size;
@@ -1327,6 +1328,20 @@ historyComposeField: InputField(defaultInputField) {
 	duration: 100;
 }
 historyComposeFieldMaxHeight: 224px;
+historyComposeFieldMac: InputField(historyComposeField) {
+	textMargins: margins(12px, 10px, 12px, 10px);
+	heightMin: 40px;
+	borderRadius: 20px;
+	textBg: transparent;
+	textBgActive: transparent;
+	borderFg: transparent;
+	borderFgActive: transparent;
+}
+historyComposeMacInset: 12px;
+historyComposeMacGap: 10px;
+historyComposeMacRadius: 20px;
+historyComposeMacSendInset: 4px;
+historyComposeMacSendGap: 6px;
 historyComposeFieldFadeHeight: 6px;
 historySendRight: 2px;
 historySendPadding: 9px;
@@ -1357,9 +1372,12 @@ historyMessagesTTL: IconButtonWithText {
 	font: font(10px semibold);
 }
 historyAttachMac: IconButton(historyAttach) {
+	width: 40px;
+	height: 40px;
 	icon: icon {{ "macos/attach", historyComposeIconFg }};
 	iconOver: icon {{ "macos/attach", historyComposeIconFgOver }};
-	iconPosition: point(7px, 8px);
+	iconPosition: point(5px, 5px);
+	rippleAreaPosition: point(0px, 0px);
 }
 historyReplaceMedia: IconButton(historyAttach) {
 	icon: icon {{ "chat/input_replace", windowBgActive }};
@@ -1422,6 +1440,15 @@ historyAttachEmoji: EmojiButton {
 	bg: historyComposeAreaBg;
 	lineFg: historyEmojiCircleFg;
 	lineFgOver: historyEmojiCircleFgOver;
+}
+historyAttachEmojiMac: EmojiButton(historyAttachEmoji) {
+	bg: transparent;
+	inner: IconButton(historyAttachEmojiInner) {
+		width: 40px;
+		height: 40px;
+		iconPosition: point(-1px, -1px);
+		rippleAreaPosition: point(0px, 0px);
+	}
 }
 boxAttachEmoji: EmojiButton(historyAttachEmoji) {
 	bg: transparent;
@@ -1552,11 +1579,17 @@ historyAiComposeButton: IconButton(historyAttach) {
 	rippleAreaPosition: point(0px, 0px);
 }
 historySendMac: SendButton(historySend) {
-	inner: IconButton(historyAttach) {
-		icon: icon {{ "macos/send", historySendIconFg }};
-		iconOver: icon {{ "macos/send", historySendIconFgOver }};
+	inner: IconButton(historyAttachMac) {
+		icon: icon {{ "macos/send", activeButtonFg }};
+		iconOver: icon {{ "macos/send", activeButtonFg }};
 	}
-	sendIconPosition: point(10px, 11px);
+	sendFillSize: size(40px, 32px);
+	sendIconPosition: point(8px, 8px);
+	stars: RoundButton(defaultActiveButton) {
+		height: 32px;
+		padding: margins(8px, 0px, 8px, 0px);
+		style: semiboldTextStyle;
+	}
 }
 historyAiComposeButtonLetters: icon{{ "chat/ai_letters-20x20", historyComposeIconFg }};
 historyAiComposeButtonStar1: icon{{ "chat/ai_star1-20x20", historyComposeIconFg }};
@@ -1684,6 +1717,15 @@ defaultComposeControls: ComposeControls {
 	boxField: defaultInputField;
 	restrictionLabel: defaultRestrictionLabel;
 	chooseSendAs: defaultChooseSendAs;
+}
+
+defaultComposeControlsMac: ComposeControls(defaultComposeControls) {
+	padding: margins(12px, 0px, 12px, 12px);
+	fieldLeft: 12px;
+	field: historyComposeFieldMac;
+	send: historySendMac;
+	attach: historyAttachMac;
+	emoji: historyAttachEmojiMac;
 }
 
 moreChatsBarHeight: 48px;

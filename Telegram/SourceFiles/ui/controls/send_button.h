@@ -85,6 +85,7 @@ private:
 
 	[[nodiscard]] RippleShape currentRippleShape() const;
 	[[nodiscard]] QRect sendEllipseRect() const;
+	[[nodiscard]] QRect sendFillRect() const;
 	[[nodiscard]] QRect scheduleEllipseRect() const;
 
 	void paintRecord(QPainter &p, bool over);

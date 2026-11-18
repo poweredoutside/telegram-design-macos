@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_instance.h"
 
 #include "core/application.h"
+#include "core/version.h"
 #include "storage/serialize_common.h"
 #include "storage/localstorage.h"
 #include "ui/boxes/confirm_box.h"
@@ -730,8 +731,11 @@ QString Instance::getNonDefaultValue(const QByteArray &key) const {
 }
 
 void Instance::applyValue(const QByteArray &key, const QByteArray &value) {
-	_nonDefaultValues[key] = value;
-	ParseKeyValue(key, value, [&](ushort key, QString &&value) {
+	auto branded = value;
+	branded.replace("official Telegram Desktop app", AppName.data());
+	branded.replace("Telegram Desktop", AppName.data());
+	_nonDefaultValues[key] = branded;
+	ParseKeyValue(key, branded, [&](ushort key, QString &&value) {
 		_nonDefaultSet[key] = 1;
 		if (!_derived) {
 			_values[key] = std::move(value);

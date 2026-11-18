@@ -1,5 +1,15 @@
 <RCC>
   <qresource prefix="/gui">
+    <file alias="icons/macos/native-Icon_Premium_Settings.png">../../icons/macos/native-Icon_Premium_Settings.png</file>
+    <file alias="icons/macos/native-Icon_SettingsAskQuestion.png">../../icons/macos/native-Icon_SettingsAskQuestion.png</file>
+    <file alias="icons/macos/native-Icon_SettingsFaq.png">../../icons/macos/native-Icon_SettingsFaq.png</file>
+    <file alias="icons/macos/native-Icon_Settings_Stars.png">../../icons/macos/native-Icon_Settings_Stars.png</file>
+    <file alias="icons/macos/native-Icon_Settings_GiftPremium.png">../../icons/macos/native-Icon_Settings_GiftPremium.png</file>
+    <file alias="icons/macos/native-Icon_SettingsBusiness.png">../../icons/macos/native-Icon_SettingsBusiness.png</file>
+    <file alias="icons/macos/native-Icon_SettingsStories.png">../../icons/macos/native-Icon_SettingsStories.png</file>
+    <file alias="icons/macos/native-Icon_SettingsStickers.png">../../icons/macos/native-Icon_SettingsStickers.png</file>
+    <file alias="icons/macos/native-Icon_SettingsLanguage.png">../../icons/macos/native-Icon_SettingsLanguage.png</file>
+    <file alias="icons/macos/native-Icon_PrivacySettings_ActiveSessions.png">../../icons/macos/native-Icon_PrivacySettings_ActiveSessions.png</file>
     <file alias="icons/macos/native-Icon_SettingsGeneral.png">../../icons/macos/native-Icon_SettingsGeneral.png</file>
     <file alias="icons/macos/native-Icon_SettingsStorage.png">../../icons/macos/native-Icon_SettingsStorage.png</file>
     <file alias="icons/macos/native-Icon_SettingsFilters.png">../../icons/macos/native-Icon_SettingsFilters.png</file>

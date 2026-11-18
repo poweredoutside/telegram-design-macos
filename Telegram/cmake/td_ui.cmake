@@ -472,6 +472,7 @@ PRIVATE
     ui/chat/chat_style_radius.h
     ui/chat/chat_theme.cpp
     ui/chat/chat_theme.h
+    ui/chat/chat_theme_macos.h
     ui/chat/chat_theme_readability.cpp
     ui/chat/chat_theme_readability.h
     ui/chat/chats_filter_tag.cpp

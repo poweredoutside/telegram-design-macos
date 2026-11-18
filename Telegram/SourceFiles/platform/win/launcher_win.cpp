@@ -153,7 +153,7 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 	const auto binaryPath = (action == UpdaterLaunch::JustRelaunch)
 		? (cExeDir() + cExeName())
 		: (cWriteProtected()
-			? (cWorkingDir() + u"tupdates/temp/Updater.exe"_q)
+			? (Core::UpdateStagingPath() + u"/Updater.exe"_q)
 			: (cExeDir() + u"Updater.exe"_q));
 
 	auto argumentsList = QStringList();

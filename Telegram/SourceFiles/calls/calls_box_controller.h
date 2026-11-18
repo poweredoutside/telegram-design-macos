@@ -40,7 +40,27 @@ private:
 
 class BoxController : public PeerListController {
 public:
-	explicit BoxController(not_null<::Window::SessionController*> window);
+	enum class Presentation {
+		Standard,
+		MacNavigation,
+	};
+
+	explicit BoxController(
+		not_null<::Window::SessionController*> window,
+		Presentation presentation = Presentation::Standard);
+
+	void setNavigationWidth(int width);
+	int customRowHeight() override;
+	void customRowPaint(
+		Painter &p,
+		crl::time now,
+		not_null<PeerListRow*> row,
+		bool selected) override;
+	bool customRowSelectionPoint(
+		not_null<PeerListRow*> row,
+		int x,
+		int y) override;
+	Fn<QImage()> customRowRippleMaskGenerator() override;
 
 	Main::Session &session() const override;
 	void prepare() override;
@@ -70,6 +90,8 @@ private:
 
 	const not_null<::Window::SessionController*> _window;
 	MTP::Sender _api;
+	const Presentation _presentation;
+	int _navigationWidth = 0;
 
 	MsgId _offsetId = 0;
 	int _loadRequestId = 0; // Not a real mtpRequestId.

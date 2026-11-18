@@ -212,7 +212,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 
 ### dialogs — chats list
 - Paths: `SourceFiles/dialogs/`
-- The chats column with search (tags, posts, communities), the list painting chats, topics and results, row painters, the stories strip, search suggestions and top peers, swipe actions and top-bar promo suggestions. It also holds the chat-list base classes (`Dialogs::Entry`, `MainList`, `Row`) that `data/` builds on, which change with this UI more than with data.
+- The chats column with search (tags, posts, communities), the list painting chats, topics and results, row painters, the stories strip, search suggestions and top peers, swipe actions and top-bar promo suggestions. The Windows bottom navigation and its embedded contact and call lists reuse the existing feature controllers; those controllers retain data loading and actions. It also holds the chat-list base classes (`Dialogs::Entry`, `MainList`, `Row`) that `data/` builds on, which change with this UI more than with data.
 
 ### folders — chat folders UI
 - Paths: `SourceFiles/boxes/filters/`, `SourceFiles/boxes/choose_filter_box*`, `SourceFiles/api/api_chat_filters*`, `SourceFiles/ui/filter_icon_panel*`, `SourceFiles/ui/controls/filter_link_header*`, `SourceFiles/ui/widgets/chat_filters_tabs_*`

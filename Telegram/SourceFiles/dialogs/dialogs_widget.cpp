@@ -10,7 +10,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/call_delayed.h"
 #include "base/platform/base_platform_info.h"
 #include "boxes/contacts_box.h"
-#include "calls/calls_box_controller.h"
 #include "settings/sections/settings_sidebar.h"
 #include "settings/sections/settings_information.h"
 #include "base/qt/qt_key_modifiers.h"
@@ -18,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/ui/chat_search_in.h"
 #include "dialogs/ui/dialogs_bottom_button.h"
 #include "dialogs/ui/dialogs_navigation.h"
+#include "dialogs/ui/dialogs_navigation_list.h"
 #include "dialogs/ui/dialogs_stories_content.h"
 #include "dialogs/ui/dialogs_stories_list.h"
 #include "dialogs/ui/dialogs_suggestions.h"
@@ -44,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/fields/input_field.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/padding_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/chat/requests_bar.h"
@@ -236,7 +237,9 @@ Widget::Widget(
 	.under = object_ptr<MenuUnderButton>(_searchControls),
 })
 , _searchForNarrowLayout(_searchControls, st::dialogsSearchForNarrowFilters)
-, _search(_searchControls, st::dialogsFilter, tr::lng_dlg_filter())
+, _search(_searchControls,
+	Platform::IsWindows() ? st::dialogsFilterMac : st::dialogsFilter,
+	tr::lng_dlg_filter())
 , _chooseFromUser(
 	_searchControls,
 	object_ptr<Ui::IconButton>(this, st::dialogsSearchFrom))
@@ -277,7 +280,23 @@ Widget::Widget(
 			_childListShown.value(),
 			makeChildListShown)));
 	if (Platform::IsWindows() && _layout == Layout::Main) {
-		Ui::AddSkip(_innerList, st::dialogsNavigationHeight);
+		const auto spacer = _innerList->add(Ui::CreateSkipWidget(
+			_innerList,
+			st::dialogsNavigationHeight));
+		spacer->setAttribute(Qt::WA_OpaquePaintEvent);
+		spacer->paintRequest() | rpl::on_next([=](QRect rect) {
+			auto painter = QPainter(spacer);
+			painter.fillRect(rect, anim::brush(
+				st::dialogsBg,
+				st::dialogsBgOver,
+				_childListShown.current()));
+		}, spacer->lifetime());
+		style::PaletteChanged() | rpl::on_next([=] {
+			spacer->update();
+		}, spacer->lifetime());
+		_childListShown.changes() | rpl::on_next([=] {
+			spacer->update();
+		}, spacer->lifetime());
 	}
 	controller->activeChatsFilter(
 	) | rpl::on_next([=](FilterId id) {
@@ -531,12 +550,23 @@ Widget::Widget(
 				NavigationAction action) {
 			switch (action) {
 			case NavigationAction::Contacts:
-				controller->show(PrepareContactsBox(controller));
-				break;
 			case NavigationAction::Calls:
-				::Calls::ShowCallsBox(controller);
+				if (_settingsSidebar) {
+					_settingsSidebar->hide();
+				}
+				controller->window().hideSettingsAndLayer();
+				controller->clearSectionStack();
+				_navigationList = CreateNavigationList(this, controller, action,
+					[=] { _navigation->update(); });
+				_navigationList->setGeometry(0, 0, width(), height());
+				_navigationList->show();
+				_navigationList->raise();
+				_navigationList->setFocus();
+				_navigation->raise();
+				_navigation->setActive(action);
 				break;
 			case NavigationAction::Chats:
+				_navigationList.reset();
 				if (_settingsSidebar) {
 					_settingsSidebar->hide();
 				}
@@ -548,9 +578,11 @@ Widget::Widget(
 				setInnerFocus();
 				break;
 			case NavigationAction::Settings:
+				_navigationList.reset();
 				if (!_settingsSidebar) {
 					_settingsSidebar = std::make_unique<Settings::Sidebar>(
-						this, controller, [=] { showMainMenu(); });
+						this, controller, [=] { showMainMenu(); },
+						[=] { _navigation->update(); });
 				}
 				{
 					auto params = Window::SectionShow(
@@ -558,25 +590,32 @@ Widget::Widget(
 					params.forbidLayer = true;
 					controller->showSettings(_settingsSidebar->selected(), params);
 				}
-				_settingsSidebar->setGeometry(0, 0, width(),
-					height() - _navigation->height());
+				_settingsSidebar->setGeometry(0, 0, width(), height());
 				_settingsSidebar->show();
 				_settingsSidebar->raise();
+				_navigation->raise();
 				_navigation->setActive(NavigationAction::Settings);
 				break;
 			}
-		}, [=] {
-			if (_settingsSidebar && !_settingsSidebar->isHidden()) {
-				return Ui::GrabWidgetToImage(_settingsSidebar.get(), QRect(0,
-					std::max(0, _settingsSidebar->height() - _navigation->height()),
-					_navigation->width(), _navigation->height()));
+		}, [=](QRect area) {
+			auto source = static_cast<QWidget*>(_scroll.get());
+			if (_navigationList) {
+				source = _navigationList.get();
+			} else if (_settingsSidebar && !_settingsSidebar->isHidden()) {
+				source = _settingsSidebar.get();
+			} else if (_scroll->isHidden()) {
+				return QImage();
 			}
-			const auto area = QRect(
-				_scroll->mapFrom(this, _navigation->pos()),
-				_navigation->size());
-			return Ui::GrabWidgetToImage(_scroll, area);
+			area.moveTopLeft(source->mapFrom(
+				this, _navigation->pos() + area.topLeft()));
+			return Ui::GrabWidgetToImage(source, area);
 		}, [=] { showMainMenu(); });
 		_navigation->show();
+		rpl::single(rpl::empty) | rpl::then(
+			session().data().unreadBadgeChanges()
+		) | rpl::on_next([=] {
+			_navigation->setUnreadCount(session().data().unreadBadge());
+		}, lifetime());
 		_compose.create(_searchControls, st::macCompose);
 		_compose->setAccessibleName(tr::lng_no_conversations_button(tr::now));
 		_compose->setClickedCallback([=] {
@@ -586,7 +625,9 @@ Widget::Widget(
 		controller->mainSectionShownChanges() | rpl::on_next([=](bool shown) {
 			if (!shown) {
 				Ui::PostponeCall(this, [=] {
-					if (!controller->mainSectionShown() && _settingsSidebar) {
+					if (!controller->mainSectionShown()
+						&& _settingsSidebar
+						&& !_settingsSidebar->isHidden()) {
 						_settingsSidebar->hide();
 						_navigation->setActive(NavigationAction::Chats);
 					}
@@ -600,6 +641,10 @@ Widget::Widget(
 			}
 		}, lifetime());
 		controller->activeChatsFilter() | rpl::skip(1) | rpl::on_next([=] {
+			if (_navigationList) {
+				_navigationList.reset();
+				_navigation->setActive(NavigationAction::Chats);
+			}
 			if (_settingsSidebar && !_settingsSidebar->isHidden()) {
 				_settingsSidebar->hide();
 				_navigation->setActive(NavigationAction::Chats);
@@ -4563,13 +4608,22 @@ void Widget::updateControlsGeometry() {
 		: (st::dialogsFilterPadding.x()
 			+ (Platform::IsWindows() ? 0 : _mainMenu.toggle->width())))
 		+ st::dialogsFilterPadding.x();
-	const auto filterRight = st::dialogsFilterSkip
+	const auto macHeader = Platform::IsWindows()
+		&& _layout == Layout::Main
+		&& !_subsectionTopBar;
+	if (macHeader) {
+		filterLeft = st::dialogsMacSearchInset;
+	}
+	const auto filterRight = macHeader
+		? st::dialogsMacSearchInset
+		: st::dialogsFilterSkip
 		+ st::dialogsFilterPadding.x()
 		+ (_compose ? _compose->width() : 0);
 	const auto filterWidth = std::max(ratiow, smallw)
 		- filterLeft
 		- filterRight;
-	const auto filterAreaHeight = st::topBarHeight;
+	const auto filterAreaHeight = macHeader
+		? st::dialogsMacHeaderHeight : st::topBarHeight;
 	_searchControls->setGeometry(0, filterAreaTop, ratiow, filterAreaHeight);
 	if (_subsectionTopBar) {
 		_subsectionTopBar->setGeometryWithNarrowRatio(
@@ -4578,7 +4632,9 @@ void Widget::updateControlsGeometry() {
 			narrowRatio);
 	}
 
-	auto filterTop = (filterAreaHeight - _search->height()) / 2;
+	auto filterTop = macHeader
+		? st::dialogsMacStatusHeight
+		: (filterAreaHeight - _search->height()) / 2;
 	filterLeft = anim::interpolate(filterLeft, _narrowWidth, narrowRatio);
 	_search->setGeometryToLeft(
 		filterLeft,
@@ -4587,7 +4643,9 @@ void Widget::updateControlsGeometry() {
 		_search->height());
 	if (_compose) {
 		_compose->setVisible(ratiow >= st::columnMinimalWidthLeft);
-		_compose->moveToRight(4, (filterAreaHeight - _compose->height()) / 2);
+		_compose->moveToRight(st::dialogsMacComposeInset,
+			((macHeader ? st::dialogsMacStatusHeight : filterAreaHeight)
+				- _compose->height()) / 2);
 	}
 
 	auto mainMenuLeft = anim::interpolate(
@@ -4667,9 +4725,11 @@ void Widget::updateControlsGeometry() {
 			&& barw >= st::columnMinimalWidthLeft);
 	}
 	putBottomButton(_navigation);
+	if (_navigationList) {
+		_navigationList->setGeometry(0, 0, barw, height());
+	}
 	if (_settingsSidebar) {
-		_settingsSidebar->setGeometry(0, 0, barw,
-			height() - _navigation->height());
+		_settingsSidebar->setGeometry(0, 0, barw, height());
 	}
 	putBottomButton(_updateTelegram);
 	putBottomButton(_downloadBar);
@@ -4939,8 +4999,22 @@ void Widget::paintEvent(QPaintEvent *e) {
 	if (above.intersects(r)) {
 		p.fillRect(above.intersected(r), bg);
 	}
+	if (Platform::IsWindows()
+		&& _layout == Layout::Main
+		&& !_subsectionTopBar
+		&& !_searchControls->isHidden()
+		&& width() >= st::columnMinimalWidthLeft) {
+		p.setFont(st::dialogsNameFont);
+		p.setPen(st::windowFg);
+		const auto title = _openedFolder
+			? tr::lng_archived_name(tr::now) : tr::lng_recent_chats(tr::now);
+		const auto inset = st::dialogsMacComposeInset + st::macCompose.width;
+		const auto available = std::max(0, width() - 2 * inset);
+		p.drawText(QRect(inset, 0, available, st::dialogsMacStatusHeight),
+			Qt::AlignCenter, st::dialogsNameFont->elided(title, available));
+	}
 
-	auto belowTop = _scroll->y() + _scroll->height();
+	auto belowTop = _scroll->y() + (_scroll->isHidden() ? 0 : _scroll->height());
 	if (!_widthAnimationCache.isNull()) {
 		const auto suggestionsShown = _suggestions
 			? _suggestions->shownOpacity()

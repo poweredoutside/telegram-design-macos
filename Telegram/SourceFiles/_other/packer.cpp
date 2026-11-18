@@ -8,6 +8,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "packer.h"
 
 #include "core/update_verify.h"
+#ifdef PACKER_DISABLE_PRIVATE
+#include "telega_version.h"
+#endif
 
 #include <QtCore/QDateTime>
 
@@ -570,7 +573,11 @@ int main(int argc, char *argv[])
 	QString workDir;
 
 	QString remove;
+#ifdef PACKER_DISABLE_PRIVATE
+	int version = TELEGA_UPDATE_VERSION;
+#else
 	int version = 0;
+#endif
 	[[maybe_unused]] bool targetwin64 = false;
 	[[maybe_unused]] bool targetwinarm = false;
 	[[maybe_unused]] bool targetarmac = false;

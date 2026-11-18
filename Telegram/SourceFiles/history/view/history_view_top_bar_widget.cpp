@@ -126,7 +126,7 @@ TopBarWidget::TopBarWidget(
 , _delete(this, tr::lng_selected_delete(), st::defaultActiveButton)
 , _back(this, st::historyTopBarBack)
 , _cancelChoose(this, st::topBarCloseChoose)
-, _call(this, st::topBarCall)
+, _call(this, Platform::IsWindows() ? st::topBarCallMac : st::topBarCall)
 , _groupCall(this, st::topBarGroupCall)
 , _search(this, Platform::IsWindows() ? st::topBarSearchMac : st::topBarSearch)
 , _infoToggle(this, st::topBarInfo)

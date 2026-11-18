@@ -375,6 +375,64 @@ infoLayerTopBar: InfoTopBar(infoTopBar) {
 
 infoLayerTopBarMenuPosition: point(48px, 37px);
 
+infoSettingsTopBarBack: IconButton(infoTopBarBack) {
+	width: 50px;
+	height: 50px;
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBarClose: IconButton(infoTopBarClose) {
+	width: 50px;
+	height: 50px;
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBarSearch: IconButton(infoTopBarSearch) {
+	width: 50px;
+	height: 50px;
+	icon: icon {{ "macos/search", windowBgActive }};
+	iconOver: icon {{ "macos/search", windowBgActive }};
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBarEdit: IconButton(infoTopBarEdit) {
+	width: 50px;
+	height: 50px;
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBarQr: IconButton(infoTopBarQr) {
+	width: 50px;
+	height: 50px;
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBarKeysLegend: IconButton(infoTopBarKeysLegend) {
+	width: 50px;
+	height: 50px;
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBarMenu: IconButton(infoTopBarMenu) {
+	width: 50px;
+	height: 50px;
+	iconPosition: point(-1px, -1px);
+	rippleAreaPosition: point(4px, 4px);
+}
+infoSettingsTopBar: InfoTopBar(infoTopBar) {
+	height: 50px;
+	back: infoSettingsTopBarBack;
+	title: FlatLabel(infoTopBarTitle) {
+		align: align(center);
+	}
+	titlePosition: point(24px, 16px);
+	search: infoSettingsTopBarSearch;
+}
+infoSettingsLayerTopBar: InfoTopBar(infoSettingsTopBar) {
+	bg: boxBg;
+	radius: boxRadius;
+}
+
 
 infoProfileTopBarHeightMax: 180px + infoLayerTopBarHeight;
 
@@ -916,11 +974,11 @@ editPeerUsernameFieldMargins: margins(22px, 0px, 22px, 0px);
 historyTopBarBack: IconButton(infoTopBarBack) {
 	width: 52px;
 }
-topBarHeight: 54px;
+topBarHeight: 64px;
 topBarMenuPosition: point(-6px, 45px);
 topBarMenuGroupCallSkip: 20px;
 topBarBack: icon {{ "title_back", lightButtonFg }};
-topBarArrowPadding: margins(39px, 8px, 17px, 8px);
+topBarArrowPadding: margins(39px, 14px, 17px, 14px);
 topBarNameRightPadding: 3px;
 topBarClearButton: RoundButton(defaultLightButton) {
 	width: -18px;
@@ -960,14 +1018,19 @@ topBarCall: IconButton(topBarSearch) {
 	iconOver: icon {{ "top_bar_call", menuIconFgOver }};
 }
 topBarSearchMac: IconButton(topBarSearch) {
-	icon: icon {{ "macos/search", menuIconFg }};
-	iconOver: icon {{ "macos/search", menuIconFgOver }};
-	iconPosition: point(5px, 12px);
+	icon: icon {{ "macos/search", windowBgActive }};
+	iconOver: icon {{ "macos/search", windowBgActive }};
+	iconPosition: point(-1px, -1px);
+}
+topBarCallMac: IconButton(topBarCall) {
+	icon: icon {{ "macos/call", windowBgActive }};
+	iconOver: icon {{ "macos/call", windowBgActive }};
+	iconPosition: point(-1px, -1px);
 }
 topBarMenuMac: IconButton(topBarMenuToggle) {
 	icon: icon {{ "macos/more", menuIconFg }};
 	iconOver: icon {{ "macos/more", menuIconFgOver }};
-	iconPosition: point(7px, 12px);
+	iconPosition: point(-1px, -1px);
 }
 topBarGroupCall: IconButton(topBarSearch) {
 	icon: icon {{ "top_bar_group_call", menuIconFg }};
@@ -983,7 +1046,7 @@ topBarActionSkip: 10px;
 topBarActionButtonLargeRadius: 8px;
 
 topBarInfoButtonSize: size(52px, topBarHeight);
-topBarInfoButtonInnerSize: 42px;
+topBarInfoButtonInnerSize: 36px;
 topBarInfoButtonInnerPosition: point(2px, -1px);
 topBarInfoButton: UserpicButton(defaultUserpicButton) {
 	size: topBarInfoButtonSize;

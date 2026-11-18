@@ -72,6 +72,19 @@ class KeyNavigation;
 
 using Button = Ui::SettingsButton;
 
+[[nodiscard]] not_null<Ui::VerticalLayout*> AddGroupedSettingsContent(
+	not_null<Ui::VerticalLayout*> container);
+[[nodiscard]] not_null<Ui::VerticalLayout*> AddGroupedSettingsRows(
+	not_null<Ui::VerticalLayout*> container);
+void FinishGroupedSettingsRows(not_null<Ui::VerticalLayout*> group);
+[[nodiscard]] bool IsGroupedSettingsContent(not_null<QWidget*> widget);
+[[nodiscard]] not_null<Ui::FlatLabel*> AddGroupedSettingsHeader(
+	not_null<Ui::VerticalLayout*> container,
+	rpl::producer<QString> text);
+void AddGroupedSettingsFooter(
+	not_null<Ui::VerticalLayout*> container,
+	rpl::producer<QString> text);
+
 enum class HighlightShape {
 	Rect,
 	Ellipse,
@@ -256,6 +269,9 @@ private:
 
 };
 
+[[nodiscard]] const style::SettingsButton &ResolveButtonStyle(
+	not_null<QWidget*> parent,
+	const style::SettingsButton &st);
 void AddButtonIcon(
 	not_null<Ui::AbstractButton*> button,
 	const style::SettingsButton &st,

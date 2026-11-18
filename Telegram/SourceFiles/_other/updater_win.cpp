@@ -12,6 +12,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <limits>
 #include <memory>
 
+#ifdef TDESKTOP_MACOS_DESIGN_UPDATE_FEED
+#define TDESKTOP_UPDATE_FOLDER L"td-design-updates"
+#else
+#define TDESKTOP_UPDATE_FOLDER L"tupdates"
+#endif
+
 bool _debug = false;
 
 wstring updaterName, updaterDir, updateTo, exeName, customWorkingDir, customKeyFile;
@@ -229,7 +235,9 @@ void fullClearPath(const wstring &dir) {
 }
 
 void delFolder() {
-	wstring delPathOld = L"tupdates\\ready", delPath = L"tupdates\\temp", delFolder = L"tupdates";
+	wstring delPathOld = TDESKTOP_UPDATE_FOLDER L"\\ready";
+	wstring delPath = TDESKTOP_UPDATE_FOLDER L"\\temp";
+	wstring delFolder = TDESKTOP_UPDATE_FOLDER;
 	fullClearPath(delPathOld);
 	fullClearPath(delPath);
 	RemoveDirectory(delFolder.c_str());
@@ -241,14 +249,16 @@ WCHAR versionStr[32] = { 0 };
 bool update() {
 	writeLog(L"Update started..");
 
-	wstring updDir = L"tupdates\\temp", readyFilePath = L"tupdates\\temp\\ready", tdataDir = L"tupdates\\temp\\tdata";
+	wstring updDir = TDESKTOP_UPDATE_FOLDER L"\\temp";
+	wstring readyFilePath = updDir + L"\\ready";
+	wstring tdataDir = updDir + L"\\tdata";
 	{
 		HANDLE readyFile = CreateFile(readyFilePath.c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 		if (readyFile != INVALID_HANDLE_VALUE) {
 			CloseHandle(readyFile);
 		} else {
-			updDir = L"tupdates\\ready"; // old
-			tdataDir = L"tupdates\\ready\\tdata";
+			updDir = TDESKTOP_UPDATE_FOLDER L"\\ready"; // old
+			tdataDir = updDir + L"\\tdata";
 		}
 	}
 
@@ -396,6 +406,7 @@ bool update() {
 	return true;
 }
 
+#ifndef TDESKTOP_MACOS_DESIGN_UPDATE_FEED
 void updateRegistry() {
 	if (versionNum && versionNum != 0x7FFFFFFF && versionNum != 0x7FFFFFFE) {
 		writeLog(L"Updating registry..");
@@ -450,6 +461,7 @@ void updateRegistry() {
 		}
 	}
 }
+#endif
 
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdParamarg, int cmdShow) {
 	base::Platform::InitDynamicLibraries();
@@ -554,11 +566,18 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 							error));
 					}
 				}
+#ifdef TDESKTOP_MACOS_DESIGN_UPDATE_FEED
+				if (needupdate) {
+					update();
+				}
+#else
 				if (needupdate && update()) {
 					updateRegistry();
 				}
+#endif
 				if (writeprotected) { // if we can't clear all tupdates\ready (Updater.exe is there) - clear only version
-					if (DeleteFile(L"tupdates\\temp\\tdata\\version") || DeleteFile(L"tupdates\\ready\\tdata\\version")) {
+					if (DeleteFile(TDESKTOP_UPDATE_FOLDER L"\\temp\\tdata\\version")
+						|| DeleteFile(TDESKTOP_UPDATE_FOLDER L"\\ready\\tdata\\version")) {
 						writeLog(L"Version file deleted!");
 					} else {
 						writeLog(L"Error: could not delete version file");
@@ -606,10 +625,10 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 				hres = psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf);
 
 				if (SUCCEEDED(hres)) {
-					wstring lnk = L"tupdates\\temp\\temp.lnk";
+					wstring lnk = TDESKTOP_UPDATE_FOLDER L"\\temp\\temp.lnk";
 					hres = ppf->Save(lnk.c_str(), TRUE);
 					if (!SUCCEEDED(hres)) {
-						lnk = L"tupdates\\ready\\temp.lnk"; // old
+						lnk = TDESKTOP_UPDATE_FOLDER L"\\ready\\temp.lnk"; // old
 						hres = ppf->Save(lnk.c_str(), TRUE);
 					}
 					ppf->Release();

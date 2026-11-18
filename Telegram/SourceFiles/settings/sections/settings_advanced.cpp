@@ -96,19 +96,9 @@ using namespace Builder;
 }
 #endif // Q_OS_MAC && !OS_MAC_STORE
 
-void BuildDataStorageSection(SectionBuilder &builder) {
+void BuildConnectionRow(SectionBuilder &builder) {
 	const auto controller = builder.controller();
-	const auto container = builder.container();
-	const auto session = builder.session();
-	const auto account = &session->account();
-
-	builder.addSkip();
-	builder.addSubsectionTitle({
-		.id = u"advanced/data_storage"_q,
-		.title = tr::lng_settings_data_storage(),
-		.keywords = { u"storage"_q, u"data"_q, u"download"_q, u"connection"_q },
-	});
-
+	const auto account = &builder.session()->account();
 	const auto connectionType = [=] {
 		const auto transport = account->mtp().dctransport();
 		if (!Core::App().settings().proxy().isEnabled()) {
@@ -136,6 +126,18 @@ void BuildDataStorageSection(SectionBuilder &builder) {
 		},
 		.keywords = { u"connection"_q, u"proxy"_q, u"network"_q, u"vpn"_q },
 	});
+}
+
+void BuildDataStorageSection(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+	const auto container = builder.container();
+
+	builder.addSkip();
+	builder.addSubsectionTitle({
+		.id = u"advanced/data_storage"_q,
+		.title = tr::lng_settings_data_storage(),
+		.keywords = { u"storage"_q, u"data"_q, u"download"_q, u"connection"_q },
+	});
 
 	const auto showDownloadPath = container
 		? container->lifetime().make_state<rpl::variable<bool>>(
@@ -154,65 +156,91 @@ void BuildDataStorageSection(SectionBuilder &builder) {
 		return QDir::toNativeSeparators(text);
 	});
 
-	builder.addButton({
-		.id = u"advanced/download_path"_q,
-		.title = tr::lng_download_path(),
-		.icon = { &st::menuIconShowInFolder },
-		.label = std::move(downloadLabel),
-		.onClick = [=] {
-			controller->show(Box<DownloadPathBox>(controller));
-		},
-		.keywords = { u"download"_q, u"path"_q, u"folder"_q },
-		.shown = showDownloadPath
-			? showDownloadPath->value()
-			: rpl::single(true) | rpl::type_erased,
-	});
+	const auto addPath = [&] {
+		builder.addButton({
+			.id = u"advanced/download_path"_q,
+			.title = tr::lng_download_path(),
+			.icon = { &st::menuIconShowInFolder },
+			.label = std::move(downloadLabel),
+			.onClick = [=] {
+				controller->show(Box<DownloadPathBox>(controller));
+			},
+			.keywords = { u"download"_q, u"path"_q, u"folder"_q },
+			.shown = showDownloadPath
+				? showDownloadPath->value()
+				: rpl::single(true) | rpl::type_erased,
+		});
+	};
 
-	builder.addButton({
-		.id = u"advanced/storage"_q,
-		.title = tr::lng_settings_manage_local_storage(),
-		.icon = { &st::menuIconStorage },
-		.onClick = [=] {
-			controller->showSettings(LocalStorageId());
-		},
-		.keywords = { u"storage"_q, u"cache"_q, u"local"_q },
-	});
+	const auto addStorage = [&] {
+		builder.addButton({
+			.id = u"advanced/storage"_q,
+			.title = tr::lng_settings_manage_local_storage(),
+			.icon = { &st::menuIconStorage },
+			.onClick = [=] {
+				controller->showSettings(LocalStorageId());
+			},
+			.keywords = { u"storage"_q, u"cache"_q, u"local"_q },
+		});
+	};
 
-	builder.addButton({
-		.id = u"advanced/downloads"_q,
-		.title = tr::lng_downloads_section(),
-		.icon = { &st::menuIconDownload },
-		.onClick = [=] {
-			if (controller) {
-				controller->showSection(
-					Info::Downloads::Make(controller->session().user()));
-			}
-		},
-		.keywords = { u"downloads"_q, u"files"_q },
-	});
+	const auto addDownloads = [&] {
+		builder.addButton({
+			.id = u"advanced/downloads"_q,
+			.title = tr::lng_downloads_section(),
+			.icon = { &st::menuIconDownload },
+			.onClick = [=] {
+				if (controller) {
+					controller->showSection(
+						Info::Downloads::Make(controller->session().user()));
+				}
+			},
+			.keywords = { u"downloads"_q, u"files"_q },
+		});
+	};
 
-	const auto askDownloadPath = builder.addButton({
-		.id = u"advanced/ask_download"_q,
-		.title = tr::lng_download_path_ask(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(Core::App().settings().askDownloadPath()),
-		.keywords = { u"download"_q, u"path"_q, u"ask"_q },
-	});
+	const auto addAskPath = [&] {
+		const auto askDownloadPath = builder.addButton({
+			.id = u"advanced/ask_download"_q,
+			.title = tr::lng_download_path_ask(),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = rpl::single(Core::App().settings().askDownloadPath()),
+			.keywords = { u"download"_q, u"path"_q, u"ask"_q },
+		});
 
-	if (askDownloadPath) {
-		askDownloadPath->toggledValue(
-		) | rpl::filter([](bool checked) {
-			return (checked != Core::App().settings().askDownloadPath());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().settings().setAskDownloadPath(checked);
-			Core::App().saveSettingsDelayed();
-			if (showDownloadPath) {
-				*showDownloadPath = !checked;
-			}
-		}, askDownloadPath->lifetime());
+		if (askDownloadPath) {
+			askDownloadPath->toggledValue(
+			) | rpl::filter([](bool checked) {
+				return (checked != Core::App().settings().askDownloadPath());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().settings().setAskDownloadPath(checked);
+				Core::App().saveSettingsDelayed();
+				if (showDownloadPath) {
+					*showDownloadPath = !checked;
+				}
+			}, askDownloadPath->lifetime());
+		}
+	};
+
+	if (builder.groupedLayout()) {
+		builder.group([&] {
+			addStorage();
+			addDownloads();
+		});
+		builder.group([&] {
+			addPath();
+			addAskPath();
+		});
+	} else {
+		BuildConnectionRow(builder);
+		addPath();
+		addStorage();
+		addDownloads();
+		addAskPath();
 	}
-
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 }
 
 void BuildAutoDownloadSection(SectionBuilder &builder) {
@@ -283,26 +311,30 @@ void BuildAutoDownloadSection(SectionBuilder &builder) {
 		}, toggle->lifetime());
 	};
 
-	add(
-		u"advanced/auto_download_private"_q,
-		tr::lng_media_auto_in_private(),
-		&st::menuIconProfile,
-		Source::User,
-		{ u"auto"_q, u"download"_q, u"private"_q, u"media"_q });
-	add(
-		u"advanced/auto_download_groups"_q,
-		tr::lng_media_auto_in_groups(),
-		&st::menuIconGroups,
-		Source::Group,
-		{ u"auto"_q, u"download"_q, u"groups"_q, u"media"_q });
-	add(
-		u"advanced/auto_download_channels"_q,
-		tr::lng_media_auto_in_channels(),
-		&st::menuIconChannel,
-		Source::Channel,
-		{ u"auto"_q, u"download"_q, u"channels"_q, u"media"_q });
+	builder.group([&] {
+		add(
+			u"advanced/auto_download_private"_q,
+			tr::lng_media_auto_in_private(),
+			&st::menuIconProfile,
+			Source::User,
+			{ u"auto"_q, u"download"_q, u"private"_q, u"media"_q });
+		add(
+			u"advanced/auto_download_groups"_q,
+			tr::lng_media_auto_in_groups(),
+			&st::menuIconGroups,
+			Source::Group,
+			{ u"auto"_q, u"download"_q, u"groups"_q, u"media"_q });
+		add(
+			u"advanced/auto_download_channels"_q,
+			tr::lng_media_auto_in_channels(),
+			&st::menuIconChannel,
+			Source::Channel,
+			{ u"auto"_q, u"download"_q, u"channels"_q, u"media"_q });
+	});
 
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 }
 
 void BuildWindowTitleSection(SectionBuilder &builder) {
@@ -1279,26 +1311,30 @@ void BuildExportSection(SectionBuilder &builder) {
 	builder.addDivider();
 	builder.addSkip();
 
-	builder.addButton({
-		.id = u"advanced/export"_q,
-		.title = tr::lng_settings_export_data(),
-		.icon = { &st::menuIconExport },
-		.onClick = [=] {
-			controller->window().hideSettingsAndLayer();
-			base::call_delayed(
-				st::boxDuration,
-				session,
-				[=] { Core::App().exportManager().start(session); });
-		},
-		.keywords = { u"export"_q, u"data"_q, u"backup"_q },
-	});
+	builder.group([&] {
+		builder.addButton({
+			.id = u"advanced/export"_q,
+			.title = tr::lng_settings_export_data(),
+			.icon = { &st::menuIconExport },
+			.onClick = [=] {
+				controller->window().hideSettingsAndLayer();
+				base::call_delayed(
+					st::boxDuration,
+					session,
+					[=] { Core::App().exportManager().start(session); });
+			},
+			.keywords = { u"export"_q, u"data"_q, u"backup"_q },
+		});
 
-	builder.addButton({
-		.id = u"advanced/experimental"_q,
-		.title = tr::lng_settings_experimental(),
-		.icon = { &st::menuIconExperimental },
-		.onClick = [showOther] { showOther(Experimental::Id()); },
-		.keywords = { u"experimental"_q, u"beta"_q, u"features"_q },
+	});
+	builder.group([&] {
+		builder.addButton({
+			.id = u"advanced/experimental"_q,
+			.title = tr::lng_settings_experimental(),
+			.icon = { &st::menuIconExperimental },
+			.onClick = [showOther] { showOther(Experimental::Id()); },
+			.keywords = { u"experimental"_q, u"beta"_q, u"features"_q },
+		});
 	});
 }
 
@@ -1354,6 +1390,62 @@ private:
 
 };
 
+class DataStorage final : public Section<DataStorage> {
+public:
+	DataStorage(
+		QWidget *parent,
+		not_null<Window::SessionController*> controller);
+
+	[[nodiscard]] rpl::producer<QString> title() override;
+	bool paintOuter(
+		not_null<QWidget*> outer,
+		int maxVisibleHeight,
+		QRect clip) override;
+
+};
+
+const auto kDataStorageMeta = BuildHelper({
+	.id = DataStorage::Id(),
+	.parentId = MainId(),
+	.title = &tr::lng_settings_data_storage,
+	.icon = &st::menuIconStorage,
+}, [](SectionBuilder &builder) {
+	builder.enableGroupedLayout();
+	if (Platform::IsWindows() || builder.container()) {
+		BuildDataStorageSection(builder);
+		BuildAutoDownloadSection(builder);
+		if (builder.groupedLayout()) {
+			builder.group([&] { BuildConnectionRow(builder); });
+		}
+		BuildExportSection(builder);
+	}
+});
+
+DataStorage::DataStorage(
+	QWidget *parent,
+	not_null<Window::SessionController*> controller)
+: Section(parent, controller) {
+	const auto content = Ui::CreateChild<Ui::VerticalLayout>(this);
+	build(content, kDataStorageMeta.build);
+	Ui::ResizeFitChild(this, content);
+}
+
+bool DataStorage::paintOuter(
+		not_null<QWidget*> outer,
+		int maxVisibleHeight,
+		QRect clip) {
+	if (!Platform::IsWindows()) {
+		return false;
+	}
+	auto p = QPainter(outer);
+	p.fillRect(clip, st::boxSearchBg);
+	return true;
+}
+
+rpl::producer<QString> DataStorage::title() {
+	return tr::lng_settings_data_storage();
+}
+
 const auto kMeta = BuildHelper({
 	.id = Advanced::Id(),
 	.parentId = MainId(),
@@ -1365,8 +1457,10 @@ const auto kMeta = BuildHelper({
 	if (!autoUpdate) {
 		BuildUpdateSection(builder, true);
 	}
-	BuildDataStorageSection(builder);
-	BuildAutoDownloadSection(builder);
+	if (!Platform::IsWindows() || builder.container()) {
+		BuildDataStorageSection(builder);
+		BuildAutoDownloadSection(builder);
+	}
 	BuildWindowTitleSection(builder);
 #if !defined Q_OS_WIN && !defined Q_OS_MAC
 	BuildWindowCloseBehaviorSection(builder);
@@ -1378,7 +1472,9 @@ const auto kMeta = BuildHelper({
 	if (autoUpdate) {
 		BuildUpdateSection(builder, false);
 	}
-	BuildExportSection(builder);
+	if (!Platform::IsWindows() || builder.container()) {
+		BuildExportSection(builder);
+	}
 });
 
 const SectionBuildMethod kAdvancedSection = kMeta.build;
@@ -1995,6 +2091,10 @@ void PreloadArchiveSettings(not_null<::Main::Session*> session) {
 
 Type AdvancedId() {
 	return Advanced::Id();
+}
+
+Type DataStorageId() {
+	return DataStorage::Id();
 }
 
 } // namespace Settings

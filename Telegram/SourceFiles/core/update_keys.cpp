@@ -29,4 +29,8 @@ QByteArray EmbeddedManifestSignature() {
 		sizeof(details::kEmbeddedManifestSig));
 }
 
+bool UsesMacosDesignFeed() {
+	return details::kMacosDesignFeed;
+}
+
 } // namespace Core::Updates

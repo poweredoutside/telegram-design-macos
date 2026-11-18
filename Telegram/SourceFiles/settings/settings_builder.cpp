@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_builder.h"
 
 #include "apiwrap.h"
+#include "base/platform/base_platform_info.h"
 #include "lang/lang_keys.h"
 #include "api/api_user_privacy.h"
 #include "boxes/edit_privacy_box.h"
@@ -156,6 +157,41 @@ SectionBuilder::SectionBuilder(BuildContext context)
 : _context(std::move(context)) {
 }
 
+void SectionBuilder::enableGroupedLayout() {
+	if (_groupedLayout || !Platform::IsWindows()) {
+		return;
+	}
+	_groupedLayout = true;
+	if (const auto ctx = std::get_if<WidgetContext>(&_context)) {
+		ctx->container = AddGroupedSettingsContent(ctx->container);
+	}
+}
+
+bool SectionBuilder::groupedLayout() const {
+	return _groupedLayout;
+}
+
+void SectionBuilder::group(FnMut<void()> method) {
+	if (!_groupedLayout) {
+		method();
+		return;
+	}
+	if (const auto ctx = std::get_if<WidgetContext>(&_context)) {
+		const auto outer = ctx->container;
+		if (_groupNeedsSpace) {
+			Ui::AddSkip(outer, st::macSettingsPageInset);
+		}
+		const auto group = AddGroupedSettingsRows(outer);
+		ctx->container = group;
+		method();
+		FinishGroupedSettingsRows(group);
+		ctx->container = outer;
+		_groupNeedsSpace = true;
+	} else {
+		method();
+	}
+}
+
 void SectionBuilder::add(FnMut<void(const BuildContext &ctx)> method) {
 	Expects(method != nullptr);
 
@@ -252,7 +288,15 @@ Ui::RpWidget *SectionBuilder::addControl(ControlArgs &&args) {
 }
 
 Ui::SettingsButton *SectionBuilder::addButton(ButtonArgs &&args) {
-	const auto &st = args.st ? *args.st : st::settingsButton;
+	const auto &original = args.st ? *args.st : st::settingsButton;
+	const auto wctx = std::get_if<WidgetContext>(&_context);
+	const auto &st = wctx
+		? ResolveButtonStyle(
+			args.container ? args.container : wctx->container.get(),
+			original)
+		: original;
+	const auto inset = (&st != &original && !_groupedLayout)
+		? st::macSettingsPageInset : 0;
 	auto iconForSearch = IconDescriptor{ args.icon.icon };
 	const auto factory = [&](not_null<Ui::VerticalLayout*> container) {
 		auto button = CreateButtonWithIcon(
@@ -279,6 +323,7 @@ Ui::SettingsButton *SectionBuilder::addButton(ButtonArgs &&args) {
 		.factory = factory,
 		.id = std::move(args.id),
 		.title = rpl::duplicate(args.title),
+		.margin = { inset, 0, inset, 0 },
 		.highlight = std::move(args.highlight),
 		.shown = std::move(args.shown),
 
@@ -301,14 +346,18 @@ Ui::SettingsButton *SectionBuilder::addSectionButton(SectionArgs &&args) {
 
 void SectionBuilder::addDivider() {
 	v::match(_context, [&](const WidgetContext &ctx) {
-		Ui::AddDivider(ctx.container);
+		if (!_groupedLayout) {
+			Ui::AddDivider(ctx.container);
+		}
 	}, [](const SearchContext &) {
 	});
 }
 
 void SectionBuilder::addSkip() {
 	v::match(_context, [&](const WidgetContext &ctx) {
-		Ui::AddSkip(ctx.container);
+		if (!_groupedLayout) {
+			Ui::AddSkip(ctx.container);
+		}
 	}, [](const SearchContext &) {
 	});
 }
@@ -322,7 +371,11 @@ void SectionBuilder::addSkip(int height) {
 
 void SectionBuilder::addDividerText(rpl::producer<QString> text) {
 	v::match(_context, [&](const WidgetContext &ctx) {
-		Ui::AddDividerText(ctx.container, std::move(text));
+		if (_groupedLayout) {
+			AddGroupedSettingsFooter(ctx.container, std::move(text));
+		} else {
+			Ui::AddDividerText(ctx.container, std::move(text));
+		}
 	}, [](const SearchContext &) {
 	});
 }
@@ -378,7 +431,7 @@ Ui::SettingsButton *SectionBuilder::addPrivacyButton(PrivacyButtonArgs &&args) {
 				button,
 				session,
 				std::move(args.title),
-				st::settingsButtonNoIcon.padding);
+				button->st().padding);
 		}
 	}
 	return button;
@@ -408,9 +461,10 @@ Ui::Checkbox *SectionBuilder::addCheckbox(CheckboxArgs &&args) {
 
 void SectionBuilder::addSubsectionTitle(SubsectionTitleArgs &&args) {
 	v::match(_context, [&](const WidgetContext &ctx) {
-		const auto title = AddSubsectionTitle(
-			ctx.container,
-			rpl::duplicate(args.title));
+		_groupNeedsSpace = false;
+		const auto title = _groupedLayout
+			? AddGroupedSettingsHeader(ctx.container, rpl::duplicate(args.title))
+			: AddSubsectionTitle(ctx.container, rpl::duplicate(args.title));
 		if (!args.id.isEmpty() && ctx.highlights) {
 			ctx.highlights->push_back({
 				args.id,
@@ -430,10 +484,7 @@ void SectionBuilder::addSubsectionTitle(SubsectionTitleArgs &&args) {
 }
 
 void SectionBuilder::addSubsectionTitle(rpl::producer<QString> text) {
-	v::match(_context, [&](const WidgetContext &ctx) {
-		AddSubsectionTitle(ctx.container, std::move(text));
-	}, [](const SearchContext &) {
-	});
+	addSubsectionTitle(SubsectionTitleArgs{ .title = std::move(text) });
 }
 
 Ui::VerticalLayout *SectionBuilder::container() const {

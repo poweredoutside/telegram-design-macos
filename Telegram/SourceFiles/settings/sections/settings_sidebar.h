@@ -15,7 +15,8 @@ public:
 	Sidebar(
 		QWidget *parent,
 		not_null<Window::SessionController*> controller,
-		Fn<void()> menu);
+		Fn<void()> menu,
+		Fn<void()> repaintBackdrop);
 	[[nodiscard]] Type selected() const {
 		return _selected.current();
 	}

@@ -35,7 +35,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_advanced.h"
 #include "settings/settings_intro.h"
 #include "ui/layers/box_content.h"
+#include "telega_version.h"
 
+#include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QFileSystemWatcher>
@@ -65,6 +67,18 @@ namespace {
 
 constexpr auto kUpdaterTimeout = 10 * crl::time(1000);
 constexpr auto kMaxResponseSize = 1024 * 1024;
+constexpr auto kGithubReleaseApi = "https://api.github.com/repos/"
+	"poweredoutside/telegram-design-macos/releases/latest";
+constexpr auto kGithubReleasesPage = "https://github.com/"
+	"poweredoutside/telegram-design-macos/releases";
+constexpr auto kGithubReleaseAssets = "https://github.com/"
+	"poweredoutside/telegram-design-macos/releases/download/";
+
+[[nodiscard]] quint64 CurrentUpdateVersion() {
+	return Updates::UsesMacosDesignFeed()
+		? TELEGA_UPDATE_VERSION
+		: RunningUpdateVersion();
+}
 
 // Alpha and canary builds are published far more often than the eight hours
 // a stable build waits, so they ask every ten to fifteen minutes instead.
@@ -168,6 +182,7 @@ private:
 	void gotFailure(QNetworkReply::NetworkError e);
 	void clearSentRequest();
 	bool handleResponse(const QByteArray &response);
+	std::optional<QString> parseGithubRelease(const QByteArray &response) const;
 	std::optional<QString> parseOldResponse(
 		const QByteArray &response) const;
 	std::optional<QString> parseResponse(const QByteArray &response) const;
@@ -325,7 +340,9 @@ std::shared_ptr<Updater> GetUpdaterInstance() {
 }
 
 QString UpdatesFolder() {
-	return cWorkingDir() + u"tupdates"_q;
+	return cWorkingDir() + (Updates::UsesMacosDesignFeed()
+		? u"td-design-updates"_q
+		: u"tupdates"_q);
 }
 
 void ClearAll() {
@@ -480,7 +497,7 @@ enum class ManifestAdoption {
 		BuildUpdateChannel,
 		AppBetaVersion || cInstallBetaVersion(),
 		*target,
-		RunningUpdateVersion(),
+		CurrentUpdateVersion(),
 		HeldManifest(),
 		Updates::RootPublicKeyPem(),
 		base::unixtime::now(),
@@ -499,8 +516,8 @@ enum class ManifestAdoption {
 		}
 	}
 
-	const auto tempDirPath = cWorkingDir() + u"tupdates/temp"_q;
-	const auto readyFilePath = cWorkingDir() + u"tupdates/temp/ready"_q;
+	const auto tempDirPath = UpdateStagingPath();
+	const auto readyFilePath = tempDirPath + u"/ready"_q;
 	base::Platform::DeleteDirectory(tempDirPath);
 
 	QDir tempDir(tempDirPath);
@@ -733,14 +750,23 @@ HttpChecker::HttpChecker(bool testing) : Checker(testing) {
 
 void HttpChecker::start() {
 	const auto updaterVersion = Platform::AutoUpdateVersion();
-	const auto path = Local::readAutoupdatePrefix()
-		+ qstr("/current")
-		+ (updaterVersion > 1 ? QString::number(updaterVersion) : QString());
+	const auto github = Updates::UsesMacosDesignFeed();
+	const auto path = github
+		? QString::fromLatin1(kGithubReleaseApi)
+		: Local::readAutoupdatePrefix()
+			+ qstr("/current")
+			+ (updaterVersion > 1 ? QString::number(updaterVersion) : QString());
 	auto url = QUrl(path);
 	DEBUG_LOG(("Update Info: requesting update state"));
 	auto request = QNetworkRequest(url);
 	// Qt's HTTP/2 backend does not apply the read-buffer limit.
 	request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+	if (github) {
+		request.setRawHeader("User-Agent", "Telega-Desktop/" TELEGA_VERSION);
+		request.setRawHeader("Accept", "application/vnd.github+json");
+		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+			QNetworkRequest::SameOriginRedirectPolicy);
+	}
 	_manager = std::make_unique<QNetworkAccessManager>();
 	_reply = _manager->get(request);
 	_reply->setReadBufferSize(kMaxResponseSize);
@@ -759,7 +785,9 @@ void HttpChecker::start() {
 		gotResponse();
 	});
 	_reply->connect(_reply, &QNetworkReply::errorOccurred, [=](auto e) {
-		gotFailure(e);
+		if (!github || e != QNetworkReply::ContentNotFoundError) {
+			gotFailure(e);
+		}
 	});
 }
 
@@ -769,6 +797,13 @@ void HttpChecker::gotResponse() {
 	}
 
 	cSetLastUpdateCheck(base::unixtime::now());
+	if (Updates::UsesMacosDesignFeed()
+		&& _reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+			.toInt() == 404) {
+		clearSentRequest();
+		done(nullptr);
+		return;
+	}
 	const auto weak = base::make_weak(this);
 	const auto response = _reply->read(kMaxResponseSize);
 	if (!weak) {
@@ -787,12 +822,51 @@ bool HttpChecker::handleResponse(const QByteArray &response) {
 		done(url.isEmpty() ? nullptr : std::make_shared<HttpLoader>(url));
 		return true;
 	};
+	if (Updates::UsesMacosDesignFeed()) {
+		const auto url = parseGithubRelease(response);
+		return url ? handle(*url) : false;
+	}
 	if (const auto url = parseOldResponse(response)) {
 		return handle(*url);
 	} else if (const auto url = parseResponse(response)) {
 		return handle(*url);
 	}
 	return false;
+}
+
+std::optional<QString> HttpChecker::parseGithubRelease(
+		const QByteArray &response) const {
+	const auto release = QJsonDocument::fromJson(response).object();
+	const auto tag = release.value("tag_name").toString();
+	const auto assets = release.value("assets");
+	static const auto kTag = QRegularExpression(u"\\A[A-Za-z0-9_.-]{1,128}\\z"_q);
+	static const auto kAsset = QRegularExpression(
+		u"\\Atd-update-win-x64-([1-9][0-9]{0,8})\\z"_q);
+	if (!kTag.match(tag).hasMatch() || tag == u"."_q || tag == u".."_q
+		|| !assets.isArray() || release.value("draft").toBool(true)
+		|| release.value("prerelease").toBool(true)) {
+		return std::nullopt;
+	}
+	auto bestVersion = quint64(TELEGA_UPDATE_VERSION);
+	auto bestName = QString();
+	for (const auto &value : assets.toArray()) {
+		const auto asset = value.toObject();
+		const auto name = asset.value("name").toString();
+		const auto size = asset.value("size").toInteger();
+		const auto match = kAsset.match(name);
+		if (match.hasMatch()
+			&& size > 0 && size <= Loader::kMaxFileSize
+			&& asset.value("state").toString() == u"uploaded"_q) {
+			const auto version = match.captured(1).toULongLong();
+			if (version > bestVersion) {
+				bestVersion = version;
+				bestName = name;
+			}
+		}
+	}
+	return bestName.isEmpty()
+		? QString()
+		: QString::fromLatin1(kGithubReleaseAssets) + tag + '/' + bestName;
 }
 
 void HttpChecker::clearSentRequest() {
@@ -1756,7 +1830,8 @@ void Updater::start(bool forceWait) {
 		}
 #endif // !Q_OS_WIN && !Q_OS_MAC
 	} else if (sendRequest) {
-		if (BuildIsCanary) {
+		const auto github = Updates::UsesMacosDesignFeed();
+		if (BuildIsCanary && !github) {
 			// Canary builds discover updates only through their own MTP
 			// channels, the v1 HTTP feed serves other channels.
 			startImplementation(&_httpImplementation, nullptr);
@@ -1767,7 +1842,7 @@ void Updater::start(bool forceWait) {
 		}
 		startImplementation(
 			&_mtpImplementation,
-			std::make_unique<MtpChecker>(
+			github ? nullptr : std::make_unique<MtpChecker>(
 				LookupCanaryPrivateSession(_session),
 				_testing));
 
@@ -1891,7 +1966,8 @@ bool Updater::tryLoaders() {
 		} else {
 			tryOne(_flatpakImplementation);
 		}
-	} else if (_mtpImplementation.failed && _httpImplementation.failed) {
+	} else if (_httpImplementation.failed
+		&& (_mtpImplementation.failed || Updates::UsesMacosDesignFeed())) {
 		_failed.fire({});
 		return false;
 	} else if (!_mtpImplementation.loader) {
@@ -2013,6 +2089,10 @@ bool UpdateChecker::percent() const {
 //	return QString::fromWCharArray(errMsg);
 //}
 
+QString UpdateStagingPath() {
+	return UpdatesFolder() + u"/temp"_q;
+}
+
 bool checkReadyUpdate() {
 #if !defined Q_OS_WIN && !defined Q_OS_MAC
 	if (!KSandbox::isInside()) {
@@ -2070,9 +2150,11 @@ bool checkReadyUpdate() {
 		}
 	}
 #endif // !Q_OS_WIN && !Q_OS_MAC
-	QString readyFilePath = cWorkingDir() + u"tupdates/temp/ready"_q, readyPath = cWorkingDir() + u"tupdates/temp"_q;
+	const auto readyPath = UpdateStagingPath();
+	const auto readyFilePath = readyPath + u"/ready"_q;
 	if (!QFile(readyFilePath).exists() || cExeName().isEmpty()) {
-		if (QDir(cWorkingDir() + u"tupdates/ready"_q).exists() || QDir(cWorkingDir() + u"tupdates/temp"_q).exists()) {
+		if (QDir(UpdatesFolder() + u"/ready"_q).exists()
+			|| QDir(readyPath).exists()) {
 			ClearAll();
 		}
 		return false;
@@ -2080,6 +2162,9 @@ bool checkReadyUpdate() {
 
 	// check ready version
 	QString versionPath = readyPath + u"/tdata/version"_q;
+	const auto stableVersion = Updates::UsesMacosDesignFeed()
+		? TELEGA_UPDATE_VERSION
+		: AppVersion;
 	{
 		QFile fVersion(versionPath);
 		if (!fVersion.open(QIODevice::ReadOnly)) {
@@ -2113,8 +2198,8 @@ bool checkReadyUpdate() {
 			LOG(("Update Error: cant install a non-canary version %1 on a private canary").arg(versionNum));
 			ClearAll();
 			return false;
-		} else if (versionNum <= AppVersion) {
-			LOG(("Update Error: cant install version %1 having version %2").arg(versionNum).arg(AppVersion));
+		} else if (versionNum <= VersionInt(stableVersion)) {
+			LOG(("Update Error: cant install version %1 having version %2").arg(versionNum).arg(stableVersion));
 			ClearAll();
 			return false;
 		}
@@ -2123,13 +2208,13 @@ bool checkReadyUpdate() {
 
 #ifdef Q_OS_WIN
 	QString curUpdater = (cExeDir() + u"Updater.exe"_q);
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater.exe"_q);
+	QFileInfo updater(readyPath + u"/Updater.exe"_q);
 #elif defined Q_OS_MAC // Q_OS_WIN
 	QString curUpdater = (cExeDir() + cExeName() + u"/Contents/Frameworks/Updater"_q);
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Telegram.app/Contents/Frameworks/Updater"_q);
+	QFileInfo updater(readyPath + u"/Telegram.app/Contents/Frameworks/Updater"_q);
 #else // Q_OS_MAC
 	QString curUpdater = (cExeDir() + u"Updater"_q);
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater"_q);
+	QFileInfo updater(readyPath + u"/Updater"_q);
 #endif // else for Q_OS_WIN || Q_OS_MAC
 	if (!updater.exists()) {
 		QFileInfo current(curUpdater);
@@ -2156,6 +2241,10 @@ bool checkReadyUpdate() {
 		const auto errorCode = GetLastError();
 		LOG(("Update Error: could not copy '%1' to '%2', error code: %3"
 			).arg(updater.absoluteFilePath()).arg(curUpdater).arg(errorCode));
+		if (Updates::UsesMacosDesignFeed()) {
+			ClearAll();
+			return false;
+		}
 		if (errorCode == ERROR_ACCESS_DENIED) { // we are in write-protected dir, like Program Files
 			cSetWriteProtected(true);
 			return true;
@@ -2200,6 +2289,9 @@ bool checkReadyUpdate() {
 void UpdateApplication() {
 	if (UpdaterDisabled()) {
 		const auto url = [&] {
+			if (Updates::UsesMacosDesignFeed()) {
+				return kGithubReleasesPage;
+			}
 #ifdef OS_WIN_STORE
 			return "https://www.microsoft.com/en-us/store/p/telegram-desktop/9nztwsqntd0s";
 #elif defined OS_MAC_STORE // OS_WIN_STORE

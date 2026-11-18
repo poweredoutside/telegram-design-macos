@@ -7,12 +7,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/message_bubble.h"
 
+#include "base/platform/base_platform_info.h"
 #include "ui/cached_round_corners.h"
 #include "ui/image/image_prepare.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/torn_edge.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
+
+#include <QtGui/QPainterPath>
+#include <QtGui/QTransform>
 
 namespace Ui {
 namespace {
@@ -33,12 +37,123 @@ using Corner = BubbleCornerRounding;
 	return args.st->msgOutBg()->c.alphaF() * wasOpacity;
 }
 
+[[nodiscard]] QPainterPath MacBubblePath(const SimpleBubble &args) {
+	const auto rect = QRectF(args.geometry);
+	const auto left = rect.x();
+	const auto top = rect.y();
+	const auto right = left + rect.width();
+	const auto bottom = top + rect.height();
+	const auto radius = [&](Corner corner) -> qreal {
+		return (corner == Corner::Small)
+			? BubbleRadiusSmall()
+			: (corner == Corner::Large || corner == Corner::Tail)
+			? BubbleRadiusLarge()
+			: 0;
+	};
+	const auto tl = radius(args.rounding.topLeft);
+	const auto tr = radius(args.rounding.topRight);
+	const auto bl = radius(args.rounding.bottomLeft);
+	const auto br = radius(args.rounding.bottomRight);
+	auto body = QPainterPath();
+	body.moveTo(left + tl, top);
+	body.lineTo(right - tr, top);
+	if (tr) {
+		body.arcTo(right - 2 * tr, top, 2 * tr, 2 * tr, 90, -90);
+	}
+	body.lineTo(right, bottom - br);
+	if (br) {
+		body.arcTo(right - 2 * br, bottom - 2 * br, 2 * br, 2 * br, 0, -90);
+	}
+	body.lineTo(left + bl, bottom);
+	if (bl) {
+		body.arcTo(left, bottom - 2 * bl, 2 * bl, 2 * bl, 270, -90);
+	}
+	body.lineTo(left, top + tl);
+	if (tl) {
+		body.arcTo(left, top, 2 * tl, 2 * tl, 180, -90);
+	}
+	body.closeSubpath();
+	const auto tailLeft = (args.rounding.bottomLeft == Corner::Tail);
+	const auto tailRight = (args.rounding.bottomRight == Corner::Tail);
+	if (!tailLeft && !tailRight) {
+		return body;
+	}
+	const auto scale = style::Scale() / 100.;
+	auto tail = QPainterPath();
+	tail.moveTo(right - 9. * scale, bottom - 8.5 * scale);
+	tail.quadTo(right - 9. * scale, bottom, right + 4.5 * scale, bottom);
+	tail.quadTo(
+		right + 18. * scale,
+		bottom,
+		right + 18. * scale,
+		bottom - 8.5 * scale);
+	tail.closeSubpath();
+	auto base = QPainterPath();
+	base.addRect(
+		right - 16. * scale,
+		bottom - 16. * scale,
+		16. * scale,
+		8. * scale);
+	tail = tail.united(base);
+	auto cutout = QPainterPath();
+	cutout.addEllipse(right, bottom - 19. * scale, 23. * scale, 21. * scale);
+	auto extent = QPainterPath();
+	extent.addRect(left, top, rect.width() + 6. * scale, rect.height());
+	if (tailLeft) {
+		const auto mirror = QTransform(-1., 0., 0., 1., left + right, 0.);
+		tail = mirror.map(tail);
+		cutout = mirror.map(cutout);
+		extent = mirror.map(extent);
+	}
+	return body.united(tail).subtracted(cutout).intersected(extent);
+}
+
+void PaintMacBubble(QPainter &p, const SimpleBubble &args) {
+	if (args.geometry.isEmpty()) {
+		return;
+	}
+	const auto path = MacBubblePath(args);
+	const auto &st = args.st->messageStyle(args.outbg, args.selected);
+	p.save();
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setClipPath(path, Qt::IntersectClip);
+	if (UsePatternBubble(args)) {
+		p.setOpacity(PatternBubbleOpacity(args, p.opacity()));
+		p.drawPixmap(
+			QRectF(args.patternViewport),
+			args.pattern->pixmap,
+			QRectF(QPointF(), QSizeF(args.pattern->pixmap.size())));
+	} else {
+		p.fillRect(path.boundingRect(), st.msgBg);
+	}
+	if (args.shadowed
+		&& (args.rounding.topLeft != Corner::None
+			|| args.rounding.topRight != Corner::None
+			|| args.rounding.bottomLeft != Corner::None
+			|| args.rounding.bottomRight != Corner::None)) {
+		const auto border = style::ConvertScaleExact(
+			1. / p.device()->devicePixelRatioF() + .25);
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(st.msgShadow->c, 2 * border));
+		p.drawPath(path);
+	}
+	p.restore();
+}
+
 void PaintBubblePiece(
 		QPainter &p,
 		const SimpleBubble &args,
 		QRect geometry,
 		bool fromTop,
 		bool tillBottom) {
+	if (Platform::IsWindows()) {
+		const auto tail = style::ConvertScale(6);
+		p.save();
+		p.setClipRect(geometry.adjusted(-tail, 0, tail, 0), Qt::IntersectClip);
+		PaintBubble(p, args);
+		p.restore();
+		return;
+	}
 	auto simple = args;
 	simple.geometry = geometry;
 	if (!fromTop) {
@@ -346,7 +461,9 @@ void FinishBubblePatternOnMain(not_null<BubblePattern*> pattern) {
 }
 
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
-	if (UsePatternBubble(args)) {
+	if (Platform::IsWindows()) {
+		PaintMacBubble(p, args);
+	} else if (UsePatternBubble(args)) {
 		PaintPatternBubble(p, args);
 	} else {
 		PaintSolidBubble(p, args);

@@ -147,6 +147,9 @@ public:
 	explicit SectionBuilder(BuildContext context);
 
 	void add(FnMut<void(const BuildContext &ctx)> method);
+	void enableGroupedLayout();
+	[[nodiscard]] bool groupedLayout() const;
+	void group(FnMut<void()> method);
 
 	using ToggledScopePtr = not_null<Ui::SlideWrap<Ui::VerticalLayout>*>;
 	Ui::VerticalLayout *scope(
@@ -262,6 +265,8 @@ private:
 		HighlightArgs &&args);
 
 	BuildContext _context;
+	bool _groupedLayout = false;
+	bool _groupNeedsSpace = false;
 
 };
 

@@ -18,5 +18,6 @@ namespace Core::Updates {
 [[nodiscard]] QByteArray RootPublicKeyPem();
 [[nodiscard]] QByteArray EmbeddedManifest();
 [[nodiscard]] QByteArray EmbeddedManifestSignature();
+[[nodiscard]] bool UsesMacosDesignFeed();
 
 } // namespace Core::Updates

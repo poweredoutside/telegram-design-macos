@@ -270,19 +270,35 @@ void SendButton::paintLottieIcon(QPainter &p, int index, bool over) {
 }
 
 void SendButton::paintSave(QPainter &p, bool over) {
+	const auto filled = !_st.sendFillSize.isEmpty();
+	const auto area = filled ? sendFillRect() : QRect();
+	if (filled) {
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		auto color = st::windowBgActive->c;
+		if (over) {
+			color.setAlphaF(color.alphaF() * 0.8);
+		}
+		p.setBrush(color);
+		p.drawRoundedRect(area, area.height() / 2., area.height() / 2.);
+	}
 	if (!isDisabled()) {
 		auto color = _st.sendIconFg->c;
 		color.setAlpha(25);
 		paintRipple(
 			p,
-			(width() - _st.inner.rippleAreaSize) / 2,
-			_st.inner.rippleAreaPosition.y(),
+			filled ? area.x() : (width() - _st.inner.rippleAreaSize) / 2,
+			filled ? area.y() : _st.inner.rippleAreaPosition.y(),
 			&color);
 	}
 	const auto &saveIcon = over
 		? st::historyEditSaveIconOver
 		: st::historyEditSaveIcon;
-	saveIcon.paintInCenter(p, rect());
+	if (_st.sendFillSize.isEmpty()) {
+		saveIcon.paintInCenter(p, rect());
+	} else {
+		saveIcon.paintInCenter(p, rect(), st::activeButtonFg->c);
+	}
 }
 
 void SendButton::paintCancel(QPainter &p, bool over) {
@@ -299,22 +315,23 @@ void SendButton::paintCancel(QPainter &p, bool over) {
 
 void SendButton::paintSend(QPainter &p, bool over) {
 	const auto &sendIcon = over ? _st.inner.iconOver : _st.inner.icon;
-	if (const auto padding = _st.sendIconFillPadding; padding > 0) {
-		const auto ellipse = sendEllipseRect();
+	if (!_st.sendFillSize.isEmpty() || _st.sendIconFillPadding > 0) {
+		const auto filled = sendFillRect();
 		{
 			auto hq = PainterHighQualityEnabler(p);
 			p.setPen(Qt::NoPen);
-			if (_state.fillBgOverride.isValid()) {
-				p.setBrush(_state.fillBgOverride);
-			} else {
-				p.setBrush(st::windowBgActive);
+			auto color = _state.fillBgOverride.isValid()
+				? _state.fillBgOverride : st::windowBgActive->c;
+			if (over && !_st.sendFillSize.isEmpty()) {
+				color.setAlphaF(color.alphaF() * 0.8);
 			}
-			p.drawEllipse(ellipse);
+			p.setBrush(color);
+			p.drawRoundedRect(filled, filled.height() / 2., filled.height() / 2.);
 		}
 		if (!isDisabled()) {
 			auto color = _st.sendIconFg->c;
 			color.setAlpha(25);
-			paintRipple(p, ellipse.topLeft(), &color);
+			paintRipple(p, filled.topLeft(), &color);
 		}
 	} else if (!isDisabled()) {
 		auto color = _st.sendIconFg->c;
@@ -348,7 +365,9 @@ void SendButton::paintStop(QPainter &p, bool over) {
 			(height() - size.height()) / 2),
 		size);
 	p.setPen(Qt::NoPen);
-	p.setBrush(over ? st::historySendIconFgOver : st::historySendIconFg);
+	p.setBrush(!_st.sendFillSize.isEmpty()
+		? st::windowFg
+		: over ? st::historySendIconFgOver : st::historySendIconFg);
 	p.drawRoundedRect(inner, _st.stopRadius, _st.stopRadius);
 }
 
@@ -379,6 +398,10 @@ void SendButton::paintStarsToSend(QPainter &p, bool over) {
 }
 
 void SendButton::paintSchedule(QPainter &p, bool over) {
+	if (!_st.sendFillSize.isEmpty()) {
+		paintSend(p, over);
+		return;
+	}
 	const auto ellipse = scheduleEllipseRect();
 	{
 		PainterHighQualityEnabler hq(p);
@@ -408,6 +431,21 @@ void SendButton::paintSlowmode(QPainter &p) {
 
 SendButton::StarsGeometry SendButton::starsGeometry() const {
 	const auto &st = _st.stars;
+	if (!_st.sendFillSize.isEmpty()) {
+		const auto width = std::max(
+			_st.sendFillSize.width(),
+			_starsToSendText.maxWidth() + st.padding.left() + st.padding.right());
+		const auto top = (_st.inner.height - st.height) / 2;
+		return {
+			.inner = QRect(
+				(width - _starsToSendText.maxWidth()) / 2,
+				top + (st.height - st.style.font->height) / 2,
+				_starsToSendText.maxWidth(),
+				st.style.font->height),
+			.rounded = QRect(0, top, width, st.height),
+			.outer = QRect(0, 0, width, _st.inner.height),
+		};
+	}
 	const auto inner = QRect(
 		0,
 		0,
@@ -437,13 +475,16 @@ SendButton::RippleShape SendButton::currentRippleShape() const {
 	case Type::Send:
 		if (!_starsToSendText.isEmpty()) {
 			return RippleShape::StarsRoundRect;
-		} else if (_st.sendIconFillPadding > 0) {
+		} else if (!_st.sendFillSize.isEmpty() || _st.sendIconFillPadding > 0) {
 			return RippleShape::SendEllipse;
 		}
 		return RippleShape::InnerEllipse;
 	case Type::Schedule:
-		return RippleShape::ScheduleEllipse;
+		return _st.sendFillSize.isEmpty()
+			? RippleShape::ScheduleEllipse : RippleShape::SendEllipse;
 	case Type::Save:
+		return _st.sendFillSize.isEmpty()
+			? RippleShape::InnerEllipse : RippleShape::SendEllipse;
 	case Type::Record:
 	case Type::Round:
 	case Type::Cancel:
@@ -474,6 +515,16 @@ QRect SendButton::sendEllipseRect() const {
 		(height() - side) / 2,
 		side,
 		side);
+}
+
+QRect SendButton::sendFillRect() const {
+	if (_st.sendFillSize.isEmpty()) {
+		return sendEllipseRect();
+	}
+	const auto size = _st.sendFillSize.boundedTo(this->size());
+	return QRect(QPoint(
+		(width() - size.width()) / 2,
+		(height() - size.height()) / 2), size);
 }
 
 QRect SendButton::scheduleEllipseRect() const {
@@ -521,8 +572,8 @@ QImage SendButton::prepareRippleMask() const {
 		return RippleAnimation::EllipseMask(QSize(size, size));
 	}
 	case RippleShape::SendEllipse: {
-		const auto r = sendEllipseRect();
-		return RippleAnimation::EllipseMask(r.size());
+		const auto r = sendFillRect();
+		return RippleAnimation::RoundRectMask(r.size(), r.height() / 2);
 	}
 	case RippleShape::StarsRoundRect: {
 		const auto r = starsGeometry().rounded;
@@ -546,7 +597,7 @@ QPoint SendButton::prepareRippleStartPosition() const {
 		return real - QPoint((width() - size) / 2, y);
 	}
 	case RippleShape::SendEllipse:
-		return real - sendEllipseRect().topLeft();
+		return real - sendFillRect().topLeft();
 	case RippleShape::StarsRoundRect:
 		return real - starsGeometry().rounded.topLeft();
 	case RippleShape::ScheduleEllipse:

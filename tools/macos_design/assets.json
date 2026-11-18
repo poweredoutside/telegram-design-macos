@@ -1,0 +1,299 @@
+{
+  "contacts": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_TabContacts.imageset/ic_contacts@2x.png",
+    "blob": "65e44c6a3eac80170e8245170ed553565b2c73ef",
+    "size": [
+      48,
+      32
+    ]
+  },
+  "calls": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_TabRecentCalls.imageset/ic_calls@2x.png",
+    "blob": "4baf298c68c24d2bb9af50798dabeac757f68dd4",
+    "size": [
+      48,
+      32
+    ]
+  },
+  "chats": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_TabChatList.imageset/ic_chats@2x.png",
+    "blob": "2715b079b0718d6833f42b73d2f6fe408038c112",
+    "size": [
+      48,
+      32
+    ]
+  },
+  "settings": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_TabSettings.imageset/ic_settings@2x.png",
+    "blob": "70f1196940bb35fea4518880f3cce728c4e8d1a0",
+    "size": [
+      48,
+      32
+    ]
+  },
+  "compose": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_NewMessage.imageset/ic_create@2x.png",
+    "blob": "ac08a7c3ec3bf3024e5cfe7aed136639a4d62883",
+    "size": [
+      30,
+      30
+    ]
+  },
+  "attach": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_ChatAttach.imageset/ic_attach@2x.png",
+    "blob": "ab1560ecd897c747ddfd489ddf69d2ee209df323",
+    "size": [
+      30,
+      30
+    ]
+  },
+  "send": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SendMessage.imageset/ic_send@2x (1).png",
+    "blob": "b65d261e3f42c1a1414e66ae0de0757990234667",
+    "size": [
+      25,
+      25
+    ]
+  },
+  "search": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SearchChatMessages.imageset/ic_search@2x.png",
+    "blob": "53f6ff1c7f2cef1214c47c5cde79eb57497fca31",
+    "size": [
+      30,
+      30
+    ]
+  },
+  "more": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_ChatActions.imageset/ic_more@2x.png",
+    "blob": "677a27f31a93d7e07b556228051c22f5e02ddf62",
+    "size": [
+      30,
+      30
+    ]
+  },
+  "call": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_callNavigationHeader.imageset/ic_call@2x.png",
+    "blob": "e2edd1f39b2b20c4f05a3aa7984b304d6470e1e4",
+    "size": [
+      30,
+      30
+    ]
+  },
+  "next": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_GeneralNext.imageset/ArrowGrey@2x.png",
+    "blob": "2f2c67c056a50a91f81e043efc51bd01a2a89240",
+    "size": [
+      7,
+      12
+    ]
+  },
+  "qr": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_WalletQR.imageset/ic_qr@2x.png",
+    "blob": "3ff359ff230ee4afd7a823e1e4164920b8273d72",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "add_account": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_Account_Add_Account.imageset/person@2x.png",
+    "blob": "426a671882f90c4aaef3c373a53ebc4586580b09",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "create_call": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_CreatePhoneCall.imageset/phonePlus_30@2x.png",
+    "blob": "ac12eb7413c5f600b2a8b32ffed2276f390e615f",
+    "size": [
+      30,
+      30
+    ]
+  },
+  "call_outgoing": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_CallOutgoing.imageset/CallOutgoing@2x.png",
+    "blob": "5e811b89bd191624d986bff62adab6a0e7338456",
+    "size": [
+      13,
+      13
+    ],
+    "source_scale": 2
+  },
+  "Icon_Premium_Settings": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_Premium_Settings.imageset/premiumbadge_16@2x.png",
+    "blob": "6f35b43473c6bbc61b7101fc5cd4280292b3bc14",
+    "size": [
+      16,
+      16
+    ]
+  },
+  "Icon_SettingsProfile": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsProfile.imageset/ic_prof@2x.png",
+    "blob": "07fae246ceb811cb93a5e45e92c1f6cce5b0f57c",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsNotifications": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsNotifications.imageset/ic_notifications@2x.png",
+    "blob": "9f92da394025df0cdbee26a012fe2ccafe8a38d5",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsSecurity": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsSecurity.imageset/ic_privacy@2x.png",
+    "blob": "37f2e44df7d31da320959662e2f0f5ba34e12abb",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_AppearanceSettings": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_AppearanceSettings.imageset/ic_theme@2x.png",
+    "blob": "4f6ed792a0d739eab0657dbf9152369e84c181a0",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsFilters": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsFilters.imageset/ic_filters@2x.png",
+    "blob": "47a228e9d70ebb22813e0aad75c6182fe090f028",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsStorage": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsStorage.imageset/ic_data@2x.png",
+    "blob": "75882f04b87f13d21b36ea22c8790494a04426de",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsGeneral": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsGeneral.imageset/ic_general@2x.png",
+    "blob": "a583fd4daf14f43e10dd10d43d961feef4a7b6cd",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_PrivacySettings_ActiveSessions": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_PrivacySettings_ActiveSessions.imageset/sessions@2x.png",
+    "blob": "c6794f9150adfc6beb889127647187219e1d8e7e",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsLanguage": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsLanguage.imageset/ic_lang@2x.png",
+    "blob": "44bfb20085ec85bd79ec133ec2bb63ed951d5968",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsStickers": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsStickers.imageset/ic_stickers@2x.png",
+    "blob": "cd444da4e5c93c407cde8eb16b1529ff71e5a615",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsStories": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsStories.imageset/my_profile@2x.png",
+    "blob": "3228aa140e332a2f80bc051d7a6826123f194fec",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsBusiness": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsBusiness.imageset/business_24@2x (2).png",
+    "blob": "ee5131be965b317d5a4aa8b02feab99cb5fc859f",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_Settings_GiftPremium": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_Settings_GiftPremium.imageset/Gift_24_substracted@2x.png",
+    "blob": "751f3678424339add936efcaaafd6ca088c8345a",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_Settings_Stars": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_Settings_Stars.imageset/stars@2x.png",
+    "blob": "61bfbd9eed969b2b81310659674abdce2b5de391",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsFaq": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsFaq.imageset/ic_faq@2x.png",
+    "blob": "899bf0ebcb7f1fd42497e2657fc4da4bcc906005",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "Icon_SettingsAskQuestion": {
+    "path": "Telegram-Mac/Assets.xcassets/Icon_SettingsAskQuestion.imageset/ic_ask@2x.png",
+    "blob": "ee959d17e593ad41043e0be4a6a4d7d1bcf9db92",
+    "size": [
+      24,
+      24
+    ]
+  },
+  "tab_contacts": {
+    "path": "Resources/tgs/tab_contacts.tgs",
+    "blob": "1556aa3aaab4141f0b55a95ec12b246e8335b24c",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 35,
+    "fps": 60
+  },
+  "tab_calls": {
+    "path": "Resources/tgs/tab_calls.tgs",
+    "blob": "3c5e599937883ce178bdf26b31e54dbc27999f76",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 42,
+    "fps": 60
+  },
+  "tab_chats": {
+    "path": "Resources/tgs/tab_chats.tgs",
+    "blob": "e61575d49e8c5fc5ab9c9f7fa6b9be9a52747698",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 37,
+    "fps": 60
+  },
+  "tab_settings": {
+    "path": "Resources/tgs/tab_settings.tgs",
+    "blob": "0b55b29869807c71c25726233f60c7921498b79c",
+    "size": [
+      512,
+      512
+    ],
+    "frames": 44,
+    "fps": 60
+  }
+}

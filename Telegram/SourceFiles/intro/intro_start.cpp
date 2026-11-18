@@ -7,7 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "intro/intro_start.h"
 
-#include "base/platform/base_platform_info.h"
+#include "core/version.h"
 #include "lang/lang_keys.h"
 #include "intro/intro_qr.h"
 #include "intro/intro_phone.h"
@@ -25,9 +25,7 @@ StartWidget::StartWidget(
 	not_null<Data*> data)
 : Step(parent, account, data, true) {
 	setMouseTracking(true);
-	setTitleText(rpl::single(Platform::IsWindows()
-		? u"Telegram"_q
-		: u"Telegram Desktop"_q));
+	setTitleText(rpl::single(AppName.utf16()));
 	setDescriptionText(tr::lng_intro_about());
 	show();
 }

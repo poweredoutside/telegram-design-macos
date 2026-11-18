@@ -496,7 +496,7 @@ void NotificationsCount::prepareNotificationSampleLarge() {
 		p.setPen(st::dialogsNameFg);
 		p.setFont(st::msgNameFont);
 
-		auto notifyTitle = st::msgNameFont->elided(u"Telegram Desktop"_q, rectForName.width());
+		auto notifyTitle = st::msgNameFont->elided(u"Telega Desktop"_q, rectForName.width());
 		p.drawText(rectForName.left(), rectForName.top() + st::msgNameFont->ascent, notifyTitle);
 
 		st::notifyClose.icon.paint(p, w - st::notifyClosePos.x() - st::notifyClose.width + st::notifyClose.iconPosition.x(), st::notifyClosePos.y() + st::notifyClose.iconPosition.y(), w);
@@ -914,34 +914,36 @@ void BuildMultiAccountSection(SectionBuilder &builder) {
 		.keywords = { u"accounts"_q, u"multiple"_q },
 	});
 
-	const auto fromAll = builder.addButton({
-		.id = u"notifications/accounts"_q,
-		.title = tr::lng_settings_notify_all(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(Core::App().settings().notifyFromAll()),
-		.keywords = { u"all accounts"_q, u"multiple"_q },
-	});
+	builder.group([&] {
+		const auto fromAll = builder.addButton({
+			.id = u"notifications/accounts"_q,
+			.title = tr::lng_settings_notify_all(),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = rpl::single(Core::App().settings().notifyFromAll()),
+			.keywords = { u"all accounts"_q, u"multiple"_q },
+		});
 
-	if (fromAll) {
-		fromAll->toggledChanges(
-		) | rpl::filter([](bool checked) {
-			return (checked != Core::App().settings().notifyFromAll());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().settings().setNotifyFromAll(checked);
-			Core::App().saveSettingsDelayed();
-			if (!checked) {
-				auto &notifications = Core::App().notifications();
-				const auto &list = Core::App().domain().accounts();
-				for (const auto &[index, account] : list) {
-					if (account.get() == &Core::App().domain().active()) {
-						continue;
-					} else if (const auto session = account->maybeSession()) {
-						notifications.clearFromSession(session);
+		if (fromAll) {
+			fromAll->toggledChanges(
+			) | rpl::filter([](bool checked) {
+				return (checked != Core::App().settings().notifyFromAll());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().settings().setNotifyFromAll(checked);
+				Core::App().saveSettingsDelayed();
+				if (!checked) {
+					auto &notifications = Core::App().notifications();
+					const auto &list = Core::App().domain().accounts();
+					for (const auto &[index, account] : list) {
+						if (account.get() == &Core::App().domain().active()) {
+							continue;
+						} else if (const auto session = account->maybeSession()) {
+							notifications.clearFromSession(session);
+						}
 					}
 				}
-			}
-		}, fromAll->lifetime());
-	}
+			}, fromAll->lifetime());
+		}
+	});
 
 	builder.addSkip();
 	builder.addDividerText(tr::lng_settings_notify_all_about());
@@ -955,54 +957,103 @@ void BuildGlobalNotificationsSection(SectionBuilder &builder) {
 		.keywords = { u"global"_q, u"desktop"_q, u"sound"_q },
 	});
 
-	const auto container = builder.container();
 	const auto session = builder.session();
-	const auto &settings = Core::App().settings();
+	builder.group([&] {
+		const auto container = builder.container();
+		const auto &settings = Core::App().settings();
 
-	const auto desktopToggles = container
-		? container->lifetime().make_state<rpl::event_stream<bool>>()
-		: nullptr;
-	const auto desktop = builder.addButton({
-		.id = u"notifications/desktop"_q,
-		.title = tr::lng_settings_desktop_notify(),
-		.icon = { &st::menuIconNotifications },
-		.toggled = desktopToggles
-			? desktopToggles->events_starting_with(settings.desktopNotify())
-			: rpl::single(settings.desktopNotify()) | rpl::type_erased,
-		.keywords = { u"desktop"_q, u"popup"_q, u"show"_q },
-	});
+		const auto desktopToggles = container
+			? container->lifetime().make_state<rpl::event_stream<bool>>()
+			: nullptr;
+		const auto desktop = builder.addButton({
+			.id = u"notifications/desktop"_q,
+			.title = tr::lng_settings_desktop_notify(),
+			.icon = { &st::menuIconNotifications },
+			.toggled = desktopToggles
+				? desktopToggles->events_starting_with(settings.desktopNotify())
+				: rpl::single(settings.desktopNotify()) | rpl::type_erased,
+			.keywords = { u"desktop"_q, u"popup"_q, u"show"_q },
+		});
 
-	const auto flashbounceToggles = container
-		? container->lifetime().make_state<rpl::event_stream<bool>>()
-		: nullptr;
-	const auto flashbounce = builder.addButton({
-		.id = u"notifications/flash"_q,
-		.title = (Platform::IsWindows()
-			? tr::lng_settings_alert_windows
-			: Platform::IsMac()
-			? tr::lng_settings_alert_mac
-			: tr::lng_settings_alert_linux)(),
-		.icon = { &st::menuIconDockBounce },
-		.toggled = flashbounceToggles
-			? flashbounceToggles->events_starting_with(settings.flashBounceNotify())
-			: rpl::single(settings.flashBounceNotify()) | rpl::type_erased,
-		.keywords = { u"flash"_q, u"bounce"_q, u"taskbar"_q },
-	});
+		const auto flashbounceToggles = container
+			? container->lifetime().make_state<rpl::event_stream<bool>>()
+			: nullptr;
+		const auto flashbounce = builder.addButton({
+			.id = u"notifications/flash"_q,
+			.title = (Platform::IsWindows()
+				? tr::lng_settings_alert_windows
+				: Platform::IsMac()
+				? tr::lng_settings_alert_mac
+				: tr::lng_settings_alert_linux)(),
+			.icon = { &st::menuIconDockBounce },
+			.toggled = flashbounceToggles
+				? flashbounceToggles->events_starting_with(settings.flashBounceNotify())
+				: rpl::single(settings.flashBounceNotify()) | rpl::type_erased,
+			.keywords = { u"flash"_q, u"bounce"_q, u"taskbar"_q },
+		});
 
-	const auto soundAllowed = container
-		? container->lifetime().make_state<rpl::event_stream<bool>>()
-		: nullptr;
-	const auto allowed = [=] {
-		return Core::App().settings().soundNotify();
-	};
-	const auto sound = builder.addButton({
-		.id = u"notifications/sound"_q,
-		.title = tr::lng_settings_sound_allowed(),
-		.icon = { &st::menuIconUnmute },
-		.toggled = soundAllowed
-			? soundAllowed->events_starting_with(allowed())
-			: rpl::single(allowed()) | rpl::type_erased,
-		.keywords = { u"sound"_q, u"audio"_q, u"mute"_q },
+		const auto soundAllowed = container
+			? container->lifetime().make_state<rpl::event_stream<bool>>()
+			: nullptr;
+		const auto allowed = [=] {
+			return Core::App().settings().soundNotify();
+		};
+		const auto sound = builder.addButton({
+			.id = u"notifications/sound"_q,
+			.title = tr::lng_settings_sound_allowed(),
+			.icon = { &st::menuIconUnmute },
+			.toggled = soundAllowed
+				? soundAllowed->events_starting_with(allowed())
+				: rpl::single(allowed()) | rpl::type_erased,
+			.keywords = { u"sound"_q, u"audio"_q, u"mute"_q },
+		});
+
+		if (desktop) {
+			const auto changed = [=](ChangeType change) {
+				Core::App().saveSettingsDelayed();
+				Core::App().notifications().notifySettingsChanged(change);
+			};
+
+			desktop->toggledChanges(
+			) | rpl::filter([](bool checked) {
+				return (checked != Core::App().settings().desktopNotify());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().settings().setDesktopNotify(checked);
+				changed(ChangeType::DesktopEnabled);
+			}, desktop->lifetime());
+
+			if (sound) {
+				sound->toggledChanges(
+				) | rpl::filter([](bool checked) {
+					return (checked != Core::App().settings().soundNotify());
+				}) | rpl::on_next([=](bool checked) {
+					Core::App().settings().setSoundNotify(checked);
+					changed(ChangeType::SoundEnabled);
+				}, sound->lifetime());
+			}
+
+			if (flashbounce) {
+				flashbounce->toggledChanges(
+				) | rpl::filter([](bool checked) {
+					return (checked != Core::App().settings().flashBounceNotify());
+				}) | rpl::on_next([=](bool checked) {
+					Core::App().settings().setFlashBounceNotify(checked);
+					changed(ChangeType::FlashBounceEnabled);
+				}, flashbounce->lifetime());
+			}
+
+			Core::App().notifications().settingsChanged(
+			) | rpl::on_next([=](ChangeType change) {
+				if (change == ChangeType::DesktopEnabled) {
+					desktopToggles->fire(Core::App().settings().desktopNotify());
+				} else if (change == ChangeType::SoundEnabled) {
+					soundAllowed->fire(allowed());
+				} else if (change == ChangeType::FlashBounceEnabled) {
+					flashbounceToggles->fire(
+						Core::App().settings().flashBounceNotify());
+				}
+			}, desktop->lifetime());
+		}
 	});
 
 	builder.add([session](const WidgetContext &ctx) {
@@ -1026,55 +1077,7 @@ void BuildGlobalNotificationsSection(SectionBuilder &builder) {
 				}});
 		return SectionBuilder::WidgetToAdd{};
 	});
-
 	builder.addSkip();
-
-	if (desktop) {
-		const auto changed = [=](ChangeType change) {
-			Core::App().saveSettingsDelayed();
-			Core::App().notifications().notifySettingsChanged(change);
-		};
-
-		desktop->toggledChanges(
-		) | rpl::filter([](bool checked) {
-			return (checked != Core::App().settings().desktopNotify());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().settings().setDesktopNotify(checked);
-			changed(ChangeType::DesktopEnabled);
-		}, desktop->lifetime());
-
-		if (sound) {
-			sound->toggledChanges(
-			) | rpl::filter([](bool checked) {
-				return (checked != Core::App().settings().soundNotify());
-			}) | rpl::on_next([=](bool checked) {
-				Core::App().settings().setSoundNotify(checked);
-				changed(ChangeType::SoundEnabled);
-			}, sound->lifetime());
-		}
-
-		if (flashbounce) {
-			flashbounce->toggledChanges(
-			) | rpl::filter([](bool checked) {
-				return (checked != Core::App().settings().flashBounceNotify());
-			}) | rpl::on_next([=](bool checked) {
-				Core::App().settings().setFlashBounceNotify(checked);
-				changed(ChangeType::FlashBounceEnabled);
-			}, flashbounce->lifetime());
-		}
-
-		Core::App().notifications().settingsChanged(
-		) | rpl::on_next([=](ChangeType change) {
-			if (change == ChangeType::DesktopEnabled) {
-				desktopToggles->fire(Core::App().settings().desktopNotify());
-			} else if (change == ChangeType::SoundEnabled) {
-				soundAllowed->fire(allowed());
-			} else if (change == ChangeType::FlashBounceEnabled) {
-				flashbounceToggles->fire(
-					Core::App().settings().flashBounceNotify());
-			}
-		}, desktop->lifetime());
-	}
 }
 
 void BuildNotifyViewSection(SectionBuilder &builder) {
@@ -1170,53 +1173,56 @@ void BuildNotifyTypeSection(SectionBuilder &builder) {
 		controller->session().data().notifySettings().loadExceptions();
 	}
 
-	builder.add([controller, showOther](const WidgetContext &ctx) {
-		const auto privateChats = AddTypeButton(
-			ctx.container,
-			controller,
-			Data::DefaultNotify::User,
-			showOther);
-		const auto groups = AddTypeButton(
-			ctx.container,
-			controller,
-			Data::DefaultNotify::Group,
-			showOther);
-		const auto channels = AddTypeButton(
-			ctx.container,
-			controller,
-			Data::DefaultNotify::Broadcast,
-			showOther);
-		const auto reactions = AddReactionsButton(
-			ctx.container,
-			controller,
-			showOther);
-		if (ctx.highlights) {
-			ctx.highlights->push_back({
-				u"notifications/private"_q,
-				{ privateChats.get(), { .rippleShape = true } },
-			});
-			ctx.highlights->push_back({
-				u"notifications/groups"_q,
-				{ groups.get(), { .rippleShape = true } },
-			});
-			ctx.highlights->push_back({
-				u"notifications/channels"_q,
-				{ channels.get(), { .rippleShape = true } },
-			});
-			ctx.highlights->push_back({
-				u"notifications/reactions"_q,
-				{ reactions.get(), { .rippleShape = true } },
-			});
-		}
-		return SectionBuilder::WidgetToAdd{};
-	}, [] {
-		return SearchEntry{
-			.id = u"notifications/private"_q,
-			.title = tr::lng_notification_private_chats(tr::now),
-			.keywords = { u"private"_q, u"chats"_q, u"direct"_q },
-			.icon = { &st::menuIconProfile },
-		};
+	builder.group([&] {
+		builder.add([controller, showOther](const WidgetContext &ctx) {
+			const auto privateChats = AddTypeButton(
+				ctx.container,
+				controller,
+				Data::DefaultNotify::User,
+				showOther);
+			const auto groups = AddTypeButton(
+				ctx.container,
+				controller,
+				Data::DefaultNotify::Group,
+				showOther);
+			const auto channels = AddTypeButton(
+				ctx.container,
+				controller,
+				Data::DefaultNotify::Broadcast,
+				showOther);
+			const auto reactions = AddReactionsButton(
+				ctx.container,
+				controller,
+				showOther);
+			if (ctx.highlights) {
+				ctx.highlights->push_back({
+					u"notifications/private"_q,
+					{ privateChats.get(), { .rippleShape = true } },
+				});
+				ctx.highlights->push_back({
+					u"notifications/groups"_q,
+					{ groups.get(), { .rippleShape = true } },
+				});
+				ctx.highlights->push_back({
+					u"notifications/channels"_q,
+					{ channels.get(), { .rippleShape = true } },
+				});
+				ctx.highlights->push_back({
+					u"notifications/reactions"_q,
+					{ reactions.get(), { .rippleShape = true } },
+				});
+			}
+			return SectionBuilder::WidgetToAdd{};
+		}, [] {
+			return SearchEntry{
+				.id = u"notifications/private"_q,
+				.title = tr::lng_notification_private_chats(tr::now),
+				.keywords = { u"private"_q, u"chats"_q, u"direct"_q },
+				.icon = { &st::menuIconProfile },
+			};
+		});
 	});
+
 	builder.add(nullptr, [] {
 		return SearchEntry{
 			.id = u"notifications/groups"_q,
@@ -1244,164 +1250,182 @@ void BuildNotifyTypeSection(SectionBuilder &builder) {
 }
 
 void BuildEventNotificationsSection(SectionBuilder &builder) {
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 	builder.addDivider();
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 	builder.addSubsectionTitle({
 		.id = u"notifications/events"_q,
 		.title = tr::lng_settings_events_title(),
 		.keywords = { u"events"_q, u"joined"_q, u"pinned"_q },
 	});
 
-	const auto session = builder.session();
-	const auto &settings = Core::App().settings();
+	builder.group([&] {
+		const auto session = builder.session();
+		const auto &settings = Core::App().settings();
 
-	auto joinSilent = rpl::single(
-		session->api().contactSignupSilentCurrent().value_or(false)
-	) | rpl::then(session->api().contactSignupSilent());
+		auto joinSilent = rpl::single(
+			session->api().contactSignupSilentCurrent().value_or(false)
+		) | rpl::then(session->api().contactSignupSilent());
 
-	const auto joined = builder.addButton({
-		.id = u"notifications/events/joined"_q,
-		.title = tr::lng_settings_events_joined(),
-		.icon = { &st::menuIconInvite },
-		.toggled = std::move(joinSilent) | rpl::map([](bool s) { return !s; }),
-		.keywords = { u"joined"_q, u"contacts"_q, u"signup"_q },
+		const auto joined = builder.addButton({
+			.id = u"notifications/events/joined"_q,
+			.title = tr::lng_settings_events_joined(),
+			.icon = { &st::menuIconInvite },
+			.toggled = std::move(joinSilent) | rpl::map([](bool s) { return !s; }),
+			.keywords = { u"joined"_q, u"contacts"_q, u"signup"_q },
+		});
+		if (joined) {
+			joined->toggledChanges(
+			) | rpl::filter([=](bool enabled) {
+				const auto silent = session->api().contactSignupSilentCurrent();
+				return (enabled == silent.value_or(false));
+			}) | rpl::on_next([=](bool enabled) {
+				session->api().saveContactSignupSilent(!enabled);
+			}, joined->lifetime());
+		}
+
+		const auto pinned = builder.addButton({
+			.id = u"notifications/events/pinned"_q,
+			.title = tr::lng_settings_events_pinned(),
+			.icon = { &st::menuIconPin },
+			.toggled = rpl::single(
+				settings.notifyAboutPinned()
+			) | rpl::then(settings.notifyAboutPinnedChanges()),
+			.keywords = { u"pinned"_q, u"message"_q },
+		});
+		if (pinned) {
+			pinned->toggledChanges(
+			) | rpl::filter([=](bool notify) {
+				return (notify != Core::App().settings().notifyAboutPinned());
+			}) | rpl::on_next([=](bool notify) {
+				Core::App().settings().setNotifyAboutPinned(notify);
+				Core::App().saveSettingsDelayed();
+			}, pinned->lifetime());
+		}
 	});
-	if (joined) {
-		joined->toggledChanges(
-		) | rpl::filter([=](bool enabled) {
-			const auto silent = session->api().contactSignupSilentCurrent();
-			return (enabled == silent.value_or(false));
-		}) | rpl::on_next([=](bool enabled) {
-			session->api().saveContactSignupSilent(!enabled);
-		}, joined->lifetime());
-	}
-
-	const auto pinned = builder.addButton({
-		.id = u"notifications/events/pinned"_q,
-		.title = tr::lng_settings_events_pinned(),
-		.icon = { &st::menuIconPin },
-		.toggled = rpl::single(
-			settings.notifyAboutPinned()
-		) | rpl::then(settings.notifyAboutPinnedChanges()),
-		.keywords = { u"pinned"_q, u"message"_q },
-	});
-	if (pinned) {
-		pinned->toggledChanges(
-		) | rpl::filter([=](bool notify) {
-			return (notify != Core::App().settings().notifyAboutPinned());
-		}) | rpl::on_next([=](bool notify) {
-			Core::App().settings().setNotifyAboutPinned(notify);
-			Core::App().saveSettingsDelayed();
-		}, pinned->lifetime());
-	}
 }
 
 void BuildCallNotificationsSection(SectionBuilder &builder) {
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 	builder.addDivider();
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 	builder.addSubsectionTitle({
 		.id = u"notifications/calls"_q,
 		.title = tr::lng_settings_notifications_calls_title(),
 		.keywords = { u"calls"_q, u"incoming"_q, u"receive"_q },
 	});
 
-	const auto session = builder.session();
-	const auto authorizations = &session->api().authorizations();
-	authorizations->reload();
+	builder.group([&] {
+		const auto session = builder.session();
+		const auto authorizations = &session->api().authorizations();
+		authorizations->reload();
 
-	const auto acceptCalls = builder.addButton({
-		.id = u"notifications/calls/accept"_q,
-		.title = tr::lng_settings_call_accept_calls(),
-		.icon = { &st::menuIconCallsReceive },
-		.toggled = authorizations->callsDisabledHereValue()
-			| rpl::map([](bool disabled) { return !disabled; }),
-		.keywords = { u"calls"_q, u"receive"_q, u"incoming"_q },
+		const auto acceptCalls = builder.addButton({
+			.id = u"notifications/calls/accept"_q,
+			.title = tr::lng_settings_call_accept_calls(),
+			.icon = { &st::menuIconCallsReceive },
+			.toggled = authorizations->callsDisabledHereValue()
+				| rpl::map([](bool disabled) { return !disabled; }),
+			.keywords = { u"calls"_q, u"receive"_q, u"incoming"_q },
+		});
+		if (acceptCalls) {
+			acceptCalls->toggledChanges(
+			) | rpl::filter([=](bool toggled) {
+				return (toggled == authorizations->callsDisabledHere());
+			}) | rpl::on_next([=](bool toggled) {
+				authorizations->toggleCallsDisabledHere(!toggled);
+			}, acceptCalls->lifetime());
+		}
 	});
-	if (acceptCalls) {
-		acceptCalls->toggledChanges(
-		) | rpl::filter([=](bool toggled) {
-			return (toggled == authorizations->callsDisabledHere());
-		}) | rpl::on_next([=](bool toggled) {
-			authorizations->toggleCallsDisabledHere(!toggled);
-		}, acceptCalls->lifetime());
-	}
 }
 
 void BuildBadgeCounterSection(SectionBuilder &builder) {
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 	builder.addDivider();
-	builder.addSkip(st::settingsCheckboxesSkip);
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsCheckboxesSkip);
+	}
 	builder.addSubsectionTitle({
 		.id = u"notifications/badge"_q,
 		.title = tr::lng_settings_badge_title(),
 		.keywords = { u"badge"_q, u"counter"_q, u"unread"_q },
 	});
 
-	const auto session = builder.session();
-	const auto &settings = Core::App().settings();
+	builder.group([&] {
+		const auto session = builder.session();
+		const auto &settings = Core::App().settings();
 
-	const auto muted = builder.addButton({
-		.id = u"notifications/include-muted-chats"_q,
-		.title = tr::lng_settings_include_muted(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings.includeMutedCounter()),
-		.keywords = { u"muted"_q, u"badge"_q, u"counter"_q },
+		const auto muted = builder.addButton({
+			.id = u"notifications/include-muted-chats"_q,
+			.title = tr::lng_settings_include_muted(),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = rpl::single(settings.includeMutedCounter()),
+			.keywords = { u"muted"_q, u"badge"_q, u"counter"_q },
+		});
+
+		const auto hasFolders = session->data().chatsFilters().has();
+		const auto mutedFolders = hasFolders ? builder.addButton({
+			.id = u"notifications/badge/muted_folders"_q,
+			.title = tr::lng_settings_include_muted_folders(),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = rpl::single(settings.includeMutedCounterFolders()),
+			.keywords = { u"muted"_q, u"folders"_q },
+		}) : nullptr;
+
+		const auto count = builder.addButton({
+			.id = u"notifications/count-unread-messages"_q,
+			.title = tr::lng_settings_count_unread(),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = rpl::single(settings.countUnreadMessages()),
+			.keywords = { u"unread"_q, u"messages"_q, u"count"_q },
+		});
+
+		const auto changed = [=](ChangeType change) {
+			Core::App().saveSettingsDelayed();
+			Core::App().notifications().notifySettingsChanged(change);
+		};
+
+		if (muted) {
+			muted->toggledChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked != Core::App().settings().includeMutedCounter());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().settings().setIncludeMutedCounter(checked);
+				changed(ChangeType::IncludeMuted);
+			}, muted->lifetime());
+		}
+
+		if (mutedFolders) {
+			mutedFolders->toggledChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked
+					!= Core::App().settings().includeMutedCounterFolders());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().settings().setIncludeMutedCounterFolders(checked);
+				changed(ChangeType::IncludeMuted);
+			}, mutedFolders->lifetime());
+		}
+
+		if (count) {
+			count->toggledChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked != Core::App().settings().countUnreadMessages());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().settings().setCountUnreadMessages(checked);
+				changed(ChangeType::CountMessages);
+			}, count->lifetime());
+		}
 	});
-
-	const auto hasFolders = session->data().chatsFilters().has();
-	const auto mutedFolders = hasFolders ? builder.addButton({
-		.id = u"notifications/badge/muted_folders"_q,
-		.title = tr::lng_settings_include_muted_folders(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings.includeMutedCounterFolders()),
-		.keywords = { u"muted"_q, u"folders"_q },
-	}) : nullptr;
-
-	const auto count = builder.addButton({
-		.id = u"notifications/count-unread-messages"_q,
-		.title = tr::lng_settings_count_unread(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings.countUnreadMessages()),
-		.keywords = { u"unread"_q, u"messages"_q, u"count"_q },
-	});
-
-	const auto changed = [=](ChangeType change) {
-		Core::App().saveSettingsDelayed();
-		Core::App().notifications().notifySettingsChanged(change);
-	};
-
-	if (muted) {
-		muted->toggledChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked != Core::App().settings().includeMutedCounter());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().settings().setIncludeMutedCounter(checked);
-			changed(ChangeType::IncludeMuted);
-		}, muted->lifetime());
-	}
-
-	if (mutedFolders) {
-		mutedFolders->toggledChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked
-				!= Core::App().settings().includeMutedCounterFolders());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().settings().setIncludeMutedCounterFolders(checked);
-			changed(ChangeType::IncludeMuted);
-		}, mutedFolders->lifetime());
-	}
-
-	if (count) {
-		count->toggledChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked != Core::App().settings().countUnreadMessages());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().settings().setCountUnreadMessages(checked);
-			changed(ChangeType::CountMessages);
-		}, count->lifetime());
-	}
 }
 
 void BuildSystemIntegrationAndAdvancedSection(SectionBuilder &builder) {
@@ -1418,9 +1442,13 @@ void BuildSystemIntegrationAndAdvancedSection(SectionBuilder &builder) {
 	}();
 
 	if (nativeText) {
-		builder.addSkip(st::settingsCheckboxesSkip);
+		if (!builder.groupedLayout()) {
+			builder.addSkip(st::settingsCheckboxesSkip);
+		}
 		builder.addDivider();
-		builder.addSkip(st::settingsCheckboxesSkip);
+		if (!builder.groupedLayout()) {
+			builder.addSkip(st::settingsCheckboxesSkip);
+		}
 		builder.addSubsectionTitle({
 			.id = u"notifications/native"_q,
 			.title = tr::lng_settings_native_title(),
@@ -1429,13 +1457,18 @@ void BuildSystemIntegrationAndAdvancedSection(SectionBuilder &builder) {
 	}
 
 	const auto &settings = Core::App().settings();
-	const auto native = nativeText ? builder.addButton({
-		.id = u"notifications/use-native"_q,
-		.title = std::move(nativeText),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings.nativeNotifications()),
-		.keywords = { u"native"_q, u"system"_q, u"windows"_q },
-	}) : nullptr;
+	auto native = (Ui::SettingsButton*)nullptr;
+	if (nativeText) {
+		builder.group([&] {
+			native = builder.addButton({
+				.id = u"notifications/use-native"_q,
+				.title = std::move(nativeText),
+				.st = &st::settingsButtonNoIcon,
+				.toggled = rpl::single(settings.nativeNotifications()),
+				.keywords = { u"native"_q, u"system"_q, u"windows"_q },
+			});
+		});
+	}
 
 	if (Core::App().notifications().nativeEnforced()) {
 		return;
@@ -1601,7 +1634,10 @@ void BuildSystemIntegrationAndAdvancedSection(SectionBuilder &builder) {
 }
 
 void BuildNotificationsSectionContent(SectionBuilder &builder) {
-	builder.addSkip(st::settingsPrivacySkip);
+	builder.enableGroupedLayout();
+	if (!builder.groupedLayout()) {
+		builder.addSkip(st::settingsPrivacySkip);
+	}
 
 	BuildMultiAccountSection(builder);
 	BuildGlobalNotificationsSection(builder);
@@ -1620,6 +1656,10 @@ public:
 		not_null<Window::SessionController*> controller);
 
 	[[nodiscard]] rpl::producer<QString> title() override;
+	bool paintOuter(
+		not_null<QWidget*> outer,
+		int maxVisibleHeight,
+		QRect clip) override;
 
 private:
 	void setupContent();
@@ -1642,6 +1682,18 @@ Notifications::Notifications(
 	not_null<Window::SessionController*> controller)
 : Section(parent, controller) {
 	setupContent();
+}
+
+bool Notifications::paintOuter(
+		not_null<QWidget*> outer,
+		int maxVisibleHeight,
+		QRect clip) {
+	if (!Platform::IsWindows()) {
+		return false;
+	}
+	auto p = QPainter(outer);
+	p.fillRect(clip, st::boxSearchBg);
+	return true;
 }
 
 rpl::producer<QString> Notifications::title() {

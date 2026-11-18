@@ -38,6 +38,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/localstorage.h"
 #include "support/support_helper.h"
 #include "ui/empty_userpic.h"
+#include "ui/style/style_core_scale.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
 #include "ui/power_saving.h"
@@ -87,6 +88,72 @@ const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 		&& !history->amMonoforumAdmin();
 }
 
+[[nodiscard]] bool IsMacChatRow(const PaintContext &context) {
+	return Platform::IsWindows()
+		&& !context.search
+		&& context.st == &st::defaultDialogRow;
+}
+
+[[nodiscard]] QRect PaintMacUnreadBadge(
+		QPainter &p,
+		const QString &text,
+		int right,
+		const PaintContext &context,
+		bool muted) {
+	const auto font = st::dialogsUnreadFont;
+	const auto height = font->height + style::ConvertScale(7);
+	const auto textWidth = font->width(text);
+	const auto width = std::max(height, textWidth + style::ConvertScale(8));
+	const auto rect = QRect(
+		right - width,
+		context.st->height - height - context.st->padding.bottom(),
+		width,
+		height);
+	p.save();
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setPen(Qt::NoPen);
+	p.setBrush(muted
+		? (context.active
+			? st::dialogsUnreadBgMutedActive
+			: context.selected
+			? st::dialogsUnreadBgMutedOver
+			: st::dialogsUnreadBgMuted)
+		: (context.active
+			? st::dialogsUnreadBgActive
+			: context.selected
+			? st::dialogsUnreadBgOver
+			: st::dialogsUnreadBg));
+	p.drawRoundedRect(rect, height / 2., height / 2.);
+	p.setFont(font);
+	p.setPen(context.active
+		? st::dialogsUnreadFgActive
+		: context.selected
+		? st::dialogsUnreadFgOver
+		: st::dialogsUnreadFg);
+	p.drawText(
+		rect.x() + (width - textWidth) / 2,
+		rect.y() + (height - font->height) / 2 + font->ascent,
+		text);
+	p.restore();
+	return rect;
+}
+
+void PaintPinnedIcon(
+		QPainter &p,
+		const style::icon &icon,
+		int right,
+		int top,
+		const PaintContext &context) {
+	const auto macRow = IsMacChatRow(context);
+	icon.paint(
+		p,
+		right - icon.width() - (macRow ? style::ConvertScale(1) : 0),
+		macRow
+			? context.st->height - icon.height() - context.st->padding.bottom()
+			: top,
+		context.width);
+}
+
 void PaintRowTopRight(
 		QPainter &p,
 		const QString &text,
@@ -105,7 +172,9 @@ void PaintRowTopRight(
 		: st::dialogsDateFg);
 	p.drawText(
 		rectForName.left() + rectForName.width() + st::dialogsDateSkip,
-		rectForName.top() + st::semiboldFont->height - st::normalFont->descent,
+		rectForName.top() + (IsMacChatRow(context)
+			? style::ConvertScale(1) + st::dialogsDateFont->ascent
+			: st::dialogsNameFont->ascent),
 		text);
 }
 
@@ -232,7 +301,9 @@ int PaintBadges(
 			badgesState.unreadCounter,
 			badgesState.mention || badgesState.reaction || badgesState.poll,
 			narrow);
-		const auto badge = PaintUnreadBadge(p, counter, right, top, st);
+		const auto badge = (!narrow && IsMacChatRow(context))
+			? PaintMacUnreadBadge(p, counter, right, context, st.muted)
+			: PaintUnreadBadge(p, counter, right, top, st);
 		right -= badge.width() + st.padding;
 		++painted;
 	} else if (const auto used = PaintRightButton(p, context)) {
@@ -242,7 +313,7 @@ int PaintBadges(
 			st::dialogsPinnedIcon,
 			context.active,
 			context.selected);
-		icon.paint(p, right - icon.width(), pinnedIconTop, context.width);
+		PaintPinnedIcon(p, icon, right, pinnedIconTop, context);
 		right -= icon.width() + st::dialogsUnreadPadding;
 	}
 	if ((!narrow || (painted < 2))
@@ -594,7 +665,7 @@ void PaintRow(
 		nameleft,
 		context.st->nameTop,
 		namewidth,
-		st::semiboldFont->height);
+		st::dialogsNameFont->height);
 
 	const auto promoted = (history && history->useTopPromotion())
 		&& !context.search;
@@ -707,11 +778,12 @@ void PaintRow(
 				st::dialogsPinnedIcon,
 				context.active,
 				context.selected);
-			icon.paint(
+			PaintPinnedIcon(
 				p,
-				context.width - context.st->padding.right() - icon.width(),
+				icon,
+				context.width - context.st->padding.right(),
 				texttop,
-				context.width);
+				context);
 			availableWidth -= icon.width() + st::dialogsUnreadPadding;
 		}
 
@@ -805,7 +877,12 @@ void PaintRow(
 				st::dialogsPinnedIcon,
 				context.active,
 				context.selected);
-			icon.paint(p, context.width - context.st->padding.right() - icon.width(), texttop, context.width);
+			PaintPinnedIcon(
+				p,
+				icon,
+				context.width - context.st->padding.right(),
+				texttop,
+				context);
 			availableWidth -= icon.width() + st::dialogsUnreadPadding;
 		}
 
@@ -845,11 +922,12 @@ void PaintRow(
 			st::dialogsPinnedIcon,
 			context.active,
 			context.selected);
-		icon.paint(
+		PaintPinnedIcon(
 			p,
-			context.width - context.st->padding.right() - icon.width(),
+			icon,
+			context.width - context.st->padding.right(),
 			texttop,
-			context.width);
+			context);
 	}
 	const auto sendStateIcon = [&]() -> const style::icon* {
 		if (!thread) {
@@ -892,7 +970,7 @@ void PaintRow(
 		sendStateIcon->paint(p, rectForName.topLeft() + QPoint(rectForName.width(), 0), context.width);
 	}
 
-	p.setFont(st::semiboldFont);
+	p.setFont(st::dialogsNameFont);
 	const auto paintPeerBadge = [&](int rowNameWidth) {
 		const auto badgeWidth = rowBadge.drawGetWidth(p, {
 			.peer = from,
@@ -944,12 +1022,12 @@ void PaintRow(
 			: (flags & Flag::MyNotes)
 			? tr::lng_my_notes(tr::now)
 			: tr::lng_hidden_author_messages(tr::now);
-		const auto textWidth = st::semiboldFont->width(text);
+		const auto textWidth = st::dialogsNameFont->width(text);
 		if (!context.search && (flags & Flag::VerifyCodes)) {
 			paintPeerBadge(textWidth);
 		}
 		if (textWidth > rectForName.width()) {
-			text = st::semiboldFont->elided(text, rectForName.width());
+			text = st::dialogsNameFont->elided(text, rectForName.width());
 		}
 		p.setPen(context.active
 			? st::dialogsNameFgActive
@@ -1004,7 +1082,7 @@ void PaintRow(
 				+ badgeWidth
 				+ st::dialogsMuteIconSkip;
 			const auto muteTop = rectForName.top()
-				+ (st::semiboldFont->height - muteIcon.height()) / 2;
+				+ (st::dialogsNameFont->height - muteIcon.height()) / 2;
 			muteIcon.paint(p, muteLeft, muteTop, context.width);
 		}
 	} else if (hiddenSenderInfo) {
@@ -1215,11 +1293,17 @@ void RowPainter::Paint(
 		| (row->topicJumpRipple() ? Flag::TopicJumpRipple : Flag(0));
 	const auto paintItemCallback = [&](int nameleft, int namewidth) {
 		const auto texttop = context.st->textTop;
+		const auto twoLines = Platform::IsWindows()
+			&& !context.search
+			&& context.st == &st::defaultDialogRow;
+		const auto badgeTop = twoLines
+			? (context.st->height - context.st->padding.bottom() - st::dialogsUnreadHeight)
+			: texttop;
 		const auto availableWidth = PaintWideCounter(
 			p,
 			context,
 			badgesState,
-			texttop,
+			badgeTop,
 			namewidth,
 			displayPinnedIcon);
 		const auto &color = context.active
@@ -1248,6 +1332,10 @@ void RowPainter::Paint(
 			? &thread->lastItemDialogsView()
 			: nullptr;
 		if (view) {
+			if (twoLines) {
+				rect.setHeight(2 * st::dialogsTextFont->height
+					+ style::ConvertScale(2));
+			}
 			const auto forum = (peer && context.st->topicsHeight)
 				? peer->forum()
 				: nullptr;

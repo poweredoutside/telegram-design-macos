@@ -1,0 +1,6 @@
+#pragma once
+
+#define TELEGA_VERSION "@telega_version@"
+#define TELEGA_FILE_VERSION "@telega_version@.0"
+#define TELEGA_FILE_VERSION_NUMBERS @telega_file_version_numbers@,0
+#define TELEGA_UPDATE_VERSION @telega_update_version@

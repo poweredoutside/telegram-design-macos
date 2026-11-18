@@ -826,9 +826,7 @@ void ChatBackground::setPreparedAfterPaper(QImage image) {
 		&& (Data::IsDefaultWallPaper(_paper)
 			|| Data::details::IsTestingDefaultWallPaper(_paper))) {
 		auto background = QImage(1, 1, QImage::Format_RGB32);
-		background.fill(nightMode()
-			? QColor(u"#1e1e1e"_q)
-			: QColor(u"#f5f5f7"_q));
+		background.fill(st::windowBg->c);
 		setPrepared(background, background, QImage());
 		return;
 	}

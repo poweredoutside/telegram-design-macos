@@ -24,7 +24,21 @@ add_subdirectory(codegen)
 get_filename_component(src_loc SourceFiles REALPATH)
 get_filename_component(res_loc Resources REALPATH)
 
+set(telega_version_file "${CMAKE_CURRENT_SOURCE_DIR}/build/telega_version")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${telega_version_file}")
+file(READ "${telega_version_file}" telega_version)
+string(STRIP "${telega_version}" telega_version)
+if (NOT telega_version MATCHES "^(0|[1-9][0-9]?)\\.(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)$")
+    message(FATAL_ERROR "Expected Telega version MAJOR.MINOR.PATCH in ${telega_version_file}.")
+endif()
+math(EXPR telega_update_version "10000000 + ${CMAKE_MATCH_1} * 1000000 + ${CMAKE_MATCH_2} * 1000 + ${CMAKE_MATCH_3}")
+string(REPLACE "." "," telega_file_version_numbers "${telega_version}")
+configure_file(cmake/telega_version.h.in gen/telega_version.h @ONLY)
+
 include(cmake/telegram_options.cmake)
+if (DESKTOP_APP_SPECIAL_TARGET STREQUAL "win64")
+    include(cmake/bundle_tg_ws_proxy.cmake)
+endif()
 include(cmake/lib_ffmpeg.cmake)
 include(cmake/lib_stripe.cmake)
 include(cmake/lib_tgcalls.cmake)
@@ -60,7 +74,29 @@ if (WIN32)
 endif()
 
 include(cmake/generate_update_keys.cmake)
-generate_update_keys(Telegram ${res_loc}/update)
+set(update_keys_dir "${res_loc}/update")
+set(macos_design_update_feed false)
+if (DESKTOP_APP_SPECIAL_TARGET STREQUAL "win64")
+    set(macos_design_update_feed true)
+endif()
+if (macos_design_update_feed AND NOT DESKTOP_APP_DISABLE_AUTOUPDATE)
+    set(TDESKTOP_MACOS_DESIGN_UPDATE_KEYS_DIR "" CACHE PATH "Public trust bundle for GitHub fork updates.")
+    if (NOT TDESKTOP_MACOS_DESIGN_UPDATE_KEYS_DIR)
+        message(FATAL_ERROR "Set TDESKTOP_MACOS_DESIGN_UPDATE_KEYS_DIR for signed GitHub updates, or disable auto-update.")
+    endif()
+    set(update_keys_dir "${TDESKTOP_MACOS_DESIGN_UPDATE_KEYS_DIR}")
+    foreach (trust_file root-public.pem manifest.min.json manifest.sig)
+        if (NOT EXISTS "${update_keys_dir}/${trust_file}")
+            message(FATAL_ERROR "Missing fork update trust file: ${update_keys_dir}/${trust_file}")
+        endif()
+    endforeach()
+    file(SHA256 "${res_loc}/update/root-public.pem" official_root)
+    file(SHA256 "${update_keys_dir}/root-public.pem" fork_root)
+    if (fork_root STREQUAL official_root)
+        message(FATAL_ERROR "The GitHub update feed requires a separate fork root key.")
+    endif()
+endif()
+generate_update_keys(Telegram "${update_keys_dir}" "${macos_design_update_feed}")
 
 if (DESKTOP_APP_TEST_APPS OR TDESKTOP_BUILD_UPDATE_TESTS)
     include(cmake/test_update_verify.cmake)
@@ -920,6 +956,8 @@ PRIVATE
     dialogs/suggestions/suggestion_userpic_setup.cpp
     dialogs/dialogs_widget.cpp
     dialogs/dialogs_widget.h
+    dialogs/ui/dialogs_navigation_list.cpp
+    dialogs/ui/dialogs_navigation_list.h
     editor/audio_track_timeline.cpp
     editor/audio_track_timeline.h
     editor/color_picker.cpp
@@ -1869,6 +1907,8 @@ PRIVATE
     platform/win/file_utilities_win.cpp
     platform/win/file_utilities_win.h
     platform/win/launcher_win.cpp
+    platform/win/bundled_tg_ws_proxy.cpp
+    platform/win/bundled_tg_ws_proxy.h
     platform/win/launcher_win.h
     platform/win/integration_win.cpp
     platform/win/integration_win.h
@@ -1994,6 +2034,8 @@ PRIVATE
     settings/sections/settings_local_storage.h
     settings/sections/settings_main.cpp
     settings/sections/settings_main.h
+    settings/sections/settings_macos_general.cpp
+    settings/sections/settings_macos_general.h
     settings/settings_recent_searches.cpp
     settings/settings_recent_searches.h
     settings/settings_search.cpp
@@ -2901,8 +2943,6 @@ target_include_directories(Telegram PRIVATE ${src_loc})
 
 target_compile_definitions(Telegram
 PRIVATE
-    TDESKTOP_API_ID=${TDESKTOP_API_ID}
-    TDESKTOP_API_HASH=${TDESKTOP_API_HASH}
     G_LOG_DOMAIN="Telegram"
 )
 
@@ -3001,6 +3041,9 @@ target_prepare_qrc(Telegram)
 if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_winstore)
     add_executable(Updater WIN32)
     init_non_host_target(Updater)
+    if (macos_design_update_feed)
+        target_compile_definitions(Updater PRIVATE TDESKTOP_MACOS_DESIGN_UPDATE_FEED)
+    endif()
 
     add_dependencies(Telegram Updater)
 
@@ -3017,6 +3060,7 @@ if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_wins
     )
 
     if (WIN32)
+        target_sources(Updater PRIVATE "${res_loc}/winrc/Updater.rc")
         get_filename_component(lib_base_loc lib_base REALPATH)
         nice_target_sources(Updater ${lib_base_loc}
         PRIVATE
@@ -3079,6 +3123,10 @@ if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_wins
 
         if (DESKTOP_APP_USE_PACKAGED)
             target_compile_definitions(Packer PRIVATE PACKER_USE_PACKAGED)
+        endif()
+        if (macos_design_update_feed)
+            target_compile_definitions(Packer PRIVATE PACKER_DISABLE_PRIVATE)
+            target_include_directories(Packer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gen")
         endif()
 
         if (WIN32 AND DESKTOP_APP_WIN7_BASELINE)

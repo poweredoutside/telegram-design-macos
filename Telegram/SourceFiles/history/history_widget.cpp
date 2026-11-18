@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_widget.h"
 
+#include "mainwidget.h"
+
 #include "api/api_compose_with_ai.h"
 #include "api/api_editing.h"
 #include "api/api_bot.h"
@@ -187,6 +189,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/requests_bar.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/chat/chat_style.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/elastic_scroll.h"
 #include "ui/widgets/popup_menu.h"
@@ -203,6 +206,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "window/window_slide_animation.h"
 #include "window/window_peer_menu.h"
+#include "window/themes/window_theme_glass.h"
 #include "inline_bots/inline_results_widget.h"
 #include "inline_bots/bot_attach_web_view.h"
 #include "info/profile/info_profile_values.h" // SharedMediaCountValue.
@@ -246,6 +250,20 @@ constexpr auto kCommonModifiers = 0
 	| Qt::MetaModifier
 	| Qt::ControlModifier;
 const auto kPsaAboutPrefix = "cloud_lng_about_psa_";
+
+[[nodiscard]] int ComposePadding() {
+	return Platform::IsWindows()
+		? st::historyComposeMacInset
+		: st::historySendPadding;
+}
+
+[[nodiscard]] int ComposeTopPadding() {
+	return Platform::IsWindows() ? 0 : st::historySendPadding;
+}
+
+[[nodiscard]] int ComposeVerticalPadding() {
+	return ComposeTopPadding() + ComposePadding();
+}
 
 [[nodiscard]] rpl::producer<PeerData*> ActivePeerValue(
 		not_null<Window::SessionController*> controller) {
@@ -328,7 +346,8 @@ HistoryWidget::HistoryWidget(
 , _reportMessages(this, QString(), st::historyComposeButton)
 , _attachToggle(this,
 	Platform::IsWindows() ? st::historyAttachMac : st::historyAttach)
-, _tabbedSelectorToggle(this, st::historyAttachEmoji)
+, _tabbedSelectorToggle(this, Platform::IsWindows()
+	? st::historyAttachEmojiMac : st::historyAttachEmoji)
 , _botKeyboardShow(this, st::historyBotKeyboardShow)
 , _botKeyboardHide(this, st::historyBotKeyboardHide)
 , _botCommandStart(this, st::historyBotCommandStart)
@@ -340,7 +359,7 @@ HistoryWidget::HistoryWidget(
 , _forwardPanel(std::make_unique<ForwardPanel>([=] { updateField(); }))
 , _field(
 	this,
-	st::historyComposeField,
+	Platform::IsWindows() ? st::historyComposeFieldMac : st::historyComposeField,
 	Ui::InputField::Mode::MultiLine,
 	tr::lng_message_ph())
 , _richDraftPreview(std::make_unique<HistoryView::Controls::RichDraftPreview>(
@@ -590,7 +609,9 @@ HistoryWidget::HistoryWidget(
 		showPremiumToast(document);
 		return false;
 	});
-	InitMessageFieldFade(_field, st::historyComposeField.textBg);
+	if (!Platform::IsWindows()) {
+		InitMessageFieldFade(_field, st::historyComposeField.textBg);
+	}
 
 	setupFastButtonMode();
 	initAiButton();
@@ -621,6 +642,11 @@ HistoryWidget::HistoryWidget(
 		updateFieldSize();
 		moveFieldControls();
 	}, _send->lifetime());
+	if (Platform::IsWindows()) {
+		Window::Theme::GlassStyleValue() | rpl::on_next([=] {
+			updateField();
+		}, lifetime());
+	}
 
 	_keyboard->sendCommandRequests(
 	) | rpl::on_next([=](Bot::SendCommandRequest r) {
@@ -6652,7 +6678,7 @@ void HistoryWidget::updateOverStates(QPoint pos) {
 	const auto isReadyToForward = readyToForward();
 	const auto detailsRect = QRect(
 		0,
-		_field->y() - st::historySendPadding - st::historyReplyHeight,
+		_field->y() - ComposeTopPadding() - st::historyReplyHeight,
 		width() - _fieldBarCancel->width(),
 		st::historyReplyHeight);
 	const auto hasWebPage = !!_previewDrawPreview;
@@ -7018,6 +7044,7 @@ bool HistoryWidget::showStopButton() const {
 void HistoryWidget::updateSendButtonType() {
 	using Type = Ui::SendButton::Type;
 
+	const auto wasInField = sendButtonInField();
 	const auto type = showStopButton()
 		? Type::Stop
 		: computeSendButtonType();
@@ -7075,6 +7102,10 @@ void HistoryWidget::updateSendButtonType() {
 		&& (type == Type::Send
 			|| type == Type::Record
 			|| type == Type::Round));
+	if (wasInField != sendButtonInField()) {
+		updateFieldSize();
+		updateField();
+	}
 
 	if (delay != 0) {
 		base::call_delayed(
@@ -7490,11 +7521,19 @@ int HistoryWidget::fieldHeight() const {
 	}
 	return (_canSendTexts || _editMsgId)
 		? _field->height()
-		: (st::historySendSize.height() - 2 * st::historySendPadding);
+		: Platform::IsWindows()
+		? st::historyComposeFieldMac.heightMin
+		: (st::historySendSize.height() - ComposeVerticalPadding());
 }
 
 bool HistoryWidget::fieldOrDisabledShown() const {
 	return !_field->isHidden() || !_richDraftPreview->isHidden() || _fieldDisabled;
+}
+
+bool HistoryWidget::sendButtonInField() const {
+	return Platform::IsWindows()
+		&& (_send->type() == Ui::SendButton::Type::Send
+			|| _send->type() == Ui::SendButton::Type::Save);
 }
 
 bool HistoryWidget::fieldHasSendText() const {
@@ -7684,8 +7723,10 @@ void HistoryWidget::moveFieldControls() {
 // (_attachDocument|_attachPhoto) _field (_ttlInfo) (_scheduled) (_giftToUser) (_silent|_cmdStart|_kbShow) (_toggleSuggestPost) (_kbHide|_tabbedSelectorToggle) _send
 // (_botStart|_unblock|_joinChannel|_muteUnmute|_reportMessages)
 
-	auto buttonsBottom = bottom - _attachToggle->height();
-	auto left = st::historySendRight;
+	const auto mac = Platform::IsWindows();
+	auto buttonsBottom = bottom - _attachToggle->height()
+		- (mac ? ComposePadding() : 0);
+	auto left = mac ? st::historyComposeMacInset : st::historySendRight;
 	if (_botMenu) {
 		const auto skip = st::historyBotMenuSkip;
 		_botMenu->moveToLeft(left + skip, buttonsBottom + skip);
@@ -7696,20 +7737,31 @@ void HistoryWidget::moveFieldControls() {
 	}
 	_attachToggle->moveToLeft(left, buttonsBottom);
 	left += _attachToggle->width();
+	if (mac) {
+		left += st::historyComposeMacGap;
+	}
 	if (_sendAs) {
 		_sendAs->moveToLeft(left, buttonsBottom);
 		left += _sendAs->width();
 	}
-	const auto fieldTop = bottom - fieldHeight() - st::historySendPadding;
+	const auto fieldTop = bottom - fieldHeight() - ComposePadding();
 	_field->moveToLeft(left, fieldTop);
 	_richDraftPreview->moveToLeft(left, fieldTop);
 	if (_fieldDisabled) {
 		_fieldDisabled->moveToLeft(
 			left,
-			bottom - fieldHeight() - st::historySendPadding);
+			bottom - fieldHeight() - ComposePadding());
 	}
-	auto right = st::historySendRight;
-	_send->moveToRight(right, buttonsBottom); right += _send->width();
+	auto right = mac
+		? st::historyComposeMacInset
+			+ (sendButtonInField() ? st::historyComposeMacSendInset : 0)
+		: st::historySendRight;
+	_send->moveToRight(right, buttonsBottom);
+	right += _send->width();
+	if (mac) {
+		right += sendButtonInField()
+			? st::historyComposeMacSendGap : st::historyComposeMacGap;
+	}
 	_voiceRecordBar->moveToLeft(0, bottom - _voiceRecordBar->height());
 	_tabbedSelectorToggle->moveToRight(right, buttonsBottom);
 	_botKeyboardHide->moveToRight(right, buttonsBottom);
@@ -7745,9 +7797,9 @@ void HistoryWidget::moveFieldControls() {
 
 	_fieldBarCancel->moveToRight(
 		0,
-		_field->y() - st::historySendPadding - _fieldBarCancel->height());
+		_field->y() - ComposeTopPadding() - _fieldBarCancel->height());
 	if (_inlineResults) {
-		_inlineResults->moveBottom(_field->y() - st::historySendPadding);
+		_inlineResults->moveBottom(_field->y() - ComposeTopPadding());
 	}
 	if (_tabbedPanel) {
 		_tabbedPanel->moveBottomRight(buttonsBottom, width());
@@ -7780,6 +7832,14 @@ void HistoryWidget::updateFieldSize() {
 		- st::historySendRight
 		- _send->width()
 		- _tabbedSelectorToggle->width();
+	if (Platform::IsWindows()) {
+		fieldWidth -= 2 * st::historyComposeMacInset
+			+ st::historyComposeMacGap
+			+ (sendButtonInField()
+				? st::historyComposeMacSendInset + st::historyComposeMacSendGap
+				: st::historyComposeMacGap)
+			- st::historySendRight;
+	}
 	if (_botMenu) {
 		fieldWidth -= st::historyBotMenuSkip + _botMenu->width();
 	}
@@ -7809,8 +7869,11 @@ void HistoryWidget::updateFieldSize() {
 	}
 
 	if (_fieldDisabled) {
-		_fieldDisabled->resize(width(), st::historySendSize.height());
+		_fieldDisabled->resize(
+			Platform::IsWindows() ? std::max(1, fieldWidth) : width(),
+			Platform::IsWindows() ? fieldHeight() : st::historySendSize.height());
 	}
+	fieldWidth = std::max(1, fieldWidth);
 	if (_field->width() != fieldWidth) {
 		_field->resize(fieldWidth, _field->height());
 	}
@@ -8736,7 +8799,7 @@ void HistoryWidget::updateHistoryGeometry(
 		newScrollHeight -= _unblock->height();
 	} else {
 		if (editingMessage() || _canSendMessages) {
-			newScrollHeight -= (fieldHeight() + 2 * st::historySendPadding);
+			newScrollHeight -= (fieldHeight() + ComposeVerticalPadding());
 		} else if (_sendRestriction) {
 			newScrollHeight -= _sendRestriction->height();
 		}
@@ -9303,7 +9366,7 @@ int HistoryWidget::computeMaxFieldHeight() const {
 			|| _previewDrawPreview)
 			? st::historyReplyHeight
 			: 0)
-		- (2 * st::historySendPadding)
+		- (ComposeVerticalPadding())
 		- st::historyReplyHeight; // at least this height for history.
 	return std::min(st::historyComposeFieldMaxHeight, available);
 }
@@ -11500,8 +11563,8 @@ void HistoryWidget::updateField() {
 void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	_repaintFieldScheduled = false;
 
-	auto backy = _field->y() - st::historySendPadding;
-	auto backh = fieldHeight() + 2 * st::historySendPadding;
+	auto backy = _field->y() - ComposeTopPadding();
+	auto backh = fieldHeight() + ComposeVerticalPadding();
 	auto hasForward = readyToForward();
 	auto drawMsgText = (_editMsgId || _replyTo) ? _replyEditMsg : _kbReplyTo;
 	if (_editMsgId
@@ -11515,7 +11578,53 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	}
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
-	p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
+	if (!Platform::IsWindows() || _field->isHidden() || isRecording()) {
+		p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
+	} else if (backy < _field->y() - ComposeTopPadding()) {
+		p.fillRect(myrtlrect(0, backy, width(),
+			_field->y() - ComposeTopPadding() - backy), st::historyReplyBg);
+	}
+	if (Platform::IsWindows() && !_field->isHidden()) {
+		const auto glass = Window::Theme::GlassStyle();
+		const auto edge = st::historyComposeMacInset;
+		const auto right = edge + (sendButtonInField()
+			? 0 : _send->width() + st::historyComposeMacGap);
+		const auto logicalLeft = rtl()
+			? width() - _field->x() - _field->width() : _field->x();
+		const auto fieldRect = QRect(
+			rtl() ? right : logicalLeft,
+			_field->y(),
+			std::max(0, width() - logicalLeft - right),
+			_field->height());
+		const auto backdropFor = [&](QRect area) {
+			if (!glass.enabled || area.isEmpty()) {
+				return QImage();
+			}
+			const auto ratio = devicePixelRatioF();
+			auto image = QImage(area.size() * ratio,
+				QImage::Format_ARGB32_Premultiplied);
+			image.setDevicePixelRatio(ratio);
+			image.fill(Qt::transparent);
+			auto painter = QPainter(&image);
+			const auto from = controller()->content()->backgroundFromY();
+			painter.translate(-area.x(), from - area.y());
+			Window::SectionWidget::PaintBackground(painter,
+				controller()->currentChatTheme(),
+				QSize(width(), controller()->content()->height()),
+				area.translated(0, -from),
+				controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+			return image;
+		};
+		Ui::PaintLiquidGlass(p, fieldRect, backdropFor(fieldRect),
+			st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius);
+		Ui::PaintLiquidGlass(p, _attachToggle->geometry(),
+			backdropFor(_attachToggle->geometry()),
+			st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius);
+		if (!sendButtonInField() && !_send->isHidden()) {
+			Ui::PaintLiquidGlass(p, _send->geometry(), backdropFor(_send->geometry()),
+				st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius);
+		}
+	}
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
@@ -11822,7 +11931,7 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 			(width() - w) / 2,
 			st::msgServiceMargin.top() + (height()
 				- fieldHeight()
-				- 2 * st::historySendPadding
+				- ComposeVerticalPadding()
 				- h
 				- st::msgServiceMargin.top()
 				- st::msgServiceMargin.bottom()) / 2,

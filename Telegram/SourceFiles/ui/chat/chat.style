@@ -18,11 +18,11 @@ msgNameStyle: semiboldTextStyle;
 msgServiceFont: semiboldFont;
 msgServiceNameFont: semiboldFont;
 msgServicePhotoWidth: 100px;
-msgDateFont: font(13px);
+msgDateFont: font(11px);
 msgMinWidth: 160px;
 msgPhotoSize: 33px;
 msgPhotoSkip: 40px;
-msgPadding: margins(13px, 9px, 13px, 9px);
+msgPadding: margins(11px, 10px, 11px, 10px);
 msgTagBadgePadding: margins(5px, -1px, 5px, 0px);
 msgTagBadgeBoostSkip: 2px;
 
@@ -96,8 +96,8 @@ msgServicePadding: margins(12px, 3px, 12px, 4px);
 msgServiceMargin: margins(10px, 10px, 10px, 2px);
 monoforumBarUserpicSkip: 2px;
 
-msgDateSpace: 12px;
-msgDateDelta: point(2px, 5px);
+msgDateSpace: 10px;
+msgDateDelta: point(0px, 4px);
 
 msgDateImgDelta: 4px;
 msgDateImgPadding: point(8px, 2px);
@@ -324,7 +324,7 @@ historyInfoToast: Toast(defaultToast) {
 historyInfoToastIcon: icon {{ "toast/info", toastFg }};
 
 bubbleRadiusSmall: 8px;
-bubbleRadiusLarge: 18px;
+bubbleRadiusLarge: 16px;
 
 historyPhotoLeft: 14px;
 historyPhotoBubbleMinWidth: 200px;
@@ -953,6 +953,10 @@ welcomeEmptyTitle: TextStyle(messageTextStyle) {
 welcomeEmptyAbout: messageTextStyle;
 
 repliesComposeControls: ComposeControls(defaultComposeControls) {
+	tabbedHeightMin: 220px;
+}
+
+repliesComposeControlsMac: ComposeControls(defaultComposeControlsMac) {
 	tabbedHeightMin: 220px;
 }
 

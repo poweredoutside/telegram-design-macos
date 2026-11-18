@@ -19,6 +19,8 @@
 	#include <winres.h>
 #endif
 
+#include "telega_version.h"
+
 /////////////////////////////////////////////////////////////////////////////
 #undef APSTUDIO_READONLY_SYMBOLS
 
@@ -44,8 +46,8 @@ IDI_ICON1               ICON                    "..\\art\\icon256.ico"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 7,4,4,0
- PRODUCTVERSION 7,4,4,0
+ FILEVERSION TELEGA_FILE_VERSION_NUMBERS
+ PRODUCTVERSION TELEGA_FILE_VERSION_NUMBERS
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -61,11 +63,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "Telegram FZ-LLC"
-            VALUE "FileDescription", "Telegram Desktop"
-            VALUE "FileVersion", "7.4.4.0"
+            VALUE "FileDescription", "Telega Desktop"
+            VALUE "FileVersion", TELEGA_FILE_VERSION
             VALUE "LegalCopyright", "Copyright (C) 2014-2026"
-            VALUE "ProductName", "Telegram Desktop"
-            VALUE "ProductVersion", "7.4.4.0"
+            VALUE "ProductName", "Telega Desktop"
+            VALUE "ProductVersion", TELEGA_FILE_VERSION
         END
     END
     BLOCK "VarFileInfo"

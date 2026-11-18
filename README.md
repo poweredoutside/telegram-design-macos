@@ -1,11 +1,11 @@
-# Telegram macOS Design for Windows
+# Telega Desktop for Windows
 
 Неофициальная модификация Telegram Desktop для Windows с оформлением в стиле нативного Telegram для macOS.
 Проект не связан с Telegram или Apple и не является официальным клиентом Telegram для macOS.
 
 ## Скачать установщик
 
-[Скачать Telegram macOS Design для Windows x64](https://github.com/poweredoutside/telegram-design-macos/releases/download/v7.4.4-macos-design-preview.1/Telegram-macOS-Design-Setup-x64.exe)
+[Скачать предыдущую Preview 1 для Windows x64](https://github.com/poweredoutside/telegram-design-macos/releases/download/v7.4.4-macos-design-preview.1/Telegram-macOS-Design-Setup-x64.exe)
 
 [Страница релизов и контрольные суммы](https://github.com/poweredoutside/telegram-design-macos/releases)
 
@@ -14,7 +14,7 @@ Windows может показать предупреждение о неизве
 Установщик предназначен для Windows 10 версии 1809 и новее, x64; работа на чистой системе отдельно не проверялась.
 
 Установите приложение в отдельную папку, предложенную установщиком, и войдите в свой аккаунт.
-Ярлыки называются **Telegram macOS Design**. Установщик не содержит аккаунтов разработчика.
+Ярлыки новой версии называются **Telega Desktop**. Установщик не содержит аккаунтов разработчика.
 
 Данные аккаунта хранятся в `TelegramForcePortable` рядом с установленным `Telegram.exe`.
 Удаление приложения сохраняет эту папку. Для полного удаления сначала выйдите из аккаунта,
@@ -30,6 +30,10 @@ Windows может показать предупреждение о неизве
 - Параметры Liquid Glass: **Настройки → Оформление → Liquid Glass**.
 
 Это адаптация интерфейса Telegram Desktop для Windows; полное визуальное и функциональное совпадение с нативным macOS-клиентом не заявляется.
+
+В текущих исходниках продолжается перенос обеих тем непосредственно из закреплённой версии
+Telegram для macOS. Эти изменения ещё не собраны и не входят в установщик Preview 1 выше.
+Что перенесено, откуда взяты параметры и что остаётся проверить: [статус переноса](docs/macos-donor-design.md).
 
 ## Получить исходники
 
@@ -64,12 +68,12 @@ cmake --build out --config Debug --target Telegram --parallel 3
 & 'C:\path\to\ISCC.exe' 'Telegram\build\setup_macos_design.iss'
 ```
 
-Результат: `out/setup/Telegram-macOS-Design-Setup-x64.exe`.
+Результат: `out/setup/Telega-Desktop-Setup-x64.exe`.
 [Описание установщика](Telegram/build/setup_macos_design.md).
 Библиотеки сборки и инструменты нужно подготовить отдельно; их бинарные файлы не включены в репозиторий.
 Исходные upstream-workflows сохранены в `docs/upstream-workflows` и автоматически не запускаются.
 
-## Проверка текущей версии
+## Проверка опубликованной Preview 1
 
 Debug-сборка успешно собрана, интерфейс проверен в вошедшей тестовой копии.
 Для установщика проверены установка, повторная установка, ярлыки, совпадение SHA-256 файлов

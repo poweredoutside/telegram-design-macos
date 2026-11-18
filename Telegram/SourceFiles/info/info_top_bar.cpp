@@ -418,15 +418,21 @@ void TopBar::updateDefaultControlsGeometry(int newWidth) {
 			newWidth);
 	}
 	if (_title) {
-		const auto x = _back
+		const auto left = _back
 			? _st.back.width
 			: _subtitle
 			? _st.titleWithSubtitlePosition.x()
 			: _st.titlePosition.x();
+		const auto centered = (&_st == &st::infoSettingsTopBar
+			|| &_st == &st::infoSettingsLayerTopBar)
+			&& !_subtitle;
+		const auto x = centered ? std::max(left, right) : left;
 		const auto y = _subtitle
 			? _st.titleWithSubtitlePosition.y()
 			: _st.titlePosition.y();
-		const auto available = std::max(newWidth - right - x, 0);
+		const auto available = std::max(
+			newWidth - (centered ? x : right) - x,
+			0);
 		_title->entity()->resizeToWidth(available);
 		_title->moveToLeft(x, y, newWidth);
 		if (_subtitle) {

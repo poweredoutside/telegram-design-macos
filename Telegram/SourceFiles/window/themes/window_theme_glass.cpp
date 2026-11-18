@@ -18,8 +18,8 @@ Ui::LiquidGlassStyle GlassStyle() {
 	return {
 		.enabled = Platform::IsWindows()
 			&& settings.readPref<bool>("macos/glass/enabled", true),
-		.opacity = std::clamp(settings.readPref<int>("macos/glass/opacity", 72), 15, 100),
-		.blur = std::clamp(settings.readPref<int>("macos/glass/blur", 18), 0, 40),
+		.opacity = std::clamp(settings.readPref<int>("macos/glass/opacity", 15), 15, 100),
+		.blur = std::clamp(settings.readPref<int>("macos/glass/blur", 32), 0, 40),
 		.refraction = std::clamp(settings.readPref<int>("macos/glass/refraction", 35), 0, 100),
 	};
 }
