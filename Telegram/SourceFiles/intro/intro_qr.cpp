@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "intro/intro_qr.h"
+#include "core/api_credentials.h"
 
 #include "boxes/abstract_box.h"
 #include "data/components/passkeys.h"
@@ -445,8 +446,8 @@ void QrWidget::refreshCode() {
 		return;
 	}
 	_requestId = api().request(MTPauth_ExportLoginToken(
-		MTP_int(ApiId),
-		MTP_string(ApiHash),
+		MTP_int(Core::ApiCredentials::Id()),
+		MTP_string(Core::ApiCredentials::Hash()),
 		MTP_vector<MTPlong>(0)
 	)).done([=](const MTPauth_LoginToken &result) {
 		handleTokenResult(result);

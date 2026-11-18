@@ -5,50 +5,60 @@
 # https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 option(TDESKTOP_API_TEST "Use test API credentials." OFF)
+option(TDESKTOP_API_RUNTIME "Ask for Telegram API credentials on first launch (Windows)." OFF)
 option(TDESKTOP_BUILD_UPDATE_TESTS "Build the focused update verification test." OFF)
 set(TDESKTOP_API_ID "0" CACHE STRING "Provide 'api_id' for the Telegram API access.")
 set(TDESKTOP_API_HASH "" CACHE STRING "Provide 'api_hash' for the Telegram API access.")
 
-if (TDESKTOP_API_TEST)
-    set(TDESKTOP_API_ID 17349)
-    set(TDESKTOP_API_HASH 344583e45741c457fe1862106095a5eb)
-elseif (DEFINED ENV{TDESKTOP_RELEASE_API_ID} OR DEFINED ENV{TDESKTOP_RELEASE_API_HASH})
-    set(TDESKTOP_API_ID "$ENV{TDESKTOP_RELEASE_API_ID}")
-    set(TDESKTOP_API_HASH "$ENV{TDESKTOP_RELEASE_API_HASH}")
-endif()
+if (TDESKTOP_API_RUNTIME)
+    if (NOT WIN32 OR TDESKTOP_API_TEST
+        OR NOT TDESKTOP_API_ID STREQUAL "0" OR NOT TDESKTOP_API_HASH STREQUAL ""
+        OR DEFINED ENV{TDESKTOP_RELEASE_API_ID} OR DEFINED ENV{TDESKTOP_RELEASE_API_HASH})
+        message(FATAL_ERROR "Runtime Telegram API credentials require Windows and no build-time API credentials.")
+    endif()
+    target_sources(Telegram PRIVATE "${src_loc}/core/api_credentials_win.cpp")
+else()
+    if (TDESKTOP_API_TEST)
+        set(TDESKTOP_API_ID 17349)
+        set(TDESKTOP_API_HASH 344583e45741c457fe1862106095a5eb)
+    elseif (DEFINED ENV{TDESKTOP_RELEASE_API_ID} OR DEFINED ENV{TDESKTOP_RELEASE_API_HASH})
+        set(TDESKTOP_API_ID "$ENV{TDESKTOP_RELEASE_API_ID}")
+        set(TDESKTOP_API_HASH "$ENV{TDESKTOP_RELEASE_API_HASH}")
+    endif()
 
-if (TDESKTOP_API_ID STREQUAL "0" OR TDESKTOP_API_ID STREQUAL "" OR TDESKTOP_API_HASH STREQUAL "")
-    message(FATAL_ERROR
-    " \n"
-    " PROVIDE: -D TDESKTOP_API_ID=[API_ID] -D TDESKTOP_API_HASH=[API_HASH]\n"
-    " \n"
-    " > To build your version of Telegram Desktop you're required to provide\n"
-    " > your own 'api_id' and 'api_hash' for the Telegram API access.\n"
-    " >\n"
-    " > How to obtain your 'api_id' and 'api_hash' is described here:\n"
-    " > https://core.telegram.org/api/obtaining_api_id\n"
-    " >\n"
-    " > If you're building the application not for deployment,\n"
-    " > but only for test purposes you can use TEST ONLY credentials,\n"
-    " > which are very limited by the Telegram API server:\n"
-    " >\n"
-    " > api_id: 17349\n"
-    " > api_hash: 344583e45741c457fe1862106095a5eb\n"
-    " >\n"
-    " > Your users will start getting internal server errors on login\n"
-    " > if you deploy an app using those 'api_id' and 'api_hash'.\n"
-    " ")
-endif()
+    if (TDESKTOP_API_ID STREQUAL "0" OR TDESKTOP_API_ID STREQUAL "" OR TDESKTOP_API_HASH STREQUAL "")
+        message(FATAL_ERROR
+        " \n"
+        " PROVIDE: -D TDESKTOP_API_ID=[API_ID] -D TDESKTOP_API_HASH=[API_HASH]\n"
+        " \n"
+        " > To build your version of Telegram Desktop you're required to provide\n"
+        " > your own 'api_id' and 'api_hash' for the Telegram API access.\n"
+        " >\n"
+        " > How to obtain your 'api_id' and 'api_hash' is described here:\n"
+        " > https://core.telegram.org/api/obtaining_api_id\n"
+        " >\n"
+        " > If you're building the application not for deployment,\n"
+        " > but only for test purposes you can use TEST ONLY credentials,\n"
+        " > which are very limited by the Telegram API server:\n"
+        " >\n"
+        " > api_id: 17349\n"
+        " > api_hash: 344583e45741c457fe1862106095a5eb\n"
+        " >\n"
+        " > Your users will start getting internal server errors on login\n"
+        " > if you deploy an app using those 'api_id' and 'api_hash'.\n"
+        " ")
+    endif()
 
-string(LENGTH "${TDESKTOP_API_HASH}" api_hash_length)
-if (NOT TDESKTOP_API_ID MATCHES "^[1-9][0-9]*$"
-    OR TDESKTOP_API_ID GREATER 2147483647
-    OR NOT TDESKTOP_API_HASH MATCHES "^[0-9a-fA-F]+$"
-    OR NOT api_hash_length EQUAL 32)
-    message(FATAL_ERROR "Invalid Telegram application API credentials.")
+    string(LENGTH "${TDESKTOP_API_HASH}" api_hash_length)
+    if (NOT TDESKTOP_API_ID MATCHES "^[1-9][0-9]*$"
+        OR TDESKTOP_API_ID GREATER 2147483647
+        OR NOT TDESKTOP_API_HASH MATCHES "^[0-9a-fA-F]+$"
+        OR NOT api_hash_length EQUAL 32)
+        message(FATAL_ERROR "Invalid Telegram application API credentials.")
+    endif()
+    configure_file(cmake/api_credentials.cpp.in gen/api_credentials.cpp @ONLY)
+    target_sources(Telegram PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gen/api_credentials.cpp")
 endif()
-configure_file(cmake/api_credentials.cpp.in gen/api_credentials.cpp @ONLY)
-target_sources(Telegram PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gen/api_credentials.cpp")
 
 if (DESKTOP_APP_DISABLE_AUTOUPDATE)
     target_compile_definitions(Telegram PRIVATE TDESKTOP_DISABLE_AUTOUPDATE)

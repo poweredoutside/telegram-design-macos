@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/crash_reports.h"
+#include "core/api_credentials.h"
 
 #include "core/version.h"
 #include "platform/platform_specific.h"
@@ -323,7 +324,9 @@ QString PlatformString() {
 void StartCatching() {
 #ifndef TDESKTOP_DISABLE_CRASH_REPORTS
 	ProcessAnnotations["Binary"] = cExeName().toUtf8().constData();
-	ProcessAnnotations["ApiId"] = QString::number(ApiId).toUtf8().constData();
+	if (const auto apiId = Core::ApiCredentials::CrashReportId()) {
+		ProcessAnnotations["ApiId"] = QString::number(apiId).toUtf8().constData();
+	}
 	ProcessAnnotations["Version"] = (cAlphaVersion()
 		? u"%1 alpha"_q.arg(cAlphaVersion())
 		: (AppBetaVersion

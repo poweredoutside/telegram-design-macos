@@ -2,7 +2,8 @@ Telega Desktop — Windows x64
 
 Неофициальная сборка Telegram Desktop с оформлением macOS.
 Установите приложение в отдельную папку, предложенную установщиком.
-После установки запустите Telega Desktop и войдите в свой аккаунт.
+При первом запуске публичной сборки введите собственные api_id и api_hash
+с https://my.telegram.org/apps, затем войдите в аккаунт.
 
 Масштаб: Настройки → Оформление → Масштаб интерфейса.
 Liquid Glass: Настройки → Оформление → Liquid Glass.
@@ -19,7 +20,9 @@ poweredoutside/telegram-design-macos и требуют подписи проек
 и подтвердите подключение. Установщик не меняет ваши настройки прокси.
 
 Unofficial build of Telegram Desktop with a macOS-inspired interface.
-Install into the separate folder suggested by Setup, then sign in.
+Install into the separate folder suggested by Setup. On first launch of the
+public build, enter your own api_id and api_hash from
+https://my.telegram.org/apps, then sign in.
 Account data is stored in TelegramForcePortable beside Telegram.exe.
 Setup contains no account data. Uninstall preserves your account folder.
 To remove all data, log out first and delete the remaining folder manually.

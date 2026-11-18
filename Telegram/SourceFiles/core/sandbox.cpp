@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "core/crash_reports.h"
 #include "core/crash_report_window.h"
+#include "core/api_credentials.h"
 #include "core/application.h"
 #include "core/external_control.h"
 #include "core/launcher.h"
@@ -282,34 +283,46 @@ void Sandbox::launchApplication() {
 	InvokeQueued(this, [=] {
 		if (Quitting()) {
 			quit();
-		} else if (_application) {
+			return;
+		} else if (_launching || _application) {
 			return;
 		}
+		_launching = true;
 		setupScreenScale();
-
-		rpl::single(
-			rpl::empty
-		) | rpl::then(
-			OptionDeadlockDetector.changes()
-		) | rpl::on_next([=] {
-			using DeadlockDetector::PingThread;
-			// The test agent always wants a stuck main thread to crash with a
-			// report instead of hanging silently, so force it on for -testagent.
-			_deadlockDetector = (OptionDeadlockDetector.value() || cTestAgent())
-				? std::make_unique<PingThread>(this)
-				: nullptr;
-		}, _lifetime);
-
-		_application = std::make_unique<Application>();
-
-		// Ideally this should go to constructor.
-		// But we want to catch all native events and Application installs
-		// its own filter that can filter out some of them. So we install
-		// our filter after the Application constructor installs his.
-		installNativeEventFilter(this);
-
-		_application->run();
+		ApiCredentials::Prepare(this, [=](bool ready) {
+			_launching = false;
+			if (!ready || Quitting()) {
+				Quit();
+			} else {
+				startApplication();
+			}
+		});
 	});
+}
+
+void Sandbox::startApplication() {
+	rpl::single(
+		rpl::empty
+	) | rpl::then(
+		OptionDeadlockDetector.changes()
+	) | rpl::on_next([=] {
+		using DeadlockDetector::PingThread;
+		// The test agent always wants a stuck main thread to crash with a
+		// report instead of hanging silently, so force it on for -testagent.
+		_deadlockDetector = (OptionDeadlockDetector.value() || cTestAgent())
+			? std::make_unique<PingThread>(this)
+			: nullptr;
+	}, _lifetime);
+
+	_application = std::make_unique<Application>();
+
+	// Ideally this should go to constructor.
+	// But we want to catch all native events and Application installs
+	// its own filter that can filter out some of them. So we install
+	// our filter after the Application constructor installs his.
+	installNativeEventFilter(this);
+
+	_application->run();
 }
 
 void Sandbox::setupScreenScale() {

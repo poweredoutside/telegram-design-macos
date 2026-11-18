@@ -105,6 +105,7 @@ private:
 	void processPostponedCalls(int level);
 	void singleInstanceChecked();
 	void launchApplication();
+	void startApplication();
 	void setupScreenScale();
 
 	// Return window id for activation.
@@ -131,6 +132,7 @@ private:
 	bool _postponedCallsDeferred = false;
 
 	std::unique_ptr<Application> _application;
+	bool _launching = false;
 
 	QString _localServerName, _localSocketReadData;
 	QLocalServer _localServer;

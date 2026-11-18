@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/components/passkeys.h"
+#include "core/api_credentials.h"
 
 #include "apiwrap.h"
 #include "data/data_passkey_deserialize.h"
@@ -148,8 +149,8 @@ void InitPasskeyLogin(
 		MTP::Sender &api,
 		Fn<void(const Data::Passkey::LoginData&)> done) {
 	api.request(MTPauth_InitPasskeyLogin(
-		MTP_int(ApiId),
-		MTP_string(ApiHash)
+		MTP_int(Core::ApiCredentials::Id()),
+		MTP_string(Core::ApiCredentials::Hash())
 	)).done([=](const MTPauth_PasskeyLoginOptions &result) {
 		const auto &data = result.data();
 		if (const auto p = Passkey::DeserializeLoginData(

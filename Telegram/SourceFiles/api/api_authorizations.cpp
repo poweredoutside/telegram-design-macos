@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "api/api_authorizations.h"
+#include "core/api_credentials.h"
 
 #include "apiwrap.h"
 #include "base/unixtime.h"
@@ -38,7 +39,7 @@ Authorizations::Entry ParseEntry(const MTPDauthorization &data) {
 		|| (apiId == SnapApiId)
 		|| isTest;
 
-	const auto appName = (data.is_current() || apiId == ApiId)
+	const auto appName = (data.is_current() || apiId == Core::ApiCredentials::Id())
 		? AppName.utf16()
 		: isDesktop
 		? u"Telegram Desktop%1"_q.arg(isTest ? " (GitHub)" : QString())

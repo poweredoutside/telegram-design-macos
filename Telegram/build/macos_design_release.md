@@ -1,21 +1,26 @@
 # Telega Desktop for Windows x64
 
-Build a Release application using the Windows x64 Release dependencies, the
-fork's public update trust bundle and your own Telegram application API ID and
-hash. The executable built with `TDESKTOP_API_TEST=ON` is for local testing
+Build a Release application using the Windows x64 Release dependencies and the
+fork's public update trust bundle. The executable built with
+`TDESKTOP_API_TEST=ON` is for local testing
 only. Configure with `DESKTOP_APP_SPECIAL_TARGET=win64`,
 `DESKTOP_APP_ENABLE_LTO=OFF`, `DESKTOP_APP_DISABLE_AUTOUPDATE=OFF`,
 `TDESKTOP_UPDATE_CHANNEL=stable`, and
 `TDESKTOP_MACOS_DESIGN_UPDATE_KEYS_DIR=<public bundle directory>`.
 
-For a distributable build set `TDESKTOP_API_TEST=OFF` and supply the API
-values in the build process environment as `TDESKTOP_RELEASE_API_ID` and
-`TDESKTOP_RELEASE_API_HASH` from private storage. Never put the values in
-source, Git configuration files, workflow text, or build logs. Verify that
-neither value occurs in the files and Git changes being published. Keep the
-build tree private: its generated credential source contains the values, and
-the compiled client embeds them. Do not upload an installer or an update
-package if the credentials in its executable must remain private.
+For a distributable build set `TDESKTOP_API_RUNTIME=ON`,
+`TDESKTOP_API_TEST=OFF`, `TDESKTOP_API_ID=0`, and `TDESKTOP_API_HASH=`.
+Unset the private `TDESKTOP_RELEASE_API_ID` and `TDESKTOP_RELEASE_API_HASH`
+environment variables. This build embeds no application credentials. On first
+launch, each user enters their own application ID and hash from
+`https://my.telegram.org/apps`. The app encrypts them for the current Windows
+user and saves them in `tdata/telega-api.dat`. To replace them, close Telega
+and remove only that file; leave the rest of the profile intact. Moving the
+profile to another Windows user may require entering the credentials again.
+
+Builds made with `TDESKTOP_API_RUNTIME=OFF` embed their credentials. Do not
+publish such builds or their build trees. Before publishing, verify that no
+private credentials occur in the sources, installer payload, or update package.
 
 The public bundle is `root-public.pem` (Ed25519), `manifest.min.json` (V2
 trust manifest) and `manifest.sig` (raw Ed25519 signature over the exact
