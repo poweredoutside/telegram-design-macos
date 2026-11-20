@@ -4,6 +4,8 @@
 
 namespace Api::GeminiChat {
 
+enum class Provider { Gemini, OpenAI, Claude, Perplexity };
+
 struct AiChatMessage {
 	bool user = false;
 	bool error = false;
@@ -13,11 +15,17 @@ struct AiChatMessage {
 
 [[nodiscard]] int Preference(std::string_view name, int fallback);
 void SetPreference(std::string_view name, int value);
-void SetKey(QByteArray key);
+void SetKey(QByteArray key, Provider provider);
 [[nodiscard]] bool HasKey();
+[[nodiscard]] bool HasKey(Provider provider);
 [[nodiscard]] QString ModelName();
 void SetModelName(const QString &model);
-void FetchModels(Fn<void(QStringList)> done);
+void FetchModels(Provider provider, Fn<void(QStringList)> done);
+[[nodiscard]] Provider ChatProvider();
+[[nodiscard]] QString ProviderName(Provider provider);
+[[nodiscard]] bool SetChatProvider(Provider provider);
+[[nodiscard]] QString ChatModelName(Provider provider);
+[[nodiscard]] bool SetChatModelName(Provider provider, const QString &model);
 inline constexpr auto kRecordingBytesLimit = 8 * 1024 * 1024;
 enum class Recording { Voice, RoundVideo };
 void Transcribe(
@@ -28,7 +36,7 @@ void Transcribe(
 [[nodiscard]] QString AiChatPartial();
 [[nodiscard]] bool AiChatWaiting();
 [[nodiscard]] rpl::producer<> AiChatUpdates();
-[[nodiscard]] bool AiChatClear();
+[[nodiscard]] bool AiChatClear(Provider provider);
 void AiChatCancel();
 bool AiChatSend(const QString &text);
 

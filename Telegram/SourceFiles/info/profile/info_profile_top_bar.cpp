@@ -78,6 +78,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/outline_segments.h"
 #include "ui/effects/round_checkbox.h"
 #include "ui/empty_userpic.h"
+#include "ui/userpic_rounding.h"
 #include "ui/layers/generic_box.h"
 #include "ui/painter.h"
 #include "ui/peer/video_userpic_player.h"
@@ -2814,38 +2815,14 @@ void TopBar::paintUserpic(QPainter &p, const QRect &geometry) {
 		_userpicUniqueKey = key;
 		const auto fullSize = st::infoProfileTopBarPhotoSize;
 		const auto scaled = fullSize * style::DevicePixelRatio();
-		auto image = QImage();
-		if (const auto broadcast = _peer->monoforumBroadcast()) {
-			image = PeerData::GenerateUserpicImage(
-				broadcast,
-				_userpicView,
-				scaled,
-				0);
-			if (_monoforumMask.isNull()) {
-				_monoforumMask = Ui::MonoforumShapeMask(Size(scaled));
-			}
-			constexpr auto kFormat = QImage::Format_ARGB32_Premultiplied;
-			if (image.format() != kFormat) {
-				image = std::move(image).convertToFormat(kFormat);
-			}
-			auto q = QPainter(&image);
-			q.setCompositionMode(QPainter::CompositionMode_DestinationIn);
-			q.drawImage(
-				Rect(image.size() / image.devicePixelRatio()),
-				_monoforumMask);
-			q.end();
-		} else {
-			const auto radius = (_source == Source::Community)
-				? std::optional<int>(
-					int(scaled * Ui::ForumUserpicRadiusMultiplier()))
-				: std::nullopt;
-			image = PeerData::GenerateUserpicImage(
-				_peer,
-				_userpicView,
-				scaled,
-				radius);
-		}
-		_cachedUserpic = std::move(image);
+		const auto radius = (_source == Source::Community)
+			? std::optional<int>(int(scaled * Ui::ForumUserpicRadiusMultiplier()))
+			: std::nullopt;
+		_cachedUserpic = PeerData::GenerateUserpicImage(
+			_peer,
+			_userpicView,
+			scaled,
+			radius);
 		_cachedUserpic.setDevicePixelRatio(style::DevicePixelRatio());
 	}
 	if (_communityEffect) {
@@ -3899,9 +3876,14 @@ void TopBar::paintStoryOutline(QPainter &p, const QRect &geometry) {
 		padding + outlineWidth / 2,
 		padding + outlineWidth / 2);
 
-	if (_peer->isForum() || _source == Source::Community) {
+	const auto rounding = Ui::DisplayUserpicRounding(
+		_peer.get(),
+		(_source == Source::Community)
+			? Ui::PeerUserpicShape::Forum
+			: Ui::PeerUserpicShape::Auto);
+	if (rounding.radius < .5) {
 		const auto radius = geometry.width()
-			* Ui::ForumUserpicRadiusMultiplier()
+			* rounding.radius
 			+ padding
 			+ outlineWidth / 2;
 		Ui::PaintOutlineSegments(p, outlineRect, radius, _storySegments);

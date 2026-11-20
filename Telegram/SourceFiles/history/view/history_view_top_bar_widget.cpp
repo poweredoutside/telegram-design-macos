@@ -34,6 +34,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/effects/radial_animation.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/boxes/report_box_graphics.h" // Ui::ReportReason
 #include "ui/text/text.h"
 #include "ui/text/text_options.h"
@@ -43,6 +44,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/button_context_menu.h"
 #include "ui/ui_utility.h"
 #include "window/window_adaptive.h"
+#include "window/section_widget.h"
+#include "window/themes/window_theme_glass.h"
+#include "window/themes/window_theme_live_wallpaper.h"
 #include "window/window_columns.h"
 #include "window/window_session_controller.h"
 #include "window/window_peer_menu.h"
@@ -80,6 +84,55 @@ namespace HistoryView {
 namespace {
 
 constexpr auto kEmojiInteractionSeenDuration = 3 * crl::time(1000);
+constexpr auto kHeaderBubbleSize = 40;
+constexpr auto kHeaderInset = 12;
+constexpr auto kHeaderBubbleGap = 10;
+constexpr auto kHeaderInnerPadding = 4;
+constexpr auto kHeaderAvatar = 32;
+constexpr auto kHeaderAvatarGap = 8;
+constexpr auto kHeaderTitlePadding = 14;
+
+[[nodiscard]] style::IconButton CenteredHeaderButton(
+		const style::IconButton &source) {
+	auto result = source;
+	result.iconPosition = QPoint(-1, -1);
+	result.rippleAreaPosition = QPoint();
+	result.rippleAreaSize = style::ConvertScale(kHeaderBubbleSize);
+	return result;
+}
+
+[[nodiscard]] const style::IconButton &HeaderButton(
+		const style::IconButton &original,
+		const style::IconButton &windows) {
+	return Platform::IsWindows() ? windows : original;
+}
+
+struct HeaderButtons {
+	style::IconButton back = CenteredHeaderButton(st::historyTopBarBack);
+	style::IconButton call = CenteredHeaderButton(st::topBarCallMac);
+	style::IconButton groupCall = CenteredHeaderButton(st::topBarGroupCall);
+	style::IconButton search = CenteredHeaderButton(st::topBarSearchMac);
+	style::IconButton info = CenteredHeaderButton(st::topBarInfo);
+	style::IconButton menu = CenteredHeaderButton(st::topBarMenuMac);
+};
+
+[[nodiscard]] const HeaderButtons &WindowsHeaderButtons() {
+	static const auto result = HeaderButtons();
+	return result;
+}
+
+[[nodiscard]] const style::UserpicButton &FloatingHeaderAvatarStyle() {
+	static const auto result = [] {
+		auto result = st::topBarInfoButton;
+		result.size = QSize(
+			style::ConvertScale(kHeaderAvatar),
+			style::ConvertScale(kHeaderBubbleSize));
+		result.photoSize = result.size.width();
+		result.photoPosition = QPoint(0, -1);
+		return result;
+	}();
+	return result;
+}
 
 [[nodiscard]] inline bool HasGroupCallMenu(not_null<PeerData*> peer) {
 	return !peer->isUser()
@@ -111,6 +164,13 @@ struct TopBarWidget::EmojiInteractionSeenAnimation {
 	crl::time till = 0;
 };
 
+struct TopBarWidget::FloatingHeader {
+	Ui::LiquidGlassBackdropCache back;
+	Ui::LiquidGlassBackdropCache title;
+	Ui::LiquidGlassBackdropCache actions;
+	int actionsWidth = 0;
+};
+
 QString SwitchToChooseFromQuery() {
 	return u"from:"_q;
 }
@@ -121,23 +181,31 @@ TopBarWidget::TopBarWidget(
 : RpWidget(parent)
 , _controller(controller)
 , _primaryWindow(controller->isPrimary())
+, _floatingHeader(Platform::IsWindows()
+	? std::make_unique<FloatingHeader>()
+	: nullptr)
 , _clear(this, tr::lng_selected_clear(), st::topBarClearButton)
 , _forward(this, tr::lng_selected_forward(), st::defaultActiveButton)
 , _sendNow(this, tr::lng_selected_send_now(), st::defaultActiveButton)
 , _delete(this, tr::lng_selected_delete(), st::defaultActiveButton)
-, _back(this, st::historyTopBarBack)
+, _back(this, HeaderButton(st::historyTopBarBack, WindowsHeaderButtons().back))
 , _cancelChoose(this, st::topBarCloseChoose)
-, _call(this, Platform::IsWindows() ? st::topBarCallMac : st::topBarCall)
-, _groupCall(this, st::topBarGroupCall)
-, _search(this, Platform::IsWindows() ? st::topBarSearchMac : st::topBarSearch)
-, _infoToggle(this, st::topBarInfo)
-, _menuToggle(this, Platform::IsWindows() ? st::topBarMenuMac : st::topBarMenuToggle)
+, _call(this, HeaderButton(st::topBarCall, WindowsHeaderButtons().call))
+, _groupCall(this, HeaderButton(st::topBarGroupCall, WindowsHeaderButtons().groupCall))
+, _search(this, HeaderButton(st::topBarSearch, WindowsHeaderButtons().search))
+, _infoToggle(this, HeaderButton(st::topBarInfo, WindowsHeaderButtons().info))
+, _menuToggle(this, HeaderButton(st::topBarMenuToggle, WindowsHeaderButtons().menu))
 , _titlePeerText(st::windowMinWidth / 3)
 , _onlineUpdater([=] { updateOnlineDisplay(); }) {
 	Core::Telega::DisplayValue(
 		Core::Telega::DisplayOption::RelativeLastSeen
 	) | rpl::skip(1) | rpl::on_next([=] { updateOnlineDisplay(); }, lifetime());
 	setAttribute(Qt::WA_OpaquePaintEvent);
+	if (_floatingHeader) {
+		Window::Theme::GlassStyleValue() | rpl::skip(1) | rpl::on_next([=] {
+			update();
+		}, lifetime());
+	}
 
 	_clear->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
 	_forward->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
@@ -528,6 +596,97 @@ int TopBarWidget::resizeGetHeight(int newWidth) {
 	return st::topBarHeight;
 }
 
+bool TopBarWidget::usesFloatingChatHeader() const {
+	return _floatingHeader
+		&& _activeChat.section == Section::History
+		&& _activeChat.key.peer();
+}
+
+QRect TopBarWidget::floatingTitleRect() const {
+	const auto edge = style::ConvertScale(kHeaderInset);
+	const auto left = edge + (_back->isHidden()
+		? 0
+		: style::ConvertScale(kHeaderBubbleSize)
+			+ style::ConvertScale(kHeaderBubbleGap));
+	const auto available = std::max(0, width() - left - _rightTaken);
+	const auto peer = titleNamePeer();
+	const auto preferred = (peer && peer->businessBot())
+		? available
+		: (_leftTaken - left)
+			+ style::ConvertScale(kHeaderTitlePadding)
+			+ std::max({
+				style::ConvertScale(160),
+				_titlePeerText.maxWidth(),
+				peer ? st::msgNameStyle.font->width(
+					TopBarNameText(peer, _activeChat)) + style::ConvertScale(20) : 0,
+			});
+	return QRect(
+		left,
+		edge,
+		std::min(available, preferred),
+		style::ConvertScale(kHeaderBubbleSize));
+}
+
+void TopBarWidget::paintFloatingHeader(
+		Painter &p,
+		QRect clip,
+		QRect title,
+		int slide) {
+	Window::Theme::ObserveLiveWallpaper(this);
+	const auto glass = Window::Theme::GlassStyle();
+	const auto tint = st::topBarBg->c;
+	const auto content = _controller->content();
+	const auto origin = pos() - QPoint(0, content->backgroundFromY());
+	const auto paintBackground = [&](QPainter &target, QRect area) {
+		target.save();
+		target.translate(-origin);
+		Window::SectionWidget::PaintBackground(
+			target,
+			_controller->currentChatTheme(),
+			QSize(parentWidget()->width(), content->height()),
+			area.translated(origin),
+			_controller->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+		target.restore();
+	};
+	auto backdrop = QImage();
+	const auto ratio = devicePixelRatioF();
+	if (glass.enabled && glass.opacity < 100) {
+		backdrop = QImage(size() * ratio, QImage::Format_ARGB32_Premultiplied);
+		backdrop.setDevicePixelRatio(ratio);
+		backdrop.fill(tint);
+		{
+			auto sample = QPainter(&backdrop);
+			paintBackground(sample, rect());
+		}
+		p.drawImage(QPoint(), backdrop);
+	} else {
+		p.fillRect(clip, tint);
+		paintBackground(p, clip);
+	}
+	const auto paint = [&](QRect area, Ui::LiquidGlassBackdropCache &cache) {
+		if (area.isEmpty() || !clip.intersects(area)) {
+			return;
+		}
+		const auto sample = backdrop.isNull() ? QImage() : backdrop.copy({
+			area.topLeft() * ratio,
+			area.size() * ratio,
+		});
+		Ui::PaintLiquidGlass(
+			p, area, sample, tint, glass, area.height() / 2, &cache);
+	};
+	const auto edge = style::ConvertScale(kHeaderInset);
+	const auto actions = _floatingHeader->actionsWidth;
+	if (!_back->isHidden()) {
+		paint(_back->geometry(), _floatingHeader->back);
+	}
+	paint(myrtlrect(title.translated(0, slide)), _floatingHeader->title);
+	paint(myrtlrect(
+		width() - edge - actions,
+		edge + slide,
+		actions,
+		style::ConvertScale(kHeaderBubbleSize)), _floatingHeader->actions);
+}
+
 void TopBarWidget::paintEvent(QPaintEvent *e) {
 	if (_animatingMode) {
 		return;
@@ -542,14 +701,22 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		: -st::topBarHeight;
 	const auto slidingTop = std::max(selectedButtonsTop, searchFieldTop);
 
-	p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+	const auto floating = usesFloatingChatHeader()
+		&& !_chooseForReportReason
+		&& slidingTop < 0;
+	const auto title = floating ? floatingTitleRect() : QRect();
+	if (floating) {
+		paintFloatingHeader(p, e->rect(), title, slidingTop + st::topBarHeight);
+	} else {
+		p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+	}
 	if (slidingTop < 0) {
 		p.translate(0, slidingTop + st::topBarHeight);
-		paintTopBar(p);
+		paintTopBar(p, title);
 	}
 }
 
-void TopBarWidget::paintTopBar(Painter &p) {
+void TopBarWidget::paintTopBar(Painter &p, QRect floatingTitle) {
 	if (!_activeChat.key || _narrowRatio == 1.) {
 		return;
 	}
@@ -561,6 +728,17 @@ void TopBarWidget::paintTopBar(Painter &p) {
 		- _rightTaken
 		- nameleft
 		- st::topBarNameRightPadding;
+	if (usesFloatingChatHeader() && !_chooseForReportReason) {
+		const auto bubble = floatingTitle;
+		nametop = bubble.y() + (bubble.height()
+			- st::msgNameStyle.font->height - st::dialogsTextFont->height) / 2;
+		statustop = nametop + st::msgNameStyle.font->height;
+		namewidth = bubble.x() + bubble.width() - nameleft
+			- style::ConvertScale(kHeaderTitlePadding);
+		if (namewidth <= 0) {
+			return;
+		}
+	}
 	auto statuswidth = namewidth;
 
 	if (_chooseForReportReason) {
@@ -829,6 +1007,18 @@ void TopBarWidget::paintStatus(
 }
 
 QRect TopBarWidget::getMembersShowAreaGeometry() const {
+	if (usesFloatingChatHeader() && !_chooseForReportReason) {
+		const auto bubble = floatingTitleRect();
+		const auto statusTop = bubble.y() + (bubble.height()
+			+ st::msgNameStyle.font->height - st::dialogsTextFont->height) / 2;
+		const auto available = bubble.x() + bubble.width() - _leftTaken
+			- style::ConvertScale(kHeaderTitlePadding);
+		return myrtlrect(
+			_leftTaken,
+			statusTop,
+			std::clamp(available, 0, _titlePeerText.maxWidth()),
+			st::dialogsTextFont->height);
+	}
 	int membersTextLeft = _leftTaken;
 	int membersTextTop = st::topBarHeight - st::topBarArrowPadding.bottom() - st::dialogsTextFont->height;
 	int membersTextWidth = _titlePeerText.maxWidth();
@@ -841,7 +1031,9 @@ void TopBarWidget::mousePressEvent(QMouseEvent *e) {
 	const auto handleClick = (e->button() == Qt::LeftButton)
 		&& (e->pos().y() < st::topBarHeight)
 		&& !showSelectedState()
-		&& !_chooseForReportReason;
+		&& !_chooseForReportReason
+		&& (!usesFloatingChatHeader()
+			|| (!_searchMode && myrtlrect(floatingTitleRect()).contains(e->pos())));
 	if (handleClick) {
 		const auto archiveTop = (_activeChat.section == Section::ChatsList)
 			&& _activeChat.key.folder();
@@ -1074,6 +1266,9 @@ bool TopBarWidget::communityUserpicShown() const {
 }
 
 const style::UserpicButton &TopBarWidget::infoButtonStyle() const {
+	if (usesFloatingChatHeader()) {
+		return FloatingHeaderAvatarStyle();
+	}
 	return communityChatsListBar()
 		? st::topBarCommunityInfoButton
 		: st::topBarInfoButton;
@@ -1141,7 +1336,9 @@ void TopBarWidget::updateInfoButtonVisibility() {
 	}
 	const auto shown = (communityChatsListBar() && !rootChatsListBar())
 		? communityUserpicShown()
-		: (_controller->adaptive().isOneColumn() || !_primaryWindow);
+		: (usesFloatingChatHeader()
+			|| _controller->adaptive().isOneColumn()
+			|| !_primaryWindow);
 	_info->setVisible(!_chooseForReportReason && shown);
 }
 
@@ -1164,6 +1361,12 @@ void TopBarWidget::updateControlsGeometry() {
 	const auto otherButtonsTop = std::max(selectedButtonsTop, searchFieldTop)
 		+ st::topBarHeight;
 	const auto backButtonTop = selectedButtonsTop + st::topBarHeight;
+	const auto floating = usesFloatingChatHeader() && !_chooseForReportReason;
+	const auto edge = style::ConvertScale(kHeaderInset);
+	const auto bubble = style::ConvertScale(kHeaderBubbleSize);
+	const auto floatingLeft = edge + (_back->isHidden()
+		? 0
+		: bubble + style::ConvertScale(kHeaderBubbleGap));
 	auto buttonsLeft = st::topBarActionSkip
 		+ (_controller->adaptive().isOneColumn() ? 0 : st::lineWidth);
 	auto buttonsWidth = (_forward->isHidden() ? 0 : _forward->contentWidth())
@@ -1225,7 +1428,19 @@ void TopBarWidget::updateControlsGeometry() {
 	}
 	_clear->moveToRight(st::topBarActionSkip, selectedButtonsTop);
 
-	if (!_cancelChoose->isHidden()) {
+	if (_floatingHeader) {
+		_back->resize(
+			floating ? bubble : _back->st().width,
+			floating ? bubble : _back->st().height);
+	}
+	if (floating) {
+		_back->moveToLeft(edge, backButtonTop + edge);
+		_leftTaken = floatingLeft + style::ConvertScale(kHeaderInnerPadding);
+		if (_info && !_info->isHidden()) {
+			_info->moveToLeft(_leftTaken, otherButtonsTop + edge);
+			_leftTaken += _info->width() + style::ConvertScale(kHeaderAvatarGap);
+		}
+	} else if (!_cancelChoose->isHidden()) {
 		_leftTaken = 0;
 		_cancelChoose->moveToLeft(_leftTaken, otherButtonsTop);
 		_leftTaken += _cancelChoose->width();
@@ -1239,7 +1454,7 @@ void TopBarWidget::updateControlsGeometry() {
 		_back->moveToLeft(_leftTaken, backButtonTop);
 		_leftTaken += _back->width();
 	}
-	if (_info && !_info->isHidden()) {
+	if (!floating && _info && !_info->isHidden()) {
 		if (_back->isHidden() && _narrowRatio > 0.) {
 			const auto &infoSt = infoButtonStyle();
 			const auto middle = (_narrowWidth - infoSt.photoSize) / 2;
@@ -1250,13 +1465,15 @@ void TopBarWidget::updateControlsGeometry() {
 		}
 		_info->moveToLeft(_leftTaken, otherButtonsTop);
 		_leftTaken += _info->width();
-	} else if (_activeChat.key.topic()
-		|| _activeChat.section == Section::ChatsList) {
+	} else if (!floating
+		&& (_activeChat.key.topic() || _activeChat.section == Section::ChatsList)) {
 		_leftTaken += st::normalFont->spacew;
 	}
 
 	if (_searchField) {
-		const auto fieldLeft = _back->isHidden()
+		const auto fieldLeft = floating
+			? floatingLeft
+			: _back->isHidden()
 			? st::topBarArrowPadding.right()
 			: _leftTaken;
 		const auto fieldTop = searchFieldTop
@@ -1284,6 +1501,21 @@ void TopBarWidget::updateControlsGeometry() {
 		updateSearchJumpToDateVisibility();
 	}
 
+	if (floating) {
+		updateFloatingHeaderActions(otherButtonsTop + edge);
+		updateMembersShowArea();
+		return;
+	}
+	if (_floatingHeader) {
+		for (const auto button : {
+				_menuToggle.data(),
+				_search.data(),
+				_infoToggle.data(),
+				_groupCall.data(),
+				_call.data() }) {
+			button->resize(button->st().width, button->st().height);
+		}
+	}
 	_rightTaken = 0;
 	if (rootChatsListBar() && _activeChat.key.folder()) {
 		const auto &toggle = st::topBarMenuToggle;
@@ -1319,6 +1551,35 @@ void TopBarWidget::updateControlsGeometry() {
 	}
 
 	updateMembersShowArea();
+}
+
+void TopBarWidget::updateFloatingHeaderActions(int top) {
+	const auto buttons = std::array{
+		_menuToggle.data(),
+		_search.data(),
+		_infoToggle.data(),
+		_groupCall.data(),
+		_call.data(),
+	};
+	const auto count = int(ranges::count_if(buttons, [](const auto button) {
+		return !button->isHidden();
+	}));
+	const auto size = style::ConvertScale(kHeaderBubbleSize);
+	const auto edge = style::ConvertScale(kHeaderInset);
+	const auto padding = (count > 1)
+		? style::ConvertScale(kHeaderInnerPadding)
+		: 0;
+	auto right = edge + padding;
+	for (const auto button : buttons) {
+		if (!button->isHidden()) {
+			button->resize(size, size);
+			button->moveToRight(right, top);
+			right += size;
+		}
+	}
+	_floatingHeader->actionsWidth = count * size + 2 * padding;
+	_rightTaken = edge + _floatingHeader->actionsWidth
+		+ (count ? style::ConvertScale(kHeaderBubbleGap) : 0);
 }
 
 void TopBarWidget::finishAnimating() {
@@ -1470,6 +1731,7 @@ void TopBarWidget::updateMembersShowArea() {
 		const auto peer = _activeChat.key.peer();
 		if (showSelectedState()
 			|| !peer
+			|| (_searchMode && usesFloatingChatHeader())
 			|| _activeChat.section == Section::ChatsList
 			|| _activeChat.key.topic()) {
 			return false;

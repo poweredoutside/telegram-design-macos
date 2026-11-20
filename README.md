@@ -5,11 +5,11 @@
 
 ## Скачать установщик
 
-[Скачать Telega Desktop 1.0.2 для Windows x64](https://github.com/poweredoutside/telegram-design-macos/releases/download/v1.0.2/Telega-Desktop-Setup-x64.exe)
+[Скачать Telega Desktop 1.0.3 для Windows x64](https://github.com/poweredoutside/telegram-design-macos/releases/download/v1.0.3/Telega-Desktop-Setup-x64.exe)
 
 [Страница релизов и контрольные суммы](https://github.com/poweredoutside/telegram-design-macos/releases)
 
-Текущая версия — **Telega Desktop 1.0.2** для Windows 10 версии 1809 и новее и Windows 11, x64.
+Текущая версия — **Telega Desktop 1.0.3** для Windows 10 версии 1809 и новее и Windows 11, x64.
 Установщик не подписан сертификатом Windows, поэтому система может показать предупреждение о неизвестном издателе.
 
 Установите приложение в отдельную папку, предложенную установщиком, и войдите в свой аккаунт.
@@ -28,7 +28,10 @@
 - Масштаб интерфейса: **Настройки → Оформление → Масштаб интерфейса**.
 - Параметры Liquid Glass: **Настройки → Оформление → Liquid Glass**.
 - Локальные темы с редактором, импортом и экспортом, а также настройка яркости фона.
-- ИИ-чат с Gemini и настройки Telega macOS. [Справка по настройкам](docs/telega-settings.md).
+- ИИ-чат с Gemini, OpenAI, Claude и Perplexity. [Справка по настройкам](docs/telega-settings.md).
+- Живые обои, свои иконки приложения и локальное сохранение сообщений.
+
+[Полный список изменений 1.0.3](docs/releases/1.0.3.md).
 
 Это адаптация интерфейса Telegram Desktop для Windows; полное визуальное и функциональное совпадение с нативным macOS-клиентом не заявляется.
 
@@ -40,6 +43,14 @@ cd tdesktop
 ```
 
 Остальные подмодули закреплены на конкретных версиях публичных upstream-репозиториев.
+
+Для сборки Windows примените патчи к закреплённым подмодулям из корня проекта:
+
+```powershell
+git -C Telegram/lib_base apply ../build/patches/telega-lib-base-win-url-scheme.diff
+git -C Telegram/lib_webview apply ../build/patches/telega-lib-webview-msvc.diff
+git -C cmake apply ../Telegram/build/patches/telega-cmake-qt-windows.diff
+```
 `Telegram/lib_ui` включён непосредственно в этот репозиторий, потому что содержит изменения заголовка окна для этого оформления.
 Его основа — `desktop-app/lib_ui`, коммит `caaa3f1eb20bab7ef838c6aea35db2397e8f3f07`.
 Основа основного дерева — `telegramdesktop/tdesktop`, коммит `bf4f714036f21c750d535dab199c811b3f9bfdd4` (7.4.4).
@@ -70,10 +81,9 @@ cmake --build out --config Release --target Telegram --parallel 4
 Библиотеки сборки и инструменты нужно подготовить отдельно; их бинарные файлы не включены в репозиторий.
 Исходные upstream-workflows сохранены в `docs/upstream-workflows` и автоматически не запускаются.
 
-## Проверка версии 1.0.2
+## Проверка версии 1.0.3
 
-Проверены запуск с отдельным профилем, тестовая установка на русском языке, ярлык, регистрация ссылок,
-галочка Tg Ws Proxy и удаление тестовой копии. Контрольные суммы опубликованы вместе с выпуском.
+Проверены запуск с отдельным профилем, установка и удаление, обновление значка ярлыка, регистрация ссылок и галочка Tg Ws Proxy. Контрольные суммы опубликованы вместе с выпуском.
 
 ## Лицензии и авторство
 

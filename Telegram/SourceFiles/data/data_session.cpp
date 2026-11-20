@@ -58,6 +58,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_ai_compose_tones.h"
 #include "data/data_bot_app.h"
 #include "data/data_changes.h"
+#include "data/data_message_archive.h"
 #include "data/data_group_call.h"
 #include "data/data_folder.h"
 #include "data/data_channel.h"
@@ -1995,6 +1996,13 @@ void Session::setupUserIsContactViewer() {
 
 Session::~Session() = default;
 
+MessageArchive &Session::messageArchive() {
+	if (!_messageArchive) {
+		_messageArchive = std::make_unique<MessageArchive>(_session);
+	}
+	return *_messageArchive;
+}
+
 template <typename Method>
 void Session::enumerateItemViews(
 		not_null<const HistoryItem*> item,
@@ -3110,6 +3118,9 @@ bool Session::updateExistingMessage(const MTPDmessage &data) {
 		return false;
 	}
 	existing->applySentMessage(data);
+	if (data.vmedia() || _messageArchive) {
+		messageArchive().rememberMedia(existing, data.vmedia());
+	}
 	const auto result = (existing->mainView() != nullptr);
 	if (result) {
 		stickers().checkSavedGif(existing);
@@ -3131,15 +3142,23 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		Reactions::CheckUnknownForUnread(this, data);
 		return;
 	}
-	if (existing->isLocalUpdateMedia() && data.type() == mtpc_message) {
-		updateExistingMessage(data.c_message());
+	if (data.type() == mtpc_messageService) {
+		existing->applyEdition(data.c_messageService());
+		return;
 	}
-	data.match([](const MTPDmessageEmpty &) {
-	}, [&](const MTPDmessageService &data) {
-		existing->applyEdition(data);
-	}, [&](const auto &data) {
-		existing->applyEdition(HistoryMessageEdition(_session, data));
-	});
+	const auto &message = data.c_message();
+	auto edition = HistoryMessageEdition(_session, message);
+	if (edition.editDate > 0) {
+		messageArchive().saveEdit(
+			existing, edition.editDate, edition.textWithEntities);
+	}
+	if (existing->isLocalUpdateMedia()) {
+		updateExistingMessage(message);
+	}
+	existing->applyEdition(std::move(edition));
+	if (message.vmedia() || _messageArchive) {
+		messageArchive().rememberMedia(existing, message.vmedia());
+	}
 }
 
 void Session::processMessages(
@@ -3423,6 +3442,7 @@ void Session::processMessagesDeleted(
 			affected->unknownMessageDeleted(messageId.v);
 		}
 	}
+	const auto saved = !toDestroy.empty() && messageArchive().saveDeleted(toDestroy);
 	if (!toDestroy.empty()) {
 		notifyItemsAboutToBeDestroyed(toDestroy);
 		for (const auto &item : toDestroy) {
@@ -3430,6 +3450,9 @@ void Session::processMessagesDeleted(
 		}
 	}
 	for (const auto &history : historiesToCheck) {
+		if (saved) {
+			history->checkLocalMessages();
+		}
 		if (!history->chatListMessageKnown()) {
 			history->requestChatListMessage();
 		}
@@ -3447,6 +3470,7 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 			historiesToCheck.emplace(history);
 		}
 	}
+	const auto saved = !toDestroy.empty() && messageArchive().saveDeleted(toDestroy);
 	if (!toDestroy.empty()) {
 		notifyItemsAboutToBeDestroyed(toDestroy);
 		for (const auto &item : toDestroy) {
@@ -3454,6 +3478,9 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 		}
 	}
 	for (const auto &history : historiesToCheck) {
+		if (saved) {
+			history->checkLocalMessages();
+		}
 		if (!history->chatListMessageKnown()) {
 			history->requestChatListMessage();
 		}
@@ -3482,6 +3509,9 @@ void Session::removeDependencyMessage(not_null<HistoryItem*> item) {
 void Session::unregisterMessage(not_null<HistoryItem*> item) {
 	const auto peerId = item->history()->peer->id;
 	const auto itemId = item->id;
+	if (_messageArchive) {
+		_messageArchive->forget(item->fullId());
+	}
 	_itemRemoved.fire_copy(item);
 	if (item->hasPossibleRestrictions()) {
 		_possiblyRestricted.remove(item);

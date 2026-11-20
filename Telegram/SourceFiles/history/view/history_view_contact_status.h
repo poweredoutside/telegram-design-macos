@@ -132,7 +132,8 @@ public:
 	BusinessBotStatus(
 		not_null<Window::SessionController*> controller,
 		not_null<Ui::RpWidget*> parent,
-		not_null<PeerData*> peer);
+		not_null<PeerData*> peer,
+		not_null<QWidget*> backgroundHost);
 
 	void show();
 	void hide();

@@ -85,6 +85,7 @@ public:
 	void setCustomTitle(const QString &title);
 	void setTitleShownRatio(float64 shown);
 	[[nodiscard]] int titleLeft() const;
+	[[nodiscard]] bool usesFloatingChatHeader() const;
 
 	void showChooseMessagesForReport(Data::ReportInput reportInput);
 	void clearChooseMessagesForReport();
@@ -143,6 +144,7 @@ protected:
 
 private:
 	struct EmojiInteractionSeenAnimation;
+	struct FloatingHeader;
 
 	[[nodiscard]] bool rootChatsListBar() const;
 	[[nodiscard]] bool communityChatsListBar() const;
@@ -156,6 +158,7 @@ private:
 	[[nodiscard]] bool searchJumpToDateFits() const;
 	void updateChooseFromUserGeometry();
 	void updateControlsGeometry();
+	void updateFloatingHeaderActions(int top);
 	void slideAnimationCallback();
 	void updateInfoToggleActive();
 	void setupDragOnBackButton();
@@ -187,7 +190,9 @@ private:
 	int countSelectedButtonsTop(float64 selectedShown);
 	void connectingAnimationCallback();
 
-	void paintTopBar(Painter &p);
+	void paintTopBar(Painter &p, QRect floatingTitle);
+	void paintFloatingHeader(Painter &p, QRect clip, QRect title, int slide);
+	[[nodiscard]] QRect floatingTitleRect() const;
 	[[nodiscard]] PeerData *titleNamePeer() const;
 	void paintStatus(
 		Painter &p,
@@ -214,6 +219,7 @@ private:
 
 	const not_null<Window::SessionController*> _controller;
 	const bool _primaryWindow = false;
+	const std::unique_ptr<FloatingHeader> _floatingHeader;
 	ActiveChat _activeChat;
 	QString _customTitleText;
 	std::unique_ptr<EmojiInteractionSeenAnimation> _emojiInteractionSeen;

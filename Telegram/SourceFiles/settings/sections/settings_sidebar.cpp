@@ -501,8 +501,11 @@ Sidebar::Sidebar(
 	skip(10);
 	add(nullptr, tr::lng_menu_my_profile(), st::menuIconProfile,
 		QColor(0, 122, 255), u"Icon_SettingsStories"_q, [=] {
+			auto params = Window::SectionShow();
+			params.forbidLayer = true;
 			controller->showSection(
-				Info::Stories::MakeMyProfile(controller->session().user()));
+				Info::Stories::MakeMyProfile(controller->session().user()),
+				params);
 		});
 	skip(20);
 	const auto languageUpdates = [] {

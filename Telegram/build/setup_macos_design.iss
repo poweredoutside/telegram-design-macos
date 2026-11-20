@@ -15,7 +15,7 @@
   #ifdef TestCredentials
     #define BuildLabel " (Release test)"
   #else
-    #define BuildLabel ""
+    #define BuildLabel " RELEASE"
   #endif
   #define SetupFilename "Telega-Desktop-Setup-x64"
 #endif
@@ -24,7 +24,7 @@
 AppId={{#AppGuid}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppVerName={#AppName} {#AppVersion}{#BuildLabel}
+AppVerName={#AppName} {#AppVersion} x64{#BuildLabel}
 AppPublisher=poweredoutside
 AppPublisherURL=https://github.com/poweredoutside/telegram-design-macos
 AppUpdatesURL=https://github.com/poweredoutside/telegram-design-macos/releases
@@ -40,6 +40,7 @@ SetupIconFile=..\Resources\art\telega256.ico
 UninstallDisplayIcon={app}\Telegram.exe
 UninstallDisplayName={#AppName}
 VersionInfoVersion={#FileVersion}
+VersionInfoProductTextVersion={#AppVersion} x64{#BuildLabel}
 VersionInfoDescription={#AppName} installer{#BuildLabel}
 Compression=lzma2/normal
 SolidCompression=yes

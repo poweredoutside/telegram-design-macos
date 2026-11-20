@@ -342,7 +342,7 @@ void MessageRenderer::paintUserpic(Painter &p, int width, int height) {
 		from->paintUserpicLeft(p, _userpic, left, top, width, size);
 	} else if (const auto info = item->displayHiddenSenderInfo()) {
 		if (info->customUserpic.empty()) {
-			info->emptyUserpic.paintCircle(p, left, top, width, size);
+			info->emptyUserpic.paintAvatar(p, left, top, width, size);
 		} else if (!info->paintCustomUserpic(
 				p,
 				_userpic,

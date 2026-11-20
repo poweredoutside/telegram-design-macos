@@ -34,6 +34,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_saved_messages.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/data_message_archive.h"
 #include "data/data_media_types.h"
 #include "data/data_channel_admins.h"
 #include "data/data_changes.h"
@@ -628,6 +629,11 @@ not_null<HistoryItem*> History::createItem(
 	const auto result = message.match([&](const auto &data) {
 		return makeMessage(id, data, localFlags);
 	});
+	if (message.type() == mtpc_message) {
+		if (const auto media = message.c_message().vmedia()) {
+			owner().messageArchive().rememberMedia(result, media);
+		}
+	}
 	if (newMessage && result->out() && result->isRegular()) {
 		session().topPeers().increment(peer, result->date());
 		if (result->starsPaid()) {
@@ -2348,7 +2354,16 @@ MsgId History::outboxReadTillId() const {
 }
 
 HistoryItem *History::lastAvailableMessage() const {
-	return isEmpty() ? nullptr : blocks.back()->messages.back()->data().get();
+	for (auto block = blocks.rbegin(); block != blocks.rend(); ++block) {
+		const auto &messages = (*block)->messages;
+		for (auto view = messages.rbegin(); view != messages.rend(); ++view) {
+			const auto item = (*view)->data().get();
+			if (!item->isLocal() || !owner().messageArchive().isDeleted(item->fullId())) {
+				return item;
+			}
+		}
+	}
+	return nullptr;
 }
 
 int History::unreadCount() const {
@@ -4230,8 +4245,14 @@ void History::checkNewPeerMessages() {
 void History::insertMessageToBlocks(not_null<HistoryItem*> item) {
 	Expects(item->mainView() == nullptr);
 
+	const auto archived = owner().messageArchive().isDeleted(item->fullId());
 	if (isEmpty()) {
-		addNewToBack(item, false);
+		if (archived) {
+			addItemToBlock(item);
+			owner().notifyHistoryChangeDelayed(this);
+		} else {
+			addNewToBack(item, false);
+		}
 		return;
 	}
 
@@ -4243,7 +4264,9 @@ void History::insertMessageToBlocks(not_null<HistoryItem*> item) {
 				++itemIndex;
 				addNewInTheMiddle(item, blockIndex, itemIndex);
 				const auto lastDate = chatListTimeId();
-				if (!lastDate || itemDate >= lastDate) {
+				if (archived) {
+					owner().notifyHistoryChangeDelayed(this);
+				} else if (!lastDate || itemDate >= lastDate) {
 					setLastMessage(item);
 					owner().notifyHistoryChangeDelayed(this);
 				}
@@ -4255,9 +4278,13 @@ void History::insertMessageToBlocks(not_null<HistoryItem*> item) {
 	startBuildingFrontBlock();
 	addItemToBlock(item);
 	finishBuildingFrontBlock();
+	if (archived) {
+		owner().notifyHistoryChangeDelayed(this);
+	}
 }
 
 void History::checkLocalMessages() {
+	owner().messageArchive().restore(this);
 	if (isEmpty() && (!loadedAtTop() || !loadedAtBottom())) {
 		return;
 	}

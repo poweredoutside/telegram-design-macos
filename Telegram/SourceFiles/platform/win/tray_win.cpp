@@ -87,19 +87,45 @@ bool DarkTasbarValueValid/* = false*/;
 	return use;
 }
 
-[[nodiscard]] QImage MonochromeWithDot(QImage image, style::color color) {
+[[nodiscard]] QImage WithUnreadDot(QImage image, style::color color) {
 	auto p = QPainter(&image);
 	auto hq = PainterHighQualityEnabler(p);
-	const auto xm = image.width() / 16.;
-	const auto ym = image.height() / 16.;
+	const auto size = image.width() / 16.;
 	p.setBrush(color);
-	p.setPen(Qt::NoPen);
-	p.drawEllipse(QRectF( // cx=3.9, cy=12.7, r=2.2
-		1.7 * xm,
-		10.5 * ym,
-		4.4 * xm,
-		4.4 * ym));
+	p.setPen(QPen(st::trayCounterFg->c, size));
+	p.drawEllipse(QRectF(11.1 * size, 11.1 * size, 4.4 * size, 4.4 * size));
 	return image;
+}
+
+[[nodiscard]] QImage BaseIcon(
+		int size,
+		bool supportMode,
+		bool smallIcon,
+		bool monochrome) {
+	static auto ScaledLogo = base::flat_map<int, QImage>();
+	static auto ScaledLogoNoMargin = base::flat_map<int, QImage>();
+
+	if (monochrome) {
+		if (const auto darkMode = IsDarkTaskbar()) {
+			return MonochromeIconFor(size, *darkMode);
+		}
+	}
+	auto &scaled = smallIcon ? ScaledLogoNoMargin : ScaledLogo;
+	auto result = [&] {
+		if (const auto it = scaled.find(size); it != scaled.end()) {
+			return it->second;
+		}
+		return scaled.emplace(
+			size,
+			Window::ApplicationLogo(smallIcon).scaledToWidth(
+				size,
+				Qt::SmoothTransformation)
+		).first->second;
+	}();
+	if (supportMode) {
+		Window::ConvertIconToBlack(result);
+	}
+	return result;
 }
 
 [[nodiscard]] QImage ImageIconWithCounter(
@@ -107,40 +133,11 @@ bool DarkTasbarValueValid/* = false*/;
 		bool supportMode,
 		bool smallIcon,
 		bool monochrome) {
-	static auto ScaledLogo = base::flat_map<int, QImage>();
-	static auto ScaledLogoNoMargin = base::flat_map<int, QImage>();
-	static auto ScaledLogoDark = base::flat_map<int, QImage>();
-	static auto ScaledLogoLight = base::flat_map<int, QImage>();
-
-	const auto darkMode = IsDarkTaskbar();
-	auto &scaled = (monochrome && darkMode)
-		? (*darkMode
-			? ScaledLogoDark
-			: ScaledLogoLight)
-		: smallIcon
-		? ScaledLogoNoMargin
-		: ScaledLogo;
-
-	auto result = [&] {
-		if (const auto it = scaled.find(args.size); it != scaled.end()) {
-			return it->second;
-		} else if (monochrome && darkMode) {
-			return MonochromeIconFor(args.size, *darkMode);
-		}
-		return scaled.emplace(
-			args.size,
-			Window::ApplicationLogo(smallIcon).scaledToWidth(
-				args.size,
-				Qt::SmoothTransformation)
-		).first->second;
-	}();
-	if ((!monochrome || !darkMode) && supportMode) {
-		Window::ConvertIconToBlack(result);
-	}
+	auto result = BaseIcon(args.size, supportMode, smallIcon, monochrome);
 	if (!args.count) {
 		return result;
-	} else if (smallIcon && monochrome && darkMode) {
-		return MonochromeWithDot(std::move(result), args.bg);
+	} else if (smallIcon && monochrome && IsDarkTaskbar().has_value()) {
+		return WithUnreadDot(std::move(result), args.bg);
 	}
 	const auto size = args.size.value();
 	const auto badge = smallIcon ? size : (size * 3 / 4);
@@ -215,17 +212,17 @@ void Tray::updateIcon() {
 		: &controller->sessionController()->session();
 
 	// Force Qt to use right icon size, not the larger one.
-	QIcon forTrayIcon;
-	forTrayIcon.addPixmap(
-		Tray::IconWithCounter(
-			CounterLayerArgs(
-				GetSystemMetrics(SM_CXSMICON),
-				Core::App().unreadBadge(),
-				Core::App().unreadBadgeMuted()),
-			true,
-			Core::App().settings().trayIconMonochrome(),
-			session && session->supportMode()));
-	_icon->updateIcon(forTrayIcon);
+	auto image = BaseIcon(
+		GetSystemMetrics(SM_CXSMICON),
+		session && session->supportMode(),
+		true,
+		Core::App().settings().trayIconMonochrome());
+	if (Core::App().unreadBadge() > 0) {
+		image = WithUnreadDot(std::move(image), Core::App().unreadBadgeMuted()
+			? st::trayCounterBgMute
+			: st::trayCounterBg);
+	}
+	_icon->updateIcon(QIcon(Ui::PixmapFromImage(std::move(image))));
 	_icon->updateToolTip(Core::TrayIconToolTip());
 }
 

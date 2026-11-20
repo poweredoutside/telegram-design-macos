@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_histories.h"
 
+#include "data/data_message_archive.h"
+
 #include "api/api_text_entities.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/ephemeral_messages.h"
@@ -828,6 +830,15 @@ void Histories::deleteMessages(
 	sendRequest(history, RequestType::Delete, [=](Fn<void()> finish) {
 		const auto done = [=](const MTPmessages_AffectedMessages &result) {
 			session().api().applyAffectedMessages(history->peer, result);
+			auto remaining = QVector<MTPint>();
+			for (const auto &id : ids) {
+				if (_owner->message(history->peer, id.v)) {
+					remaining.push_back(id);
+				}
+			}
+			if (!remaining.empty()) {
+				_owner->processMessagesDeleted(history->peer->id, remaining);
+			}
 			finish();
 			history->requestChatListMessage();
 		};
@@ -1018,10 +1029,13 @@ void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 				_owner->session().ephemeralMessages().deleteMessage(item);
 				continue;
 			}
-			remove.push_back(item);
 			if (item->isRegular()) {
 				idsByPeer[history].push_back(MTP_int(itemId.msg));
+				if (_owner->messageArchive().willSaveDeleted(item)) {
+					continue;
+				}
 			}
+			remove.push_back(item);
 		}
 	}
 

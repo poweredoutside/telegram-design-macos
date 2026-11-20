@@ -45,6 +45,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image.h"
 #include "ui/chat/chat_style.h"
 #include "ui/empty_userpic.h"
+#include "ui/userpic_rounding.h"
 #include "ui/text/text_options.h"
 #include "ui/painter.h"
 #include "ui/unread_badge.h"
@@ -453,21 +454,12 @@ void PeerData::paintUserpic(
 	const auto size = context.size;
 	const auto cloud = userpicCloudImage(view);
 	const auto ratio = style::DevicePixelRatio();
-	if (context.shape == Ui::PeerUserpicShape::Auto) {
-		context.shape = userpicShape();
-		if (context.shape == Ui::PeerUserpicShape::Circle
-			&& isUser()
-			&& Core::Telega::DisplayEnabled(
-				Core::Telega::DisplayOption::RoundedContactAvatars)) {
-			context.shape = Ui::PeerUserpicShape::Forum;
-		}
-	}
 	Ui::ValidateUserpicCache(
 		view,
 		cloud,
 		cloud ? nullptr : ensureEmptyUserpic().get(),
 		size * ratio,
-		context.shape);
+		Ui::DisplayUserpicRounding(this, context.shape));
 	p.drawImage(QRect(context.position, QSize(size, size)), view.cached);
 }
 
@@ -510,25 +502,26 @@ QImage PeerData::GenerateUserpicImage(
 		Ui::PeerUserpicView &view,
 		int size,
 		std::optional<int> radius) {
+	if (!radius) {
+		const auto source = peer->userpicPaintingPeer();
+		const auto cloud = source->userpicCloudImage(view);
+		Ui::ValidateUserpicCache(
+			view,
+			cloud,
+			cloud ? nullptr : source->ensureEmptyUserpic().get(),
+			size,
+			Ui::DisplayUserpicRounding(peer));
+		return view.cached;
+	}
 	if (const auto userpic = peer->userpicCloudImage(view)) {
 		auto image = userpic->scaled(
 			{ size, size },
 			Qt::IgnoreAspectRatio,
 			Qt::SmoothTransformation);
-		const auto round = [&](int radius) {
-			return Images::Round(
-				std::move(image),
-				Images::CornersMask(radius / style::DevicePixelRatio()));
-		};
-		if (radius == 0) {
-			return image;
-		} else if (radius) {
-			return round(*radius);
-		} else if (peer->isForum()) {
-			return round(size * Ui::ForumUserpicRadiusMultiplier());
-		} else {
-			return Images::Circle(std::move(image));
-		}
+		const auto logicalRadius = *radius / style::DevicePixelRatio();
+		return logicalRadius > 0
+			? Images::Round(std::move(image), Images::CornersMask(logicalRadius))
+			: image;
 	}
 	auto result = QImage(
 		QSize(size, size),
@@ -538,19 +531,8 @@ QImage PeerData::GenerateUserpicImage(
 	Painter p(&result);
 	if (radius == 0) {
 		peer->ensureEmptyUserpic()->paintSquare(p, 0, 0, size, size);
-	} else if (radius) {
-		const auto r = *radius;
-		peer->ensureEmptyUserpic()->paintRounded(p, 0, 0, size, size, r);
-	} else if (peer->isForum()) {
-		peer->ensureEmptyUserpic()->paintRounded(
-			p,
-			0,
-			0,
-			size,
-			size,
-			size * Ui::ForumUserpicRadiusMultiplier());
 	} else {
-		peer->ensureEmptyUserpic()->paintCircle(p, 0, 0, size, size);
+		peer->ensureEmptyUserpic()->paintRounded(p, 0, 0, size, size, *radius);
 	}
 	p.end();
 
@@ -1311,6 +1293,15 @@ Ui::PeerUserpicShape PeerData::userpicShape() const {
 		: isMonoforum()
 		? Ui::PeerUserpicShape::Monoforum
 		: Ui::PeerUserpicShape::Circle;
+}
+
+Ui::UserpicRounding Ui::DisplayUserpicRounding(
+		const PeerData *peer,
+		PeerUserpicShape requested) {
+	const auto shape = (requested == PeerUserpicShape::Auto && peer)
+		? peer->userpicShape()
+		: requested;
+	return ResolveUserpicRounding(shape);
 }
 
 ChannelData *PeerData::monoforumBroadcast() const {

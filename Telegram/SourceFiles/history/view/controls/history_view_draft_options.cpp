@@ -603,7 +603,7 @@ void PreviewWrap::paintEvent(QPaintEvent *e) {
 				st::msgPhotoSize);
 		} else if (const auto info = item->displayHiddenSenderInfo()) {
 			if (info->customUserpic.empty()) {
-				info->emptyUserpic.paintCircle(
+				info->emptyUserpic.paintAvatar(
 					p,
 					st::historyPhotoLeft,
 					userpicTop,

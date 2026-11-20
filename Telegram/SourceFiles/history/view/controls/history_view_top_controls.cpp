@@ -612,7 +612,8 @@ void TopControls::setupPeerBars() {
 		_businessBotStatus = std::make_unique<BusinessBotStatus>(
 			_controller,
 			_topBars.get(),
-			_history->peer);
+			_history->peer,
+			_parent);
 		_businessBotStatus->show();
 		_businessBotStatusHeight = 0;
 		_businessBotStatus->bar().heightValue(

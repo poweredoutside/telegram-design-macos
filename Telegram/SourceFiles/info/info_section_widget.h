@@ -36,7 +36,7 @@ public:
 		not_null<MoveMemento*> memento);
 
 	Dialogs::RowDescriptor activeChat() const override;
-	[[nodiscard]] bool isSettings() const;
+	[[nodiscard]] bool isSettingsOrOwnProfile() const;
 
 	bool hasTopBarShadow() const override;
 	QPixmap grabForShowAnimation(

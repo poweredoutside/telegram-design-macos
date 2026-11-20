@@ -344,7 +344,6 @@ private:
 	QImage _cachedUserpic;
 	Ui::CommunityUserpicEffect _communityUserpicEffect;
 	bool _communityEffect = false;
-	QImage _monoforumMask;
 	std::unique_ptr<Ui::VideoUserpicPlayer> _videoUserpicPlayer;
 	std::unique_ptr<TopicIconView> _topicIconView;
 	std::unique_ptr<Ui::UploadProgressOverlay> _uploadOverlay;

@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/main_window.h"
+#include "window/window_application_icon.h"
 
 #include "api/api_updates.h"
 #include "storage/localstorage.h"
@@ -29,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/shortcuts.h"
 #include "core/update_channel.h"
 #include "core/version.h"
+#include "settings.h"
 #include "lang/lang_keys.h"
 #include "data/data_session.h"
 #include "data/data_forum_topic.h"
@@ -58,7 +60,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/mac/global_menu_mac.h"
 #endif // Q_OS_MAC
 
+#include <QtCore/QDir>
+#include <QtCore/QFileInfo>
 #include <QtCore/QMimeData>
+#include <QtCore/QSaveFile>
+#include <QtGui/QImageReader>
 #include <QtGui/QPainterPath>
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
@@ -70,6 +76,8 @@ namespace Window {
 namespace {
 
 constexpr auto kSaveWindowPositionTimeout = crl::time(1000);
+constexpr auto kCustomIconSide = 256;
+constexpr auto kCustomIconPreference = "telega.appearance.custom-icon";
 
 using Core::WindowPosition;
 
@@ -91,6 +99,15 @@ using Core::WindowPosition;
 [[nodiscard]] QImage &OverridenIcon() {
 	static auto result = QImage();
 	return result;
+}
+
+[[nodiscard]] QImage &CustomIconAtStartup() {
+	static auto result = QImage();
+	return result;
+}
+
+[[nodiscard]] QString CustomIconPath() {
+	return cWorkingDir() + u"tdata/telega-icons/custom.png"_q;
 }
 
 struct FolderIconColors {
@@ -303,6 +320,9 @@ QIcon CreateSupportIcon(Main::Session *session) {
 }
 
 const QImage &ApplicationLogo(bool noMargin) {
+	if (const auto &custom = ActiveCustomApplicationIcon(); !custom.isNull()) {
+		return custom;
+	}
 	constexpr auto count = int(Core::Telega::AppIconStyle::Blue) + 1;
 	static auto images = std::array<QImage, count * 4>();
 	const auto appearance = Core::Telega::ActiveApplicationIconAppearance();
@@ -314,6 +334,94 @@ const QImage &ApplicationLogo(bool noMargin) {
 		image = DrawFolderIcon(appearance, noMargin);
 	}
 	return image;
+}
+
+QImage ReadCustomApplicationIcon(const QString &path) {
+	const auto file = QFileInfo(path);
+	if (!file.isFile() || file.size() <= 0 || file.size() > 20 * 1024 * 1024) {
+		return {};
+	}
+	auto reader = QImageReader(path);
+	reader.setAutoTransform(true);
+	const auto format = reader.format();
+	if (format != "png" && format != "jpeg" && format != "bmp"
+		&& format != "ico" && format != "webp") {
+		return {};
+	}
+	if (format == "ico") {
+		auto bestIndex = 0;
+		auto bestArea = 0;
+		const auto count = reader.imageCount();
+		for (auto index = 0; index < count; ++index) {
+			if (reader.jumpToImage(index)) {
+				const auto size = reader.size();
+				const auto area = size.width() * size.height();
+				if (!size.isEmpty() && area > bestArea) {
+					bestIndex = index;
+					bestArea = area;
+				}
+			}
+		}
+		if (!reader.jumpToImage(bestIndex)) {
+			return {};
+		}
+	}
+	const auto dimensions = reader.size();
+	constexpr auto kMaxPixels = 4096 * int64(4096);
+	if (dimensions.isEmpty()
+		|| int64(dimensions.width()) * dimensions.height() > kMaxPixels) {
+		return {};
+	}
+	const auto image = reader.read();
+	if (image.isNull()) {
+		return {};
+	}
+	const auto square = QSize(kCustomIconSide, kCustomIconSide);
+	const auto scaled = image.scaled(
+		square, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+	auto canvas = QImage(square, QImage::Format_ARGB32_Premultiplied);
+	canvas.fill(Qt::transparent);
+	auto painter = QPainter(&canvas);
+	painter.drawImage(
+		(square.width() - scaled.width()) / 2,
+		(square.height() - scaled.height()) / 2,
+		scaled);
+	painter.end();
+	return canvas;
+}
+
+QImage SavedCustomApplicationIcon() {
+	return ReadCustomApplicationIcon(CustomIconPath());
+}
+
+bool CustomApplicationIconSelected() {
+	return Core::App().settings().readPref<bool>(kCustomIconPreference, false);
+}
+
+bool SaveCustomApplicationIcon(const QImage &image) {
+	const auto path = CustomIconPath();
+	if (image.isNull() || !QDir().mkpath(QFileInfo(path).absolutePath())) {
+		return false;
+	}
+	auto file = QSaveFile(path);
+	return file.open(QIODevice::WriteOnly)
+		&& image.save(&file, "PNG")
+		&& file.commit();
+}
+
+void SelectCustomApplicationIcon(bool selected) {
+	Core::App().settings().writePref<bool>(kCustomIconPreference, selected);
+	Core::App().saveSettings();
+}
+
+void InitCustomApplicationIcon() {
+	CustomIconAtStartup() = CustomApplicationIconSelected()
+		? SavedCustomApplicationIcon()
+		: QImage();
+}
+
+const QImage &ActiveCustomApplicationIcon() {
+	return CustomIconAtStartup();
 }
 
 QIcon CreateApplicationIconPreview(Core::Telega::AppIconAppearance appearance) {

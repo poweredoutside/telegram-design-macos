@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/confirm_box.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/empty_userpic.h"
+#include "ui/userpic_rounding.h"
 #include "data/data_photo.h"
 #include "data/data_session.h"
 #include "data/data_changes.h"
@@ -728,9 +729,8 @@ void UserpicButton::paintEvent(QPaintEvent *e) {
 			.progressFg = st::historyFileThumbRadialFg,
 			.overlayFg = st::songCoverOverlayFg,
 			.cancelIcon = &st::userpicUploadCancel,
-			.roundRadius = useForumShape()
-				? (_st.photoSize * ForumUserpicRadiusMultiplier())
-				: 0.,
+			.roundRadius = _st.photoSize
+				* DisplayUserpicRounding(_peer, _shape).radius,
 		});
 	}
 }
@@ -748,15 +748,15 @@ void UserpicButton::paintUserpicFrame(Painter &p, QPoint photoPosition) {
 		auto size = QSize{ _st.photoSize, _st.photoSize };
 		const auto ratio = style::DevicePixelRatio();
 		request.outer = request.resize = size * ratio;
-		if (_shape == PeerUserpicShape::Monoforum) {
-		} else if (useForumShape()) {
-			const auto radius = int(_st.photoSize
-				* Ui::ForumUserpicRadiusMultiplier());
+		const auto rounding = DisplayUserpicRounding(_peer, _shape);
+		const auto monoforum = (rounding.shape == PeerUserpicShape::Monoforum);
+		const auto radius = int(base::SafeRound(_st.photoSize * rounding.radius));
+		if (!monoforum && rounding.radius < .5 && radius > 0) {
 			if (_roundingCorners[0].width() != radius * ratio) {
 				_roundingCorners = Images::CornersMask(radius);
 			}
 			request.rounding = Images::CornersMaskRef(_roundingCorners);
-		} else {
+		} else if (!monoforum && rounding.radius >= .5) {
 			if (_ellipseMask.size() != request.outer) {
 				_ellipseMask = Images::EllipseMask(size);
 			}
@@ -764,8 +764,8 @@ void UserpicButton::paintUserpicFrame(Painter &p, QPoint photoPosition) {
 		}
 		auto frame = _streamed->frame(request);
 
-		if (_shape == PeerUserpicShape::Monoforum) {
-			if (_monoforumMask.isNull()) {
+		if (monoforum) {
+			if (_monoforumMask.size() != request.resize) {
 				_monoforumMask = MonoforumShapeMask(request.resize);
 			}
 			constexpr auto format = QImage::Format_ARGB32_Premultiplied;
@@ -800,10 +800,11 @@ QPoint UserpicButton::countPhotoPosition() const {
 
 QImage UserpicButton::prepareRippleMask() const {
 	const auto size = QSize(_st.photoSize, _st.photoSize);
-	return useForumShape()
+	const auto rounding = DisplayUserpicRounding(_peer, _shape).radius;
+	return (rounding < .5)
 		? Ui::RippleAnimation::RoundRectMask(
 			size,
-			int(_st.photoSize * Ui::ForumUserpicRadiusMultiplier()))
+			int(base::SafeRound(_st.photoSize * rounding)))
 		: Ui::RippleAnimation::EllipseMask(size);
 }
 
@@ -1151,12 +1152,8 @@ void UserpicButton::showCustom(QImage &&image) {
 			size * style::DevicePixelRatio(),
 			Qt::IgnoreAspectRatio,
 			Qt::SmoothTransformation);
-		_userpic = Ui::PixmapFromImage(useForumShape()
-			? Images::Round(
-				std::move(small),
-				Images::CornersMask(_st.photoSize
-					* Ui::ForumUserpicRadiusMultiplier()))
-			: Images::Circle(std::move(small)));
+		_userpic = Ui::PixmapFromImage(ApplyUserpicShape(
+			std::move(small), DisplayUserpicRounding(_peer, _shape)));
 	} else {
 		_userpic = CreateSquarePixmap(_st.photoSize, [&](Painter &p) {
 			fillShape(p, CreateDefaultGradientBrush(_st.photoSize));
@@ -1232,12 +1229,8 @@ void UserpicButton::fillShape(QPainter &p, QBrush brush) const {
 	p.setPen(Qt::NoPen);
 	p.setBrush(brush);
 	const auto size = _st.photoSize;
-	if (useForumShape()) {
-		const auto radius = size * Ui::ForumUserpicRadiusMultiplier();
-		p.drawRoundedRect(0, 0, size, size, radius, radius);
-	} else {
-		p.drawEllipse(0, 0, size, size);
-	}
+	const auto radius = size * DisplayUserpicRounding(_peer, _shape).radius;
+	p.drawRoundedRect(0, 0, size, size, radius, radius);
 }
 
 void UserpicButton::prepareUserpicPixmap() {
@@ -1268,12 +1261,8 @@ void UserpicButton::prepareUserpicPixmap() {
 						QSize(size, size) * ratio,
 						Qt::IgnoreAspectRatio,
 						Qt::SmoothTransformation);
-					image = useForumShape()
-						? Images::Round(
-							std::move(image),
-							Images::CornersMask(size
-								* Ui::ForumUserpicRadiusMultiplier()))
-						: Images::Circle(std::move(image));
+					image = ApplyUserpicShape(
+						std::move(image), DisplayUserpicRounding(_peer, _shape));
 					image.setDevicePixelRatio(style::DevicePixelRatio());
 					p.drawImage(0, 0, image);
 				}
@@ -1284,16 +1273,14 @@ void UserpicButton::prepareUserpicPixmap() {
 					((user && user->isInaccessible())
 						? Ui::EmptyUserpic::InaccessibleName()
 						: _peer->name()));
-				if (useForumShape()) {
-					empty.paintRounded(
-						p,
-						0,
-						0,
-						size,
-						size,
-						size * Ui::ForumUserpicRadiusMultiplier());
-				} else {
+				const auto rounding = DisplayUserpicRounding(_peer, _shape).radius;
+				const auto radius = int(base::SafeRound(size * rounding));
+				if (rounding >= .5) {
 					empty.paintCircle(p, 0, 0, size, size);
+				} else if (radius > 0) {
+					empty.paintRounded(p, 0, 0, size, size, radius);
+				} else {
+					empty.paintSquare(p, 0, 0, size, size);
 				}
 			}
 		} else {

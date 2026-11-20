@@ -73,7 +73,7 @@ BEGIN
             VALUE "FileVersion", TELEGA_FILE_VERSION
             VALUE "LegalCopyright", "Copyright (C) 2014-2026"
             VALUE "ProductName", "Telega Desktop"
-            VALUE "ProductVersion", TELEGA_FILE_VERSION
+            VALUE "ProductVersion", TELEGA_DISPLAY_VERSION
         END
     END
     BLOCK "VarFileInfo"

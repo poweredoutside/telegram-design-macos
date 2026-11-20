@@ -2643,7 +2643,9 @@ void Widget::checkUpdateStatus() {
 }
 
 void Widget::setInnerFocus(bool unfocusSearch) {
-	if (_childList) {
+	if (macSettingsShown()) {
+		_settingsSidebar->setFocus();
+	} else if (_childList) {
 		_childList->setInnerFocus();
 	} else if (_subsectionTopBar && _subsectionTopBar->searchSetFocus()) {
 		return;

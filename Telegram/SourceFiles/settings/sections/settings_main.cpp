@@ -362,14 +362,20 @@ void Cover::refreshQrButtonGeometry(int newWidth) {
 }
 
 void BuildTelegaButtons(SectionBuilder &builder) {
-	builder.addSectionButton({
+	const auto controller = builder.controller();
+	builder.addButton({
 		.title = rpl::single(TelegaSettingsLabel()),
-		.targetSection = TelegaId(),
 		.icon = { &st::menuIconReorder },
+		.onClick = [=] {
+			if (controller) {
+				auto params = Window::SectionShow();
+				params.forbidLayer = true;
+				controller->showSettings(TelegaId(), params);
+			}
+		},
 		.keywords = { u"gemini"_q, u"themes"_q, u"brightness"_q },
 	});
 	const auto aiTitle = TelegaAiChatLabel();
-	const auto controller = builder.controller();
 	builder.addButton({
 		.id = u"main/telega-ai-chat"_q,
 		.title = rpl::single(aiTitle),

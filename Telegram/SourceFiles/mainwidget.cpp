@@ -47,6 +47,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_history_hider.h"
 #include "window/window_controller.h"
 #include "info/info_section_widget.h"
+#include "window/themes/window_theme_live_wallpaper.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller_link_info.h"
 #include "window/themes/window_theme.h"
@@ -98,6 +99,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "main/main_app_config.h"
 #include "settings/sections/settings_premium.h"
+#include "settings/sections/settings_telega.h"
 #include "storage/storage_user_photos.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
@@ -1272,6 +1274,7 @@ void MainWidget::setReadyChatBackground(
 		: background;
 
 	Background()->set(ready, std::move(image));
+	UseStaticWallpaper();
 	const auto tile = Data::IsLegacy1DefaultWallPaper(ready);
 	Background()->setTile(tile);
 	Ui::ForceFullRepaint(this);
@@ -1883,6 +1886,10 @@ bool MainWidget::showMacSettings() {
 	return _dialogs && _dialogs->showMacSettings();
 }
 
+bool MainWidget::macSettingsShown() const {
+	return _dialogs && _dialogs->macSettingsShown();
+}
+
 void MainWidget::showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
@@ -2171,7 +2178,7 @@ void MainWidget::showNewSection(
 }
 
 void MainWidget::checkMainSectionToLayer() {
-	if (!_mainSection || (_dialogs && _dialogs->macSettingsShown())) {
+	if (!_mainSection || macSettingsShown()) {
 		return;
 	}
 	Ui::FocusPersister persister(this);
@@ -2420,9 +2427,9 @@ bool MainWidget::showBackFromStack(const SectionShow &params) {
 			std::move(historyItem->replyReturns));
 	} else if (item->type() == SectionStackItem) {
 		auto sectionItem = static_cast<StackItemSection*>(item.get());
-		showNewSection(
-			sectionItem->takeMemento(),
-			params.withWay(SectionShow::Way::Backward));
+		auto backParams = params.withWay(SectionShow::Way::Backward);
+		backParams.forbidLayer = params.forbidLayer;
+		showNewSection(sectionItem->takeMemento(), backParams);
 	}
 	if (_thirdSectionFromStack && _thirdSection) {
 		_controller->showSection(
@@ -2690,9 +2697,15 @@ void MainWidget::resizeEvent(QResizeEvent *e) {
 
 void MainWidget::updateMainSectionShown() {
 	_controller->setMainSectionShown(_mainSection || _history->peer());
-	if (_dialogs && _dialogs->macSettingsShown()) {
-		const auto info = dynamic_cast<Info::SectionWidget*>(_mainSection.get());
-		if (!info || !info->isSettings()) {
+	if (macSettingsShown()) {
+		const auto section = _mainSection.get();
+		const auto info = dynamic_cast<Info::SectionWidget*>(section);
+		const auto showingSettingsList = !section
+			&& !_history->peer()
+			&& isOneColumn();
+		if (!showingSettingsList
+			&& (!info || !info->isSettingsOrOwnProfile())
+			&& !Settings::IsTelegaAiChat(section)) {
 			_dialogs->hideMacSettings();
 		}
 	}

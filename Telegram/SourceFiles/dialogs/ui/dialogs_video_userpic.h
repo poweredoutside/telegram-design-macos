@@ -57,6 +57,8 @@ private:
 	int _lastSize = 0;
 	std::shared_ptr<Data::PhotoMedia> _videoPhotoMedia;
 	PhotoId _videoPhotoId = 0;
+	QImage _roundedFrame;
+	qint64 _roundedFrameSource = 0;
 
 };
 

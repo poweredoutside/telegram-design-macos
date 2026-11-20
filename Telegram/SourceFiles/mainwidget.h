@@ -140,6 +140,7 @@ public:
 
 	int backgroundFromY() const;
 	[[nodiscard]] bool showMacSettings();
+	[[nodiscard]] bool macSettingsShown() const;
 	void showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params);

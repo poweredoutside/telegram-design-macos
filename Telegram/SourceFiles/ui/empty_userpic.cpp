@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/emoji_config.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
+#include "ui/userpic_rounding.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_widgets.h" // style::IconButton
@@ -333,6 +334,18 @@ void EmptyUserpic::paint(
 	}
 }
 
+void EmptyUserpic::paintAvatar(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size) const {
+	const auto left = style::RightToLeft() ? (outerWidth - x - size) : x;
+	paint(p, x, y, outerWidth, size, [&] {
+		PaintUserpicBackground(p, { left, y, size, size }, ResolveUserpicRounding());
+	});
+}
+
 void EmptyUserpic::paintCircle(
 		QPainter &p,
 		int x,
@@ -406,7 +419,7 @@ void EmptyUserpic::PaintSavedMessages(
 	PainterHighQualityEnabler hq(p);
 	p.setBrush(std::move(bg));
 	p.setPen(Qt::NoPen);
-	p.drawEllipse(x, y, size, size);
+	PaintUserpicBackground(p, { x, y, size, size }, ResolveUserpicRounding());
 
 	PaintSavedMessagesInner(p, x, y, size, fg);
 }
@@ -445,7 +458,7 @@ void EmptyUserpic::PaintRepliesMessages(
 	PainterHighQualityEnabler hq(p);
 	p.setBrush(bg);
 	p.setPen(Qt::NoPen);
-	p.drawEllipse(x, y, size, size);
+	PaintUserpicBackground(p, { x, y, size, size }, ResolveUserpicRounding());
 
 	PaintRepliesMessagesInner(p, x, y, size, fg);
 }
@@ -484,7 +497,7 @@ void EmptyUserpic::PaintHiddenAuthor(
 	PainterHighQualityEnabler hq(p);
 	p.setBrush(bg);
 	p.setPen(Qt::NoPen);
-	p.drawEllipse(x, y, size, size);
+	PaintUserpicBackground(p, { x, y, size, size }, ResolveUserpicRounding());
 
 	PaintHiddenAuthorInner(p, x, y, size, fg);
 }
@@ -517,7 +530,7 @@ void EmptyUserpic::PaintMyNotes(
 	PainterHighQualityEnabler hq(p);
 	p.setBrush(bg);
 	p.setPen(Qt::NoPen);
-	p.drawEllipse(x, y, size, size);
+	PaintUserpicBackground(p, { x, y, size, size }, ResolveUserpicRounding());
 
 	PaintMyNotesInner(p, x, y, size, fg);
 }

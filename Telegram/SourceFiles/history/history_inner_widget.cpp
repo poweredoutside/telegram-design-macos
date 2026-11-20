@@ -1785,7 +1785,7 @@ void HistoryInner::paintEvent(QPaintEvent *e) {
 				}
 			} else if (const auto info = item->displayHiddenSenderInfo()) {
 				if (info->customUserpic.empty()) {
-					info->emptyUserpic.paintCircle(
+					info->emptyUserpic.paintAvatar(
 						p,
 						st::historyPhotoLeft,
 						userpicTop,
@@ -3108,6 +3108,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	const auto addItemActions = [&](
 			HistoryItem *item,
 			HistoryItem *albumPartItem) {
+		if (item && !isUponSelected) {
+			HistoryView::AddMessageEditHistoryAction(_menu, controller, item);
+		}
 		if (!item
 			|| !item->isRegular()
 			|| IsAnchoredEphemeral(item)

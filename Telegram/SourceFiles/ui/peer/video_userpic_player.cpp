@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/streaming/media_streaming_document.h"
 #include "ui/image/image_prepare.h"
 #include "ui/empty_userpic.h"
+#include "ui/userpic_rounding.h"
 #include "ui/painter.h"
 
 namespace Ui {
@@ -62,20 +63,20 @@ QImage VideoUserpicPlayer::frame(
 	const auto ratio = style::DevicePixelRatio();
 	request.outer = request.resize = size * ratio;
 
-	const auto broadcast = peer->monoforumBroadcast();
+	const auto rounding = Ui::DisplayUserpicRounding(peer);
+	const auto monoforum = (rounding.shape == Ui::PeerUserpicShape::Monoforum);
+	const auto radius = int(base::SafeRound(size.width() * rounding.radius));
 
-	if (broadcast) {
-		if (_monoforumMask.isNull()) {
+	if (monoforum) {
+		if (_monoforumMask.size() != request.resize) {
 			_monoforumMask = Ui::MonoforumShapeMask(request.resize);
 		}
-	} else if (peer->isForum()) {
-		const auto radius = int(
-			size.width() * Ui::ForumUserpicRadiusMultiplier());
+	} else if (rounding.radius < .5 && radius > 0) {
 		if (_roundingCorners[0].width() != radius * ratio) {
 			_roundingCorners = Images::CornersMask(radius);
 		}
 		request.rounding = Images::CornersMaskRef(_roundingCorners);
-	} else {
+	} else if (rounding.radius >= .5) {
 		if (_ellipseMask.size() != request.outer) {
 			_ellipseMask = Images::EllipseMask(size);
 		}
@@ -83,7 +84,7 @@ QImage VideoUserpicPlayer::frame(
 	}
 
 	auto result = _streamed->frame(request);
-	if (broadcast) {
+	if (monoforum) {
 		constexpr auto kFormat = QImage::Format_ARGB32_Premultiplied;
 		if (result.format() != kFormat) {
 			result = std::move(result).convertToFormat(kFormat);

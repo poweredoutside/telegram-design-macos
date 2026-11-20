@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_item.h"
 
+#include "data/data_message_archive.h"
+
 #include "api/api_premium.h"
 #include "api/api_sensitive_content.h"
 #include "api/api_transcribes.h"
@@ -3537,7 +3539,8 @@ bool HistoryItem::allowsMediaDownloadControls() const {
 }
 
 bool HistoryItem::canDelete() const {
-	if (isSponsored()) {
+	if (isSponsored()
+		|| (isLocal() && _history->owner().messageArchive().isDeleted(fullId()))) {
 		return false;
 	} else if (isEphemeral()) {
 		return false;
@@ -4673,7 +4676,8 @@ bool HistoryItem::unread(not_null<Data::Thread*> thread) const {
 		return true;
 	}
 
-	return out() || (_flags & MessageFlag::ClientSideUnread);
+	return !_history->owner().messageArchive().isDeleted(fullId())
+		&& (out() || (_flags & MessageFlag::ClientSideUnread));
 }
 
 MsgId HistoryItem::replyToId() const {

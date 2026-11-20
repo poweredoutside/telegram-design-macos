@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/dialogs_entry.h"
 #include "dialogs/ui/dialogs_layout.h"
 #include "ui/painter.h"
+#include "ui/userpic_rounding.h"
 #include "styles/style_dialogs.h"
 
 namespace Dialogs::Ui {
@@ -49,6 +50,8 @@ void VideoUserpic::paintLeft(
 		_videoPhotoId = photoId;
 		_video = nullptr;
 		_videoPhotoMedia = nullptr;
+		_roundedFrame = QImage();
+		_roundedFrameSource = 0;
 		const auto photo = _peer->owner().photo(photoId);
 		if (photo->isNull()) {
 			_peer->updateFullForced();
@@ -86,25 +89,34 @@ void VideoUserpic::paintLeft(
 			}
 		}
 	}
-	if (rtl()) {
-		x = w - x - size;
-	}
 	if (_video && _video->ready()) {
 		startReady();
 
 		const auto now = paused ? crl::time(0) : crl::now();
-		p.drawImage(x, y, _video->current(request(size), now));
+		const auto options = request(size);
+		const auto frame = _video->current(options, now);
+		const auto rounding = Ui::DisplayUserpicRounding(_peer);
+		const auto needsMask = (options.radius == ImageRoundRadius::None)
+			&& (rounding.radius > 0.);
+		if (needsMask && _roundedFrameSource != frame.cacheKey()) {
+			_roundedFrameSource = frame.cacheKey();
+			_roundedFrame = Ui::ApplyUserpicShape(frame, rounding);
+		}
+		p.drawImage(rtl() ? w - x - size : x, y, needsMask ? _roundedFrame : frame);
 	} else {
 		_peer->paintUserpicLeft(p, view, x, y, w, size);
 	}
 }
 
 Media::Clip::FrameRequest VideoUserpic::request(int size) const {
+	const auto rounding = Ui::DisplayUserpicRounding(_peer);
 	return {
 		.frame = { size, size },
 		.outer = { size, size },
 		.factor = style::DevicePixelRatio(),
-		.radius = ImageRoundRadius::Ellipse,
+		.radius = (rounding.radius >= .5)
+			? ImageRoundRadius::Ellipse
+			: ImageRoundRadius::None,
 	};
 }
 

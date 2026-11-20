@@ -101,6 +101,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_separate_id.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
+#include "window/window_application_icon.h"
 #include "boxes/abstract_box.h"
 #include "boxes/keys_legend.h"
 #include "base/qthelp_regex.h"
@@ -338,6 +339,7 @@ void Application::run() {
 
 	startLocalStorage();
 	Telega::InitApplicationIconAppearance();
+	Window::InitCustomApplicationIcon();
 #ifdef Q_OS_WIN
 	Platform::SetApplicationIcon(Window::CreateIcon(nullptr));
 	if (!Launcher::Instance().customWorkingDir()) {

@@ -817,6 +817,8 @@ PRIVATE
     # data/data_messages.h
     data/data_message_reaction_id.cpp
     data/data_message_reaction_id.h
+    data/data_message_archive.cpp
+    data/data_message_archive.h
     data/data_message_reactions.cpp
     data/data_message_reactions.h
     data/data_msg_id.h
@@ -2582,6 +2584,7 @@ PRIVATE
     webauthn/webauthn_common.h
     window/main_window.cpp
     window/main_window.h
+    window/window_application_icon.h
     window/notifications_manager.cpp
     window/notifications_manager.h
     window/notifications_manager_default.cpp
@@ -2646,6 +2649,8 @@ PRIVATE
     window/themes/window_theme.cpp
     window/themes/window_theme_glass.cpp
     window/themes/window_theme_glass.h
+    window/themes/window_theme_live_wallpaper.cpp
+    window/themes/window_theme_live_wallpaper.h
     window/themes/window_theme.h
     window/themes/window_theme_local.h
     window/themes/window_theme_editor.cpp
@@ -2766,6 +2771,13 @@ if (WIN32)
 
     if (QT_VERSION LESS 6 OR DESKTOP_APP_WIN7_BASELINE)
         target_link_libraries(Telegram PRIVATE desktop-app::win_directx_helper)
+    endif()
+
+    if (TARGET Qt6::QICOPlugin_init AND NOT DESKTOP_APP_USE_PACKAGED)
+        target_link_libraries(Telegram PRIVATE
+            $<TARGET_OBJECTS:Qt6::QICOPlugin_init>
+            $<TARGET_FILE:Qt6::QICOPlugin>
+        )
     endif()
 
     if (DESKTOP_APP_WIN7_BASELINE)

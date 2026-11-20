@@ -75,6 +75,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### history/model — message histories and messages
 - Paths: `SourceFiles/history/`
 - `History` with its blocks, unread state and forum switches, and `HistoryItem` with its components, reply markup, edits, text for copy, translation and streamed bot drafts. It must not own widgets.
+- `data/data_message_archive` owns Telega's local deleted-message copies and edit history. Copies use client-side IDs and are stored in encrypted account preferences.
 
 ### iv/document — rich document model
 - Paths: `SourceFiles/iv/iv_rich_page*`, `SourceFiles/iv/iv_rich_message_serializer*`, `SourceFiles/iv/markdown/iv_markdown_document*`, `SourceFiles/iv/markdown/iv_markdown_parse*`, `SourceFiles/iv/markdown/iv_markdown_prepare*`, `SourceFiles/iv/markdown/iv_markdown_math*`, `SourceFiles/iv/markdown/iv_markdown_microtex*`, `SourceFiles/iv/markdown/iv_markdown_common*`
@@ -89,7 +90,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### api — Telegram API requests
 - Paths: `SourceFiles/api/`, `SourceFiles/apiwrap*`
 - The updates stream, sending and editing, and the per-feature request managers hung off `ApiWrap` that turn MTP answers into `Data::` changes. It must not own boxes, list controllers or click handlers.
-- `api_gemini_chat` is Telega's user-initiated Gemini transport and local conversation store. It must not read Telegram messages or credentials directly. Voice transcription accepts only a caller-provided recording after explicit confirmation and does not add it to the chat store.
+- `api_gemini_chat` owns Telega's user-initiated AI chat and separate conversation histories for Gemini, OpenAI, Claude and Perplexity. It must not read Telegram messages or credentials directly. Gemini voice transcription accepts only a caller-provided recording after explicit confirmation and does not add it to the chat store.
 
 ### mtproto — MTProto transport
 - Paths: `SourceFiles/mtproto/`, `SourceFiles/tde2e/`
@@ -185,6 +186,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### themes — app themes and chat backgrounds
 - Paths: `SourceFiles/window/themes/`
 - Loading, applying and saving palettes and backgrounds, embedded schemes and accents, the cloud themes list, per-chat themes, previews and the palette editor. It must not own cloud-theme data or the page that hosts the pickers.
+- `window_theme_live_wallpaper` owns local video wallpaper playback, storage and background repainting. The picker and preview UI live in the Telega appearance settings.
 
 ### settings — settings framework
 - Paths: `SourceFiles/settings/`

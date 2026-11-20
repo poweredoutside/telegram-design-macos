@@ -9,15 +9,19 @@
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/core_telega_preferences.h"
+#include "core/file_utilities.h"
 #include "core/update_checker.h"
 #include "history/view/history_view_quick_action.h"
 #include "history/view/history_view_context_menu.h"
+#include "data/data_message_archive.h"
+#include "data/data_session.h"
 #include "history/view/history_view_message.h"
 #include "info/profile/info_profile_actions.h"
 #include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
+#include "mainwidget.h"
 #include "mainwindow.h"
 #include "platform/platform_specific.h"
 #include "settings.h"
@@ -53,14 +57,18 @@
 #include "ui/wrap/vertical_layout.h"
 #include "ui/wrap/vertical_layout_reorder.h"
 #include "window/main_window.h"
+#include "window/window_application_icon.h"
 #include "window/notifications_manager.h"
 #include "window/section_memento.h"
 #include "window/section_widget.h"
+#include "window/themes/window_theme.h"
+#include "window/themes/window_theme_live_wallpaper.h"
 #include "window/themes/window_theme_local.h"
 #include "window/themes/window_theme_preview.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 
+#include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
@@ -83,11 +91,12 @@
 #include <QtGui/QDesktopServices>
 #include <QtGui/QIntValidator>
 #include <QtGui/QKeyEvent>
+#include <QtGui/QTextLayout>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <QtWidgets/QAbstractButton>
+#include <QtWidgets/QApplication>
 #include <QtWidgets/QButtonGroup>
-#include <QtGui/QTextLayout>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QHBoxLayout>
@@ -354,6 +363,18 @@ void AddSteppedSlider(
 		content->update();
 		ticks->update();
 	}, content->lifetime());
+}
+
+void OfferSettingsRestart(not_null<Window::SessionController*> controller) {
+	controller->show(Ui::MakeConfirmBox({
+		.text = tr::lng_settings_need_restart(),
+		.confirmed = [] {
+			Core::App().saveSettings();
+			Core::Restart();
+		},
+		.confirmText = tr::lng_settings_restart_now(),
+		.cancelText = tr::lng_settings_restart_later(),
+	}));
 }
 
 void AddClientOption(
@@ -1151,6 +1172,7 @@ void SetupBackgroundBrightness(
 		if (preview->width() <= 0) {
 			return;
 		}
+		Theme::ObserveLiveWallpaper(preview);
 		auto painter = QPainter(preview);
 		painter.setRenderHint(QPainter::Antialiasing);
 		const auto radius = style::ConvertScale(12);
@@ -1209,6 +1231,137 @@ void SetupBackgroundBrightness(
 	const auto inset = style::ConvertScale(14);
 	list->add(object_ptr<Ui::FixedHeightWidget>::fromRaw(preview),
 		style::margins(inset, 0, inset, inset));
+}
+
+void ShowLiveWallpaperBox(not_null<Window::SessionController*> controller) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		using Video = Theme::LiveWallpaperVideo;
+		using Status = Video::Status;
+		struct Preview {
+			QString path;
+			std::unique_ptr<Video> video;
+			rpl::lifetime lifetime;
+			rpl::variable<QString> message;
+			bool applying = false;
+		};
+		box->setTitle(rpl::single(Text(u"Живые обои"_q, u"Live wallpaper"_q)));
+		const auto state = box->lifetime().make_state<Preview>();
+		const auto preview = box->addRow(object_ptr<Ui::FixedHeightWidget>(
+			box, style::ConvertScale(210)));
+		preview->setAccessibleName(Text(u"Предпросмотр обоев"_q, u"Wallpaper preview"_q));
+		const auto still = Theme::Background()->createCurrentImage();
+		preview->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(preview);
+			const auto radius = style::ConvertScale(12);
+			auto clip = QPainterPath();
+			clip.addRoundedRect(preview->rect(), radius, radius);
+			p.setRenderHint(QPainter::Antialiasing);
+			p.setClipPath(clip);
+			p.fillRect(preview->rect(), st::boxBg);
+			const auto &frame = state->video ? state->video->frame() : still;
+			Theme::PaintWallpaperFrame(
+				p, frame.isNull() ? still : frame, preview->size(), preview->rect());
+			const auto brightness = Theme::ChatBackgroundBrightness();
+			if (brightness != 100) {
+				const auto alpha = std::abs(brightness - 100) * 255 / 100;
+				const auto shade = (brightness < 100) ? 0 : 255;
+				p.fillRect(preview->rect(), QColor(shade, shade, shade, alpha));
+			}
+		}, preview->lifetime());
+		state->message = Text(
+			u"Выберите видео до 60 секунд. Звук не воспроизводится."_q,
+			u"Choose a video up to 60 seconds. Playback is muted."_q);
+		Ui::AddDividerText(box->verticalLayout(), state->message.value());
+		const auto apply = box->addButton(
+			rpl::single(Text(u"Применить"_q, u"Apply"_q)));
+		const auto useStatic = box->addLeftButton(rpl::single(Text(
+			u"Статичный фон"_q, u"Still wallpaper"_q)), [=] {
+			Theme::UseStaticWallpaper();
+			box->closeBox();
+		});
+		box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+		apply->setDisabled(true);
+		apply->setClickedCallback([=] {
+			if (state->applying || !state->video
+				|| state->video->status() != Status::Ready) {
+				return;
+			}
+			state->applying = true;
+			apply->setDisabled(true);
+			useStatic->setDisabled(true);
+			state->message = Text(u"Сохранение обоев…"_q, u"Saving wallpaper…"_q);
+			Theme::ApplyLiveWallpaper(state->path, crl::guard(box, [=](bool ok) {
+				if (ok) {
+					box->closeBox();
+				} else {
+					state->applying = false;
+					state->message = Text(
+						u"Не удалось сохранить видео."_q,
+						u"Could not save the video."_q);
+					apply->setDisabled(state->video->status() != Status::Ready);
+					useStatic->setDisabled(false);
+				}
+			}));
+		});
+		const auto load = [=](const QString &path) {
+			state->lifetime.destroy();
+			state->path = path;
+			state->video = std::make_unique<Video>(path);
+			state->video->setPaused(
+				QGuiApplication::applicationState() != Qt::ApplicationActive);
+			const auto filename = (path == Theme::SavedLiveWallpaperPath())
+				? Text(u"Сохранённое видео"_q, u"Saved video"_q)
+				: QFileInfo(path).fileName();
+			state->video->frameUpdates() | rpl::on_next([=] {
+				preview->update();
+			}, state->lifetime);
+			state->video->statusValue() | rpl::on_next([=](Status status) {
+				apply->setDisabled(status != Status::Ready || state->applying);
+				if (state->applying) {
+					return;
+				} else if (status == Status::Ready) {
+					state->message = filename;
+				} else if (status == Status::TooLong) {
+					state->message = Text(
+						u"Видео должно длиться не больше 60 секунд."_q,
+						u"The video must be 60 seconds or shorter."_q);
+				} else if (status == Status::Invalid) {
+					state->message = Text(
+						u"Не удалось открыть видео или определить его длительность."_q,
+						u"Could not read the video or determine its duration."_q);
+				} else {
+					state->message = Text(
+						u"Загрузка предпросмотра…"_q, u"Loading preview…"_q);
+				}
+				preview->update();
+			}, state->lifetime);
+		};
+		AddAction(box->verticalLayout(), Text(u"Выбрать видео…"_q, u"Choose video…"_q), [=] {
+			if (!state->applying) {
+				FileDialog::GetOpenPath(
+					box.get(),
+					Text(u"Выбор видео для обоев"_q, u"Choose wallpaper video"_q),
+					Text(u"Видео"_q, u"Video"_q) + u" (*.mp4 *.webm *.mov *.mkv *.m4v)"_q,
+					crl::guard(box, [=](FileDialog::OpenResult &&result) {
+						if (!result.paths.isEmpty()) {
+							load(result.paths.front());
+						}
+					}));
+			}
+		});
+		QObject::connect(
+			qApp,
+			&QGuiApplication::applicationStateChanged,
+			box.get(),
+			[=](Qt::ApplicationState applicationState) {
+				if (state->video) {
+					state->video->setPaused(applicationState != Qt::ApplicationActive);
+				}
+			});
+		if (const auto saved = Theme::SavedLiveWallpaperPath(); !saved.isEmpty()) {
+			load(saved);
+		}
+	}));
 }
 
 void SetupVideoSeekStep(
@@ -1324,6 +1477,15 @@ Fn<void(int)> AddAppearancePreview(
 		list, style::ConvertScale(sticker ? 118 : 56)));
 	sample->setAccessibleName(label);
 	const auto value = sample->lifetime().make_state<int>(initial);
+	if (!sticker) {
+		using Option = Core::Telega::DisplayOption;
+		rpl::merge(
+			Core::Telega::DisplayValue(Option::UniformAvatarRadius),
+			Core::Telega::DisplayValue(Option::RoundedContactAvatars)
+		) | rpl::on_next([=] {
+			sample->update();
+		}, sample->lifetime());
+	}
 	sample->paintRequest() | rpl::on_next([=](const QRect &clip) {
 		auto painter = QPainter(sample);
 		painter.fillRect(clip, st::windowBg);
@@ -1346,9 +1508,19 @@ Fn<void(int)> AddAppearancePreview(
 			painter.drawImage(QRect(sample->width() - inset - size, top, size, size),
 				Window::Logo());
 		} else {
+			using Option = Core::Telega::DisplayOption;
+			const auto rounded = Core::Telega::DisplayEnabled(Option::RoundedContactAvatars);
+			const auto uniform = Core::Telega::DisplayEnabled(Option::UniformAvatarRadius);
+			const auto radius = rounded ? std::min(*value, 30) : *value;
+			const auto contactRadius = size * radius / 100.;
+			const auto forumRadius = size * (uniform ? radius : std::min(radius, 30)) / 100.;
 			painter.setBrush(st::windowBgActive);
-			const auto radius = size * *value / 100.;
-			painter.drawRoundedRect(inset, top, size, size, radius, radius);
+			painter.drawRoundedRect(inset, top, size, size, contactRadius, contactRadius);
+			const auto forumLeft = sample->width() - inset - size;
+			if (forumLeft > textStart + textWidth + inset) {
+				painter.setBrush(st::windowSubTextFg);
+				painter.drawRoundedRect(forumLeft, top, size, size, forumRadius, forumRadius);
+			}
 		}
 	}, sample->lifetime());
 	style::PaletteChanged() | rpl::on_next([=] { sample->update(); }, sample->lifetime());
@@ -1444,6 +1616,14 @@ public:
 		update();
 	}
 
+	void setCustomImage(const QImage &image) {
+		_custom = true;
+		_roundedSquare = true;
+		_icon = image.isNull() ? QIcon() : QIcon(QPixmap::fromImage(image));
+		setEnabled(!image.isNull());
+		update();
+	}
+
 protected:
 	void paintEvent(QPaintEvent *) override {
 		auto painter = QPainter(this);
@@ -1465,6 +1645,11 @@ protected:
 			}
 		}
 		_icon.paint(&painter, icon);
+		if (_custom && _icon.isNull()) {
+			painter.setPen(st::windowSubTextFg);
+			painter.setFont(st::semiboldFont->f);
+			painter.drawText(icon, Qt::AlignCenter, u"+"_q);
+		}
 		const auto font = st::normalFont;
 		painter.setFont(font->f);
 		painter.setPen(isChecked() ? st::windowActiveTextFg : st::windowFg);
@@ -1479,6 +1664,7 @@ private:
 	const Core::Telega::AppIconStyle _style;
 	QIcon _icon;
 	bool _roundedSquare = false;
+	bool _custom = false;
 
 };
 
@@ -1499,6 +1685,11 @@ void SetupTelegaAppIcon(
 			box->setWidth(style::ConvertScale(420));
 			box->addTopButton(st::boxTitleClose, [=] { box->closeBox(); });
 			const auto preferred = Core::Telega::ApplicationIconAppearance();
+			const auto customId = int(IconStyle::Blue) + 1;
+			const auto customImage = box->lifetime().make_state<QImage>(
+				Window::SavedCustomApplicationIcon());
+			const auto customSelected = Window::CustomApplicationIconSelected()
+				&& !customImage->isNull();
 			const auto choices = std::array{
 				std::pair(IconStyle::Default, Text(u"Стандартная"_q, u"Default"_q)),
 				std::pair(IconStyle::Blue, u"Telega"_q),
@@ -1520,41 +1711,91 @@ void SetupTelegaAppIcon(
 				const auto &[style, label] = choices[index];
 				const auto option = new AppIconOption(row, label, { style, preferred.roundedSquare });
 				options->addButton(option, int(style));
-				option->setChecked(style == preferred.style);
+				option->setChecked(!customSelected && style == preferred.style);
 				grid->addWidget(option, index / 3, index % 3);
 			}
+			const auto custom = new AppIconOption(row,
+				Text(u"Своя иконка"_q, u"Custom icon"_q), { IconStyle::Default, true });
+			custom->setCustomImage(*customImage);
+			options->addButton(custom, customId);
+			custom->setChecked(customSelected);
+			grid->addWidget(custom, 1, 2);
+			AddAction(box->verticalLayout(),
+				Text(u"Загрузить свою иконку…"_q, u"Import a custom icon…"_q), [=] {
+					FileDialog::GetOpenPath(
+						box.get(),
+						Text(u"Выбор иконки приложения"_q, u"Choose an app icon"_q),
+						Text(u"Изображения"_q, u"Images"_q)
+							+ u" (*.png *.ico *.jpg *.jpeg *.bmp *.webp)"_q,
+						crl::guard(box, [=](FileDialog::OpenResult &&result) {
+							if (result.paths.isEmpty()) {
+								return;
+							}
+							auto image = Window::ReadCustomApplicationIcon(result.paths.front());
+							if (image.isNull()) {
+								controller->showToast(Text(
+									u"Не удалось открыть изображение для иконки."_q,
+									u"Could not open the icon image."_q));
+								return;
+							}
+							*customImage = std::move(image);
+							custom->setCustomImage(*customImage);
+							custom->setChecked(true);
+						}));
+				});
 			const auto square = box->addRow(object_ptr<Ui::Checkbox>(
 				box,
 				Text(u"Форма скруглённого квадрата"_q, u"Rounded square shape"_q),
 				preferred.roundedSquare,
 				st::defaultBoxCheckbox));
+			QObject::connect(custom, &QAbstractButton::toggled, square, [=](bool checked) {
+				square->setDisabled(checked);
+			});
+			square->setDisabled(customSelected);
 			square->checkedChanges() | rpl::on_next([=](bool roundedSquare) {
 				for (const auto option : options->buttons()) {
-					static_cast<AppIconOption*>(option)->setRoundedSquare(roundedSquare);
+					if (option != custom) {
+						static_cast<AppIconOption*>(option)->setRoundedSquare(roundedSquare);
+					}
 				}
 			}, box->lifetime());
 			box->addRow(object_ptr<Ui::FlatLabel>(box, rpl::single(Text(
 				u"Логотип меняется после перезапуска Telega."_q,
 				u"The app logo changes after restarting Telega."_q)), st::boxDividerLabel));
 			box->addButton(rpl::single(Text(u"Выбрать"_q, u"Select"_q)), [=] {
-				const auto choice = Core::Telega::AppIconAppearance{
-					.style = IconStyle(options->checkedId()),
-					.roundedSquare = square->checked(),
-				};
+				const auto selected = options->checkedId();
+				const auto useCustom = (selected == customId);
+				if (selected < 0) {
+					return;
+				}
 				const auto active = Core::Telega::ActiveApplicationIconAppearance();
+				const auto &activeCustom = Window::ActiveCustomApplicationIcon();
+				auto restart = false;
+				if (useCustom) {
+					if (!Window::SaveCustomApplicationIcon(*customImage)) {
+						controller->showToast(Text(
+							u"Не удалось сохранить иконку."_q,
+							u"Could not save the icon."_q));
+						return;
+					}
+					restart = activeCustom != *customImage;
+				} else {
+					const auto choice = Core::Telega::AppIconAppearance{
+						.style = IconStyle(selected),
+						.roundedSquare = square->checked(),
+					};
+					Core::Telega::SetApplicationIconAppearance(choice);
+					restart = !activeCustom.isNull()
+						|| choice.style != active.style
+						|| choice.roundedSquare != active.roundedSquare;
+				}
 				if (Platform::IsWindows()) {
 					Core::App().settings().setTrayIconMonochrome(false);
 				}
-				Core::Telega::SetApplicationIconAppearance(choice);
+				Window::SelectCustomApplicationIcon(useCustom);
 				box->closeBox();
-				if (choice.style != active.style
-					|| choice.roundedSquare != active.roundedSquare) {
-					controller->show(Ui::MakeConfirmBox({
-						.text = tr::lng_settings_need_restart(),
-						.confirmed = [] { Core::Restart(); },
-						.confirmText = tr::lng_settings_restart_now(),
-						.cancelText = tr::lng_settings_restart_later(),
-					}));
+				if (restart) {
+					OfferSettingsRestart(controller);
 				}
 			});
 			box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
@@ -1562,20 +1803,22 @@ void SetupTelegaAppIcon(
 	});
 }
 
-void AddGeminiKeyAction(
+void AddAiKeyAction(
 		not_null<Ui::VerticalLayout*> list,
 		not_null<Window::SessionController*> controller,
-		QString title) {
+		QString title,
+		Gemini::Provider provider = Gemini::Provider::Gemini) {
 	static auto changed = rpl::event_stream<>();
 	AddValueAction(list, title, (rpl::single(rpl::empty) | rpl::then(changed.events()))
-		| rpl::map([] {
-			return Gemini::HasKey() ? u"••••••••"_q : Text(u"Не задан"_q, u"Not set"_q);
+		| rpl::map([=] {
+			return Gemini::HasKey(provider) ? u"••••••••"_q : Text(u"Не задан"_q, u"Not set"_q);
 		}), [=] {
 		controller->show(Box([=](not_null<Ui::GenericBox*> box) {
 			box->setTitle(rpl::single(title));
 			const auto row = box->addRow(object_ptr<Ui::RpWidget>(box));
 			const auto field = new Ui::PasswordInput(row, st::defaultInputField,
-				rpl::single(Text(u"Ключ Google AI Studio"_q, u"Google AI Studio key"_q)));
+				rpl::single(Text(u"Ключ %1"_q, u"%1 API key"_q)
+					.arg(Gemini::ProviderName(provider))));
 			const auto height = field->sizeHint().height();
 			row->resize(row->width(), height);
 			row->widthValue() | rpl::on_next([=](int width) {
@@ -1593,16 +1836,16 @@ void AddGeminiKeyAction(
 					field->showError();
 					return;
 				}
-				Gemini::SetKey(key.toUtf8());
+				Gemini::SetKey(key.toUtf8(), provider);
 				changed.fire({});
 				box->closeBox();
 			};
 			QObject::connect(field, &Ui::PasswordInput::submitted, box.get(), save);
 			box->addButton(tr::lng_settings_save(), save);
 			box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
-			if (Gemini::HasKey()) {
+			if (Gemini::HasKey(provider)) {
 				box->addLeftButton(rpl::single(Text(u"Удалить ключ"_q, u"Remove key"_q)), [=] {
-					Gemini::SetKey({});
+					Gemini::SetKey({}, provider);
 					changed.fire({});
 					box->closeBox();
 				});
@@ -1633,7 +1876,7 @@ void SetupTelegaTranscription(
 	};
 	add(Text(u"Голосовые сообщения"_q, u"Voice messages"_q), "transcribeVoice", voice);
 	add(Text(u"Видеосообщения"_q, u"Video messages"_q), "transcribeRoundVideo", round);
-	AddGeminiKeyAction(list, controller, Text(u"Ключ Gemini"_q, u"Gemini key"_q));
+	AddAiKeyAction(list, controller, Text(u"Ключ Gemini"_q, u"Gemini key"_q));
 }
 
 class Themes final : public TelegaPage<Themes> {
@@ -1677,6 +1920,9 @@ public:
 		AddAction(themes, Text(u"Темы и фон"_q, u"Themes and wallpaper"_q), [=] {
 			showOther(Themes::Id());
 		});
+		AddAction(themes, Text(u"Живые обои"_q, u"Live wallpaper"_q), [=] {
+			ShowLiveWallpaperBox(controller);
+		});
 #ifdef Q_OS_WIN
 		AddIndexChoice(
 			addGroup(Text(u"Окно"_q, u"Window"_q)),
@@ -1699,18 +1945,29 @@ public:
 		}
 		AddSteppedSlider(avatar, radiusTitle, { Text(u"Квадрат"_q, u"Square"_q),
 			Text(u"Круг"_q, u"Circle"_q) }, radii, radius,
-			Core::Telega::SetAvatarCornerPercent, [=](int value) { (*avatarPreview)(value); });
+			[=](int value) {
+				if (value != Core::Telega::AvatarCornerPercent()) {
+					Core::Telega::SetAvatarCornerPercent(value);
+					OfferSettingsRestart(controller);
+				}
+			}, [=](int value) { (*avatarPreview)(value); });
 		*avatarPreview = AddAppearancePreview(avatar, radiusTitle, radius, false);
-		AddDisplayOption(avatar, Text(u"Единое скругление"_q, u"Same rounding for forums"_q),
+		const auto addRoundingToggle = [=](QString label, Option option) {
+			AddToggle(avatar, std::move(label), Core::Telega::DisplayValue(option),
+				[=](bool enabled) {
+					if (enabled != Core::Telega::DisplayEnabled(option)) {
+						Core::Telega::SetDisplayEnabled(option, enabled);
+						OfferSettingsRestart(controller);
+					}
+				});
+		};
+		addRoundingToggle(Text(u"Единое скругление"_q, u"Same rounding for forums"_q),
 			Option::UniformAvatarRadius);
-		AddToggle(avatar, Text(u"Скруглённые квадраты для аватаров контактов"_q,
-			u"Rounded-square contact avatars"_q),
-			Core::Telega::DisplayValue(Option::RoundedContactAvatars), [=](bool enabled) {
-				Core::Telega::SetDisplayEnabled(Option::RoundedContactAvatars, enabled);
-				Ui::ForceFullRepaint(controller->widget());
-			});
-		addGroupFooter(Text(u"Единое скругление применяет ту же форму к форумам. Изменения ползунка применяются после перезапуска."_q,
-			u"Uniform rounding gives forums the same shape. Slider changes apply after restart."_q));
+		addRoundingToggle(Text(u"Скруглённые квадраты для аватаров"_q,
+			u"Rounded-square avatars"_q), Option::RoundedContactAvatars);
+		addGroupFooter(Text(
+			u"Слева аватар чата, справа аватар форума. Единое скругление снимает ограничение 30% для форумов. Режим скруглённых квадратов ограничивает радиус всех аватаров до 30%. Изменения применяются после перезапуска."_q,
+			u"Chat avatar on the left, forum avatar on the right. Uniform rounding removes the 30% cap for forums. Rounded-square mode caps all avatar radii at 30%. Changes apply after restarting."_q));
 		const auto chats = addGroup(Text(u"Список чатов"_q, u"Chat list"_q));
 		AddDisplayOption(chats, Text(u"Скрывать статус"_q, u"Hide sidebar status"_q),
 			Option::HideSidebarStatus);
@@ -2100,6 +2357,99 @@ private:
 	const SectionSearchRow _search;
 };
 
+void SetupMessageArchive(
+		not_null<Ui::VerticalLayout*> list,
+		not_null<Window::SessionController*> controller) {
+	using Option = Data::ArchiveOption;
+	using Mark = Data::DeletedMark;
+	const auto archive = &controller->session().data().messageArchive();
+	const auto addToggle = [=](QString title, Option option) {
+		AddToggle(list, std::move(title), archive->value(option), [=](bool enabled) {
+			archive->setEnabled(option, enabled);
+		});
+	};
+	addToggle(Text(u"Сохранять удалённые сообщения"_q, u"Save deleted messages"_q),
+		Option::Deleted);
+	addToggle(Text(u"Сохранять историю изменений"_q, u"Save edit history"_q),
+		Option::Edits);
+	addToggle(Text(u"Сохранять в чатах с ботами"_q, u"Save in bot chats"_q),
+		Option::Bots);
+	addToggle(Text(u"Полупрозрачные удалённые сообщения"_q,
+		u"Translucent deleted messages"_q), Option::Translucent);
+
+	const auto preview = list->add(object_ptr<Ui::FixedHeightWidget>(
+		list, style::ConvertScale(66)));
+	preview->setAccessibleName(Text(u"Предпросмотр сообщения"_q, u"Message preview"_q));
+	preview->paintRequest() | rpl::on_next([=] {
+		auto p = QPainter(preview);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.fillRect(preview->rect(), st::windowBg);
+		const auto inset = style::ConvertScale(12);
+		const auto width = std::min(style::ConvertScale(230), preview->width() - 2 * inset);
+		if (width <= inset * 2) {
+			return;
+		}
+		const auto bubble = QRect(inset, inset, width, preview->height() - 2 * inset);
+		const auto radius = style::ConvertScale(14);
+		if (archive->enabled(Option::Translucent)) {
+			p.setOpacity(.55);
+		}
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::msgInBg);
+		p.drawRoundedRect(bubble, radius, radius);
+		p.setBrush(st::windowSubTextFg);
+		const auto line = style::ConvertScale(4);
+		p.drawRoundedRect(inset * 2, bubble.center().y() - line,
+			std::min(width / 4, style::ConvertScale(66)), line, line / 2., line / 2.);
+		auto mark = Data::DeletedMarkText(archive->mark());
+		if (!mark.isEmpty()) {
+			mark += ' ';
+		}
+		p.setFont(st::msgDateFont->f);
+		p.setPen(st::windowSubTextFg);
+		p.drawText(bubble.adjusted(inset, 0, -inset, -line),
+			Qt::AlignRight | Qt::AlignBottom, mark + u"12:30"_q);
+	}, preview->lifetime());
+	archive->value(Option::Translucent) | rpl::on_next([=] {
+		preview->update();
+	}, preview->lifetime());
+	archive->markValue() | rpl::on_next([=] {
+		preview->update();
+	}, preview->lifetime());
+	style::PaletteChanged() | rpl::on_next([=] {
+		preview->update();
+	}, preview->lifetime());
+
+	AddIndexChoice(list, controller, Text(u"Отметка удалённых"_q, u"Deleted message mark"_q), {
+		Text(u"Без отметки"_q, u"None"_q),
+		Text(u"Текст"_q, u"Text"_q),
+		Text(u"Корзина"_q, u"Trash"_q),
+		Text(u"Крестик"_q, u"Cross"_q),
+		Text(u"Глаз"_q, u"Eye"_q),
+	}, [=] { return int(archive->mark()); }, [=](int index) {
+		archive->setMark(Mark(index));
+	});
+	const auto clear = Text(u"Очистить сохранённые сообщения"_q,
+		u"Clear saved messages"_q);
+	const auto button = list->add(object_ptr<Button>(
+		list, rpl::single(clear), st::macSettingsPageAttentionButton));
+	button->setAccessibleName(clear);
+	button->setClickedCallback([=] {
+		controller->show(Ui::MakeConfirmBox({
+			.text = Text(
+				u"Удалить сохранённые сообщения и историю изменений этого аккаунта с устройства?"_q,
+				u"Clear saved messages and edit history for this account on this device?"_q),
+			.confirmed = [=] {
+				archive->clear();
+				controller->showToast(Text(u"Сохранённые сообщения очищены."_q,
+					u"Saved messages cleared."_q));
+			},
+			.confirmText = Text(u"Очистить"_q, u"Clear"_q),
+			.confirmStyle = &st::attentionBoxButton,
+		}));
+	});
+}
+
 class Privacy final : public TelegaPage<Privacy> {
 public:
 	Privacy(QWidget *parent, not_null<Window::SessionController*> controller)
@@ -2159,6 +2509,13 @@ public:
 			[](bool enabled) { Core::Telega::SetDisplayEnabled(Option::KeepUnreadWhenSending, !enabled); });
 		addGroupFooter(Text(u"Настройки действуют в этом клиенте и не дают полной невидимости."_q,
 			u"These settings apply to this client and do not make you invisible."_q));
+		SetupMessageArchive(addGroup(
+			Text(u"Сохранение сообщений"_q, u"Message retention"_q),
+			u"удалённые удаленные история изменений сохранение deleted edited retention"_q),
+			controller);
+		addGroupFooter(Text(
+			u"Сообщения, которые клиент уже получил, сохраняются на этом устройстве. История изменений доступна в меню сообщения."_q,
+			u"Messages this client has already received are saved on this device. Open a message’s menu to see its edit history."_q));
 		AddAction(addGroup(QString()), Text(u"Конфиденциальность и безопасность"_q, u"Privacy and security"_q), [=] {
 			showOther(PrivacySecurityId());
 		});
@@ -2464,8 +2821,10 @@ void SetupAiChatColors(
 	});
 }
 
-void ShowGeminiSettings(not_null<Window::SessionController*> controller) {
+void ShowAiChatSettings(not_null<Window::SessionController*> controller) {
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		using Provider = Gemini::Provider;
+		const auto provider = Gemini::ChatProvider();
 		box->setTitle(rpl::single(Text(u"Настройки ИИ-чата"_q, u"AI chat settings"_q)));
 		box->setWidth(style::ConvertScale(456));
 		box->setMaxHeight(style::ConvertScale(560));
@@ -2474,44 +2833,68 @@ void ShowGeminiSettings(not_null<Window::SessionController*> controller) {
 		[[maybe_unused]] const auto generalHeading = AddGroupedSettingsHeader(
 			content, rpl::single(Text(u"Основное"_q, u"General"_q)));
 		const auto general = AddGroupedSettingsRows(content);
-		AddValueAction(general, Text(u"Сервис"_q, u"Service"_q),
-			rpl::single(u"Google Gemini"_q), [=] {
-				controller->show(Ui::MakeInformBox(Text(
-					u"Google получает сообщения, отправленные в ИИ-чат, и выбранный контекст. История хранится локально."_q,
-					u"Google receives the messages sent in AI chat and the selected context. History is stored locally."_q)));
+		const auto serviceTitle = Text(u"Сервис"_q, u"Service"_q);
+		AddValueAction(general, serviceTitle,
+			rpl::single(Gemini::ProviderName(provider)), [=] {
+				const auto weak = QPointer<Ui::GenericBox>(box.get());
+				ShowRadioChoice(controller, serviceTitle, {
+					Gemini::ProviderName(Provider::Gemini),
+					Gemini::ProviderName(Provider::OpenAI),
+					Gemini::ProviderName(Provider::Claude),
+					Gemini::ProviderName(Provider::Perplexity),
+				}, int(provider), [=](int index) {
+					if (!weak || index < 0 || index > int(Provider::Perplexity)
+						|| index == int(provider)) {
+						return;
+					}
+					if (Gemini::SetChatProvider(Provider(index))) {
+						weak->closeBox();
+						ShowAiChatSettings(controller);
+					} else {
+						controller->showToast(Text(
+							u"Дождитесь ответа или остановите его."_q,
+							u"Wait for the reply or stop generation."_q));
+					}
+				});
 			});
-		AddGeminiKeyAction(general, controller, u"API-"_q + Text(u"ключ"_q, u"key"_q));
+		AddAiKeyAction(general, controller, Text(u"API-ключ"_q, u"API key"_q), provider);
 		const auto modelTitle = Text(u"Модель ИИ-чата"_q, u"AI chat model"_q);
-		const auto model = general->lifetime().make_state<rpl::variable<QString>>(Gemini::ModelName());
+		const auto model = general->lifetime().make_state<rpl::variable<QString>>(
+			Gemini::ChatModelName(provider));
 		const auto loading = general->lifetime().make_state<bool>(false);
 		AddValueAction(general, modelTitle, model->value(), [=] {
 			if (*loading) {
 				return;
-			} else if (!Gemini::HasKey()) {
-				controller->show(Ui::MakeInformBox(Text(u"Сначала введите ключ Gemini."_q,
-					u"Enter a Gemini key first."_q)));
+			} else if (!Gemini::HasKey(provider) && provider != Provider::Perplexity) {
+				controller->show(Ui::MakeInformBox(Text(
+					u"Сначала введите ключ %1."_q, u"Enter a %1 API key first."_q)
+					.arg(Gemini::ProviderName(provider))));
 				return;
 			}
 			*loading = true;
 			*model = Text(u"Загрузка…"_q, u"Loading…"_q);
 			const auto weak = QPointer<Ui::GenericBox>(box.get());
-			Gemini::FetchModels([=](QStringList names) {
+			Gemini::FetchModels(provider, [=](QStringList names) {
 				if (!weak) {
 					return;
 				}
 				*loading = false;
-				const auto current = Gemini::ModelName();
+				const auto current = Gemini::ChatModelName(provider);
 				*model = current;
 				if (names.isEmpty()) {
 					controller->show(Ui::MakeInformBox(Text(u"Не удалось загрузить модели. Проверьте ключ и соединение."_q,
 						u"Could not load models. Check your key and connection."_q)));
 					return;
 				}
+				if (!names.contains(current)) {
+					names.push_front(current);
+				}
 				ShowRadioChoice(controller, modelTitle, names, int(names.indexOf(current)),
 					[=](int index) {
 						if (weak && index >= 0 && index < names.size()) {
-							Gemini::SetModelName(names[index]);
-							*model = Gemini::ModelName();
+							if (Gemini::SetChatModelName(provider, names[index])) {
+								*model = Gemini::ChatModelName(provider);
+							}
 						}
 					});
 			});
@@ -2544,8 +2927,8 @@ void ShowGeminiSettings(not_null<Window::SessionController*> controller) {
 		});
 		FinishGroupedSettingsRows(general, &st::boxBg);
 		AddGroupedSettingsFooter(content, rpl::single(Text(
-			u"История позволяет ИИ учитывать предыдущие сообщения при генерации ответа."_q,
-			u"History lets AI consider earlier messages when generating a response."_q)));
+			u"Выбранный сервис получает отправленные сообщения и контекст из своей истории. История каждого сервиса хранится отдельно."_q,
+			u"The selected service receives the message and context from its own history. Each service has a separate local history."_q)));
 		[[maybe_unused]] const auto generationHeading = AddGroupedSettingsHeader(
 			content, rpl::single(Text(u"Генерация"_q, u"Generation"_q)));
 		const auto generation = AddGroupedSettingsRows(content);
@@ -2556,21 +2939,24 @@ void ShowGeminiSettings(not_null<Window::SessionController*> controller) {
 		FinishGroupedSettingsRows(generation, &st::boxBg);
 		AddGroupedSettingsFooter(content, rpl::single(Text(u"Ответ показывается по мере генерации."_q,
 			u"The response appears while it is being generated."_q)));
-		const auto temperature = Text(u"Температура"_q, u"Temperature"_q);
-		[[maybe_unused]] const auto temperatureHeading = AddGroupedSettingsHeader(content, rpl::single(temperature));
-		const auto temperatureGroup = AddGroupedSettingsRows(content);
-		auto temperatures = QStringList();
-		for (auto step = 0; step <= 20; ++step) {
-			temperatures.push_back(QString::number(step / 10., 'f', 1));
+		if (provider == Provider::Gemini) {
+			const auto temperature = Text(u"Температура"_q, u"Temperature"_q);
+			[[maybe_unused]] const auto temperatureHeading = AddGroupedSettingsHeader(
+				content, rpl::single(temperature));
+			const auto temperatureGroup = AddGroupedSettingsRows(content);
+			auto temperatures = QStringList();
+			for (auto step = 0; step <= 20; ++step) {
+				temperatures.push_back(QString::number(step / 10., 'f', 1));
+			}
+			AddSteppedSlider(temperatureGroup, temperature, { u"0.0"_q, u"2.0"_q }, temperatures,
+				std::clamp(Gemini::Preference("temperature", 10), 0, 20), [](int value) {
+					Gemini::SetPreference("temperature", value);
+				});
+			FinishGroupedSettingsRows(temperatureGroup, &st::boxBg);
+			AddGroupedSettingsFooter(content, rpl::single(Text(
+				u"Низкая температура делает ответы более предсказуемыми, высокая — более разнообразными."_q,
+				u"A lower temperature makes answers more predictable; a higher one makes them more varied."_q)));
 		}
-		AddSteppedSlider(temperatureGroup, temperature, { u"0.0"_q, u"2.0"_q }, temperatures,
-			std::clamp(Gemini::Preference("temperature", 10), 0, 20), [](int value) {
-				Gemini::SetPreference("temperature", value);
-			});
-		FinishGroupedSettingsRows(temperatureGroup, &st::boxBg);
-		AddGroupedSettingsFooter(content, rpl::single(Text(
-			u"Низкая температура делает ответы более предсказуемыми, высокая — более разнообразными."_q,
-			u"A lower temperature makes answers more predictable; a higher one makes them more varied."_q)));
 		[[maybe_unused]] const auto colorsHeading = AddGroupedSettingsHeader(
 			content, rpl::single(Text(u"Оформление"_q, u"Appearance"_q)));
 		const auto colors = AddGroupedSettingsRows(content);
@@ -2621,7 +3007,7 @@ public:
 		history->setUndoRedoEnabled(false);
 		history->setFrameShape(QFrame::NoFrame);
 		history->viewport()->setAutoFillBackground(false);
-		history->setAccessibleName(Text(u"История Gemini"_q, u"Gemini history"_q));
+		history->setAccessibleName(Text(u"История ИИ-чата"_q, u"AI chat history"_q));
 		layout->addWidget(history, 1);
 		const auto status = new QLabel(this);
 		status->setWordWrap(true);
@@ -2657,12 +3043,15 @@ public:
 		layout->addLayout(composer);
 		const auto submit = [=] {
 			const auto text = input->toPlainText();
+			const auto provider = Gemini::ChatProvider();
 			if (text.trimmed().isEmpty() || Gemini::AiChatWaiting()) {
 				return;
-			} else if (!Gemini::HasKey()) {
-				ShowGeminiSettings(controller);
-				status->setText(Text(u"Укажите ключ Gemini в настройках ИИ-чата."_q,
-					u"Set a Gemini key in AI chat settings."_q));
+			} else if (!Gemini::HasKey(provider)) {
+				ShowAiChatSettings(controller);
+				status->setText(Text(
+					u"Укажите ключ %1 в настройках ИИ-чата."_q,
+					u"Set a %1 API key in AI chat settings."_q)
+					.arg(Gemini::ProviderName(provider)));
 				status->show();
 			} else if (text.size() > 16000) {
 				status->setText(Text(u"Максимум 16 000 символов."_q, u"Limit: 16,000 characters."_q));
@@ -2727,10 +3116,14 @@ public:
 		) | rpl::on_next(applyColors, lifetime());
 		const auto refresh = [=] {
 			const auto waiting = Gemini::AiChatWaiting();
+			const auto provider = Gemini::ChatProvider();
+			const auto providerName = Gemini::ProviderName(provider);
 			const auto scrollbar = history->verticalScrollBar();
 			const auto position = scrollbar->value();
-			const auto follow = (waiting && !_wasWaiting)
+			const auto follow = (provider != _provider)
+				|| (waiting && !_wasWaiting)
 				|| (position >= scrollbar->maximum());
+			_provider = provider;
 			const auto &messages = Gemini::AiChatHistory();
 			const auto isEmpty = !waiting && messages.empty();
 			empty->setVisible(isEmpty);
@@ -2739,11 +3132,11 @@ public:
 				for (const auto &message : messages) {
 					text += (message.user
 						? Text(u"Вы"_q, u"You"_q)
-						: (message.error ? Text(u"Статус"_q, u"Status"_q) : u"Gemini"_q))
+						: (message.error ? Text(u"Статус"_q, u"Status"_q) : providerName))
 						+ u"\n"_q + message.text + u"\n\n"_q;
 				}
 				if (waiting) {
-					text += u"Gemini\n"_q;
+					text += providerName + u"\n"_q;
 				}
 				history->setPlainText(text);
 				_historyEnd = history->document()->characterCount() - 1;
@@ -2764,7 +3157,9 @@ public:
 				}
 			}
 			scrollbar->setValue(follow ? scrollbar->maximum() : position);
-			status->setText(waiting ? Text(u"Gemini готовит ответ…"_q, u"Gemini is responding…"_q) : QString());
+			status->setText(waiting
+				? Text(u"%1 готовит ответ…"_q, u"%1 is responding…"_q).arg(providerName)
+				: QString());
 			status->setVisible(waiting);
 			_wasWaiting = waiting;
 			refreshSend();
@@ -2775,6 +3170,7 @@ public:
 
 private:
 	QColor _composerColor;
+	Gemini::Provider _provider = Gemini::Provider::Gemini;
 	QString _partial;
 	int _historyEnd = 0;
 	bool _wasWaiting = false;
@@ -2799,7 +3195,7 @@ public:
 		const auto back = new Ui::IconButton(bar, st::historyTopBarBack);
 		back->setFixedSize(back->size());
 		back->setAccessibleName(Text(u"Назад"_q, u"Back"_q));
-		back->setClickedCallback([=] { controller->showBackFromStack(); });
+		back->setClickedCallback([this] { showBackInternal(); });
 		barLayout->addWidget(back);
 		const auto title = new QLabel(TelegaAiChatLabel(), bar);
 		title->setFont(st::semiboldFont->f);
@@ -2822,11 +3218,13 @@ public:
 		clearState();
 		Gemini::AiChatUpdates() | rpl::on_next(clearState, clear->lifetime());
 		clear->setClickedCallback([=] {
+			const auto provider = Gemini::ChatProvider();
 			controller->show(Ui::MakeConfirmBox({
-				.text = Text(u"Удалить локальную историю Gemini?"_q,
-					u"Delete the local Gemini history?"_q),
+				.text = Text(u"Удалить локальную историю %1?"_q,
+					u"Delete the local history for %1?"_q)
+					.arg(Gemini::ProviderName(provider)),
 				.confirmed = [=] {
-					if (!Gemini::AiChatClear()) {
+					if (!Gemini::AiChatClear(provider)) {
 						controller->showToast(Text(u"Не удалось удалить историю."_q,
 							u"Could not clear the history."_q));
 					}
@@ -2838,7 +3236,7 @@ public:
 		});
 		const auto settings = headerButton(&st::menuIconSettings,
 			Text(u"Настройки ИИ-чата"_q, u"AI chat settings"_q));
-		settings->setClickedCallback([=] { ShowGeminiSettings(controller); });
+		settings->setClickedCallback([=] { ShowAiChatSettings(controller); });
 		const auto applyColors = [=, this] {
 			_background = ReadAiColor(kAiBackground);
 			_header = ReadAiColor(kAiHeader);
@@ -2876,6 +3274,20 @@ public:
 	bool showInternal(
 		not_null<Window::SectionMemento*> memento,
 		const Window::SectionShow &params) override;
+	bool showBackInternal() override {
+		const auto window = controller();
+		const auto content = window->content();
+		if (content->stackIsEmpty()
+			&& content->macSettingsShown()
+			&& content->showMacSettings()) {
+			return true;
+		}
+		auto params = Window::SectionShow();
+		params.forbidLayer = true;
+		window->showBackFromStack(params);
+		return true;
+	}
+
 	std::shared_ptr<Window::SectionMemento> createMemento() override;
 
 protected:
@@ -3036,7 +3448,7 @@ public:
 	: Section(parent, controller)
 	, _mark(new QLabel(this))
 	, _brand(new QLabel(u"Telega macOS"_q, this))
-	, _version(new QLabel(QString::fromLatin1(TELEGA_VERSION), this))
+	, _version(new QLabel(QString::fromLatin1(TELEGA_DISPLAY_VERSION), this))
 	, _search(CreateSectionSearchRow(this))
 	, _empty(new QLabel(Text(u"Ничего не найдено"_q, u"No results"_q), this)) {
 		ThemeQtWidget(this);
@@ -3060,7 +3472,7 @@ public:
 			{ Text(u"Темы и фон"_q, u"Themes and wallpaper"_q), Text(u"Создание, импорт и экспорт тем"_q, u"Create, import and export themes"_q), u"custom локальные хранение цвет акцент яркость wallpaper background brightness theme colors"_q, &st::menuIconImportTheme, Themes::Id() },
 			{ Text(u"Сообщения"_q, u"Messages"_q), Text(u"Жесты, ввод, стикеры, медиа"_q, u"Gestures, input, stickers, media"_q), u"emoji reactions реакции send запятая упоминание копирование comma mention copy toast hd video перемотка видео хвостиков bubble tails пауза pause клик click секунды seconds просмотр views пересылка forward цитата quote count символы gifs голосовые voice калькулятор calculator меню menu online сведения details quick actions быстрые действия poll опрос gemini расшифровка"_q, &st::menuIconChatBubble, Messages::Id() },
 			{ Text(u"Перевод"_q, u"Translation"_q), Text(u"Сервис, язык, чаты"_q, u"Service, language, chats"_q), u"language переводчик google встроенный"_q, &st::menuIconTranslate, Translation::Id() },
-			{ Text(u"Приватность"_q, u"Privacy"_q), Text(u"Номер, ID, архив"_q, u"Phone, ID, archive"_q), u"номер phone профиль profile dc дата-центр last seen посещения password capture скриншот захват music обложка печатает typing прочитано read receipt истории stories online offline ghost авторы участники authors members"_q, &st::menuIconLock, Privacy::Id() },
+			{ Text(u"Приватность"_q, u"Privacy"_q), Text(u"Профиль и сохранение сообщений"_q, u"Profile and message retention"_q), u"номер phone профиль profile dc дата-центр last seen посещения password capture скриншот захват music обложка печатает typing прочитано read receipt истории stories online offline ghost авторы участники authors members удалённые удаленные изменения deleted edited message retention"_q, &st::menuIconLock, Privacy::Id() },
 			{ Text(u"Сеть"_q, u"Network"_q), Text(u"Прокси, загрузки"_q, u"Proxy and downloads"_q), u"tg-ws-proxy connection memory папка загрузок download folder upload ускорение speed cloudflare http/2 домены worker"_q, &st::menuIconNetwork, Network::Id() },
 			{ Text(u"Обновления"_q, u"Updates"_q), Text(u"GitHub, резервная копия"_q, u"GitHub, preferences backup"_q), u"auto версия импорт экспорт установить install restart перезапуск"_q, &st::menuIconRestore, Updates::Id() },
 		};
@@ -3136,9 +3548,22 @@ Type TelegaId() {
 	return Telega::Id();
 }
 
+bool IsTelegaAiChat(const Window::SectionWidget *section) {
+	return dynamic_cast<const AiChat*>(section) != nullptr;
+}
+
 void ShowTelegaAiChat(not_null<Window::SessionController*> controller) {
-	controller->window().hideSettingsAndLayer();
-	controller->showSection(std::make_shared<AiChatMemento>());
+	if (controller->window().locked()) {
+		return;
+	}
+
+	const auto content = controller->content();
+	auto params = Window::SectionShow();
+	params.forbidLayer = true;
+	if (!content->macSettingsShown() && !content->showMacSettings()) {
+		controller->showSettings(params);
+	}
+	controller->showSection(std::make_shared<AiChatMemento>(), params);
 }
 
 QString TelegaSettingsLabel() {

@@ -4,3 +4,11 @@
 #define TELEGA_FILE_VERSION "@telega_version@.0"
 #define TELEGA_FILE_VERSION_NUMBERS @telega_file_version_numbers@,0
 #define TELEGA_UPDATE_VERSION @telega_update_version@
+
+#ifdef _DEBUG
+#define TELEGA_BUILD_SUFFIX " DEBUG"
+#else
+#define TELEGA_BUILD_SUFFIX " RELEASE"
+#endif
+
+#define TELEGA_DISPLAY_VERSION TELEGA_VERSION TELEGA_BUILD_SUFFIX

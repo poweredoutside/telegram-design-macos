@@ -284,7 +284,7 @@ bool HiddenSenderInfo::paintCustomUserpic(
 	}
 	const auto image = *view.cloud;
 	if (image.isNull()) {
-		emptyUserpic.paintCircle(p, x, y, outerWidth, size);
+		emptyUserpic.paintAvatar(p, x, y, outerWidth, size);
 		return valid;
 	}
 	Ui::ValidateUserpicCache(

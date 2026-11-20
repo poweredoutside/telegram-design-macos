@@ -818,6 +818,9 @@ void Account::writeMap() {
 
 void Account::reset() {
 	_writeSearchSuggestionsTimer.cancel();
+	_writePrefsTimer.cancel();
+	_prefsChanged = false;
+	_prefs.clear();
 
 	auto names = collectGoodNames();
 	_draftsMap.clear();
@@ -4031,6 +4034,19 @@ void Account::writePrefImpl<QString>(
 		std::string_view key,
 		QString value) {
 	writePrefGeneric(key, value.toUtf8());
+}
+
+template <>
+std::optional<QByteArray> Account::readPrefImpl<QByteArray>(
+		std::string_view key) {
+	return readPrefGeneric(key);
+}
+
+template <>
+void Account::writePrefImpl<QByteArray>(
+		std::string_view key,
+		QByteArray value) {
+	writePrefGeneric(key, value);
 }
 
 } // namespace Storage

@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_file_origin.h"
 #include "ui/empty_userpic.h"
 #include "ui/painter.h"
+#include "ui/userpic_rounding.h"
 #include "apiwrap.h" // requestFullPeer.
 #include "styles/style_calls.h"
 
@@ -186,12 +187,12 @@ void Userpic::createCache(Image *image) {
 			height = std::max((height * real) / width, 1);
 			width = real;
 		}
-		_userPhoto = image->pixNoCache(
+		auto prepared = Images::Prepare(
+			image->original(),
 			{ width, height },
-			{
-				.options = Images::Option::RoundCircle,
-				.outer = { size, size },
-			});
+			{ .outer = { size, size } });
+		_userPhoto = Images::PixmapFast(Ui::ApplyUserpicShape(
+			std::move(prepared), Ui::DisplayUserpicRounding(_peer)));
 		_userPhoto.setDevicePixelRatio(style::DevicePixelRatio());
 	} else {
 		auto filled = QImage(
@@ -204,7 +205,7 @@ void Userpic::createCache(Image *image) {
 			Ui::EmptyUserpic(
 				Ui::EmptyUserpic::UserpicColor(_peer->colorIndex()),
 				_peer->name()
-			).paintCircle(p, 0, 0, size, size);
+			).paintAvatar(p, 0, 0, size, size);
 		}
 		//_userPhoto = Images::PixmapFast(Images::Round(
 		//	std::move(filled),

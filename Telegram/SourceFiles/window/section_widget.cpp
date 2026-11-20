@@ -38,6 +38,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "window/themes/window_theme.h"
 #include "window/themes/window_theme_local.h"
+#include "window/themes/window_theme_live_wallpaper.h"
 
 #include "styles/style_polls.h"
 
@@ -345,6 +346,7 @@ void SectionWidget::PaintBackground(
 		not_null<Ui::ChatTheme*> theme,
 		not_null<QWidget*> widget,
 		QRect clip) {
+	Theme::ObserveLiveWallpaper(widget);
 	if (const auto id = theme->background().giftId) {
 		const auto fillHeight = controller->content()->height();
 		const auto fill = QSize(widget->width(), fillHeight);
@@ -405,6 +407,10 @@ void SectionWidget::PaintBackground(
 		}
 	};
 	const auto &background = theme->background();
+	if (Theme::PaintLiveWallpaper(p, fill, clip)) {
+		finish();
+		return;
+	}
 	if (background.colorForFill) {
 		p.fillRect(clip, *background.colorForFill);
 		finish();

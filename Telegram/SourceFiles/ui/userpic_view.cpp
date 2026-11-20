@@ -5,7 +5,7 @@ the official desktop application for the Telegram messaging service.
 For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
-#include "ui/userpic_view.h"
+#include "ui/userpic_rounding.h"
 
 #include "ui/empty_userpic.h"
 #include "ui/painter.h"
@@ -30,8 +30,18 @@ constexpr auto kCard2Opacity = 0.3; // Tunable.
 constexpr auto kGap = 0.02; // Tunable.
 auto AvatarRadius = .5;
 auto UniformAvatarRadius = false;
+auto RoundedAvatars = false;
+
+[[nodiscard]] float64 AvatarRadiusMultiplier() {
+	return RoundedAvatars ? std::min(AvatarRadius, 0.3) : AvatarRadius;
+}
 
 } // namespace
+
+void InitUserpicRounding(float64 radius, bool uniform, bool rounded) {
+	InitUserpicRounding(radius, uniform);
+	RoundedAvatars = rounded;
+}
 
 void InitUserpicRounding(float64 radius, bool uniform) {
 	AvatarRadius = radius;
@@ -39,7 +49,50 @@ void InitUserpicRounding(float64 radius, bool uniform) {
 }
 
 float64 ForumUserpicRadiusMultiplier() {
-	return UniformAvatarRadius ? AvatarRadius : 0.3;
+	const auto radius = AvatarRadiusMultiplier();
+	return UniformAvatarRadius ? radius : std::min(radius, 0.3);
+}
+
+UserpicRounding ResolveUserpicRounding(PeerUserpicShape shape) {
+	const auto radius = AvatarRadiusMultiplier();
+	if (shape == PeerUserpicShape::Forum) {
+		return { shape, ForumUserpicRadiusMultiplier() };
+	} else if (shape == PeerUserpicShape::Monoforum
+		&& radius == .5
+		&& !UniformAvatarRadius) {
+		return { shape, ForumUserpicRadiusMultiplier() };
+	}
+	return { PeerUserpicShape::Circle, radius };
+}
+
+void PaintUserpicBackground(QPainter &p, QRect rect, UserpicRounding rounding) {
+	const auto radius = rect.width() * rounding.radius;
+	if (rounding.shape == PeerUserpicShape::Monoforum) {
+		PaintMonoforumShape(p, rect);
+	} else if (rounding.radius >= .5) {
+		p.drawEllipse(rect);
+	} else if (radius > 0.) {
+		p.drawRoundedRect(rect, radius, radius);
+	} else {
+		p.drawRect(rect);
+	}
+}
+
+QImage ApplyUserpicShape(QImage image, UserpicRounding rounding) {
+	if (image.isNull()) {
+		return image;
+	} else if (rounding.shape == PeerUserpicShape::Monoforum) {
+		return ApplyMonoforumShape(std::move(image));
+	}
+	const auto factor = rounding.radius;
+	if (factor >= .5) {
+		return Images::Circle(std::move(image));
+	}
+	const auto radius = int(base::SafeRound(
+		image.width() * factor / style::DevicePixelRatio()));
+	return radius ? Images::Round(
+		std::move(image),
+		Images::CornersMask(radius)) : image;
 }
 
 void PaintCommunityUserpicEffect(
@@ -144,11 +197,21 @@ void ValidateUserpicCache(
 		const EmptyUserpic *empty,
 		int size,
 		PeerUserpicShape shape) {
+	ValidateUserpicCache(
+		view, cloud, empty, size, ResolveUserpicRounding(shape));
+}
+
+void ValidateUserpicCache(
+		PeerUserpicView &view,
+		const QImage *cloud,
+		const EmptyUserpic *empty,
+		int size,
+		UserpicRounding rounding) {
 	Expects(cloud != nullptr || empty != nullptr);
 
 	const auto full = QSize(size, size);
 	const auto version = style::PaletteVersion();
-	const auto shapeValue = static_cast<uint32>(shape) & 3;
+	const auto shapeValue = static_cast<uint32>(rounding.shape) & 3;
 	const auto regenerate = (view.cached.size() != QSize(size, size))
 		|| (view.shape != shapeValue)
 		|| (cloud && !view.empty.null())
@@ -160,26 +223,14 @@ void ValidateUserpicCache(
 	view.empty = empty;
 	view.shape = shapeValue;
 	view.paletteVersion = version;
-	const auto forum = (shape == PeerUserpicShape::Forum);
-	const auto factor = forum
-		? Ui::ForumUserpicRadiusMultiplier()
-		: AvatarRadius;
+	const auto factor = rounding.radius;
 	const auto radius = int(base::SafeRound(size * factor));
 
 	if (cloud) {
-		view.cached = cloud->scaled(
+		view.cached = ApplyUserpicShape(cloud->scaled(
 			full,
 			Qt::IgnoreAspectRatio,
-			Qt::SmoothTransformation);
-		if (shape == PeerUserpicShape::Monoforum) {
-			view.cached = Ui::ApplyMonoforumShape(std::move(view.cached));
-		} else if (factor >= .5) {
-			view.cached = Images::Circle(std::move(view.cached));
-		} else if (radius > 0) {
-			view.cached = Images::Round(
-				std::move(view.cached),
-				Images::CornersMask(std::max(1, radius / style::DevicePixelRatio())));
-		}
+			Qt::SmoothTransformation), rounding);
 	} else {
 		if (view.cached.size() != full) {
 			view.cached = QImage(full, QImage::Format_ARGB32_Premultiplied);
@@ -187,7 +238,7 @@ void ValidateUserpicCache(
 		view.cached.fill(Qt::transparent);
 
 		auto p = QPainter(&view.cached);
-		if (shape == PeerUserpicShape::Monoforum) {
+		if (rounding.shape == PeerUserpicShape::Monoforum) {
 			empty->paintMonoforum(p, 0, 0, size, size);
 		} else if (factor >= .5) {
 			empty->paintCircle(p, 0, 0, size, size);

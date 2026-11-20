@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/ttl_icon.h"
 #include "ui/effects/round_checkbox.h"
 #include "ui/image/image_prepare.h"
+#include "ui/userpic_rounding.h"
 #include "ui/text/custom_emoji_text_badge.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_options.h"
@@ -569,9 +570,9 @@ void Row::PaintCornerBadgeFrame(
 				segments.push_back({ storiesUnreadBrush, storiesUnread });
 			}
 		}
-		if (peer && (peer->forum() || peer->monoforum())) {
-			const auto radius = context.st->photoSize
-				* Ui::ForumUserpicRadiusMultiplier();
+		const auto rounding = Ui::DisplayUserpicRounding(peer);
+		if (rounding.radius < .5) {
+			const auto radius = photoSize * rounding.radius;
 			Ui::PaintOutlineSegments(q, outline, radius, segments);
 		} else {
 			Ui::PaintOutlineSegments(q, outline, segments);

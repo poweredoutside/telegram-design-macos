@@ -52,6 +52,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/components/factchecks.h"
 #include "data/components/sponsored_messages.h"
 #include "data/data_session.h"
+#include "data/data_message_archive.h"
 #include "data/data_user.h"
 #include "data/data_chat.h"
 #include "data/data_channel.h"
@@ -1862,6 +1863,22 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 	if (isHidden()) {
 		return;
 	}
+
+	auto fullOpacity = std::optional<qreal>();
+	if (IsClientMsgId(item->id)) {
+		const auto &archive = item->history()->owner().messageArchive();
+		if (archive.isDeleted(item->fullId())
+			&& archive.enabled(Data::ArchiveOption::Translucent)
+			&& !context.selected()) {
+			fullOpacity = p.opacity();
+			p.setOpacity(*fullOpacity * .55);
+		}
+	}
+	const auto restoreOpacity = gsl::finally([&] {
+		if (fullOpacity) {
+			p.setOpacity(*fullOpacity);
+		}
+	});
 
 	const auto entry = logEntryOriginal();
 	const auto check = factcheckBlock();

@@ -94,6 +94,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_chat.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_message_reactions.h"
+#include "data/data_message_archive.h"
 #include "data/data_user.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "chat_helpers/message_field.h" // FactcheckFieldIniter.
@@ -1909,6 +1910,9 @@ void FillContextMenuItems(
 	const auto hasWhoReactedItem = item
 		&& Api::WhoReactedExists(item, Api::WhoReactedList::All);
 
+	if (item && !hasSelection) {
+		AddMessageEditHistoryAction(result, list->controller(), item);
+	}
 	AddReplyToMessageAction(result, request, list);
 	if (item) {
 		const auto media = item->media();
@@ -3008,6 +3012,41 @@ void AddTelegaMessageActions(
 			box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 		}));
 	}, &st::menuIconInfo);
+}
+
+void AddMessageEditHistoryAction(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<Window::SessionController*> controller,
+		not_null<HistoryItem*> item) {
+	const auto id = item->fullId();
+	const auto archive = &item->history()->owner().messageArchive();
+	if (!item->history()->peer->allowsForwarding()
+		|| item->forbidsSaving()
+		|| archive->edits(id).empty()) {
+		return;
+	}
+	const auto title = Lang::GetInstance().id().startsWith(u"ru"_q)
+		? u"История изменений"_q
+		: u"Edit History"_q;
+	menu->addAction(title, [=] {
+		auto rows = QStringList();
+		const auto &revisions = archive->edits(id);
+		for (auto i = revisions.rbegin(); i != revisions.rend(); ++i) {
+			rows.push_back(langDateTimeFull(base::unixtime::parse(i->date))
+				+ '\n' + i->text);
+		}
+		if (rows.empty()) {
+			return;
+		}
+		controller->show(Box([=, text = rows.join(u"\n\n"_q)](
+				not_null<Ui::GenericBox*> box) {
+			box->setTitle(rpl::single(title));
+			const auto label = box->addRow(object_ptr<Ui::FlatLabel>(
+				box, rpl::single(text), st::boxLabel));
+			label->setSelectable(true);
+			box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+		}));
+	}, &st::menuIconEdit);
 }
 
 void AddEditTagAction(

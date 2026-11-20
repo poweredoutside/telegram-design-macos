@@ -4546,7 +4546,9 @@ void ChatWidget::updateControlsGeometry() {
 		? base::make_optional(takeTopDelta() + _scrollTopDelta)
 		: 0;
 	_topBar->resizeToWidth(contentWidth);
-	_topBarShadow->resize(contentWidth, st::lineWidth);
+	_topBarShadow->resize(
+		contentWidth,
+		_topBar->usesFloatingChatHeader() ? 0 : st::lineWidth);
 	const auto tabsLeftSkip = _subsectionTabs
 		? _subsectionTabs->leftSkip()
 		: 0;

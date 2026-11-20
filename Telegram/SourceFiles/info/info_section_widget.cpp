@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_connecting_widget.h"
 #include "window/window_session_controller.h"
 #include "main/main_session.h"
+#include "data/data_peer.h"
 #include "info/info_content_widget.h"
 #include "info/info_wrap_widget.h"
 #include "info/info_layer_widget.h"
@@ -114,8 +115,10 @@ bool SectionWidget::showInternal(
 	return _content->showInternal(memento, params);
 }
 
-bool SectionWidget::isSettings() const {
-	return _content->key().settingsSelf() != nullptr;
+bool SectionWidget::isSettingsOrOwnProfile() const {
+	const auto key = _content->key();
+	const auto storiesPeer = key.storiesPeer();
+	return key.settingsSelf() || (storiesPeer && storiesPeer->isSelf());
 }
 
 bool SectionWidget::showBackInternal() {

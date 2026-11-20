@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h" // Ui::Text::Wrapped.
 #include "ui/vertical_list.h"
+#include "ui/userpic_rounding.h"
 #include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
@@ -420,16 +421,17 @@ void Contact::draw(Painter &p, const PaintContext &context) const {
 					history()->owner().registerHeavyViewPart(_parent);
 				}
 			} else {
-				_photoEmpty->paintCircle(p, left, top, _pixh, _pixh);
+				_photoEmpty->paintAvatar(p, left, top, _pixh, _pixh);
 			}
 		} else {
-			_photoEmpty->paintCircle(p, left, top, _pixh, _pixh);
+			_photoEmpty->paintAvatar(p, left, top, _pixh, _pixh);
 		}
 		if (context.selected()) {
 			auto hq = PainterHighQualityEnabler(p);
 			p.setBrush(p.textPalette().selectOverlay);
 			p.setPen(Qt::NoPen);
-			p.drawEllipse(left, top, _pixh, _pixh);
+			Ui::PaintUserpicBackground(
+				p, { left, top, _pixh, _pixh }, Ui::DisplayUserpicRounding(_contact));
 		}
 	}
 

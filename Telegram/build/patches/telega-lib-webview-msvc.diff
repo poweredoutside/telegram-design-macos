@@ -1,0 +1,17 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1ce6de8..7efca93 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -60,6 +60,12 @@ PUBLIC
+ 
+ if (WIN32)
+     nuget_add_webview(lib_webview)
++    if (MSVC)
++        set_source_files_properties(
++            ${src_loc}/webview/platform/win/webview_windows_edge_chromium.cpp
++            PROPERTIES COMPILE_OPTIONS /wd4265
++        )
++    endif()
+ elseif (LINUX)
+     include(${cmake_helpers_loc}/external/glib/generate_dbus.cmake)
+     generate_dbus(lib_webview org.desktop_app.GtkIntegration.Webview. Webview ${src_loc}/webview/platform/linux/webview_linux_interface.xml)

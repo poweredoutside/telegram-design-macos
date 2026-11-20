@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/themes/window_themes_embedded.h"
 #include "window/themes/window_theme_editor.h"
 #include "window/themes/window_theme_local.h"
+#include "window/themes/window_theme_live_wallpaper.h"
 #include "window/window_controller.h"
 #include "platform/platform_specific.h"
 #include "mainwidget.h"
@@ -1425,6 +1426,7 @@ bool Initialize(Saved &&saved) {
 }
 
 void Uninitialize() {
+	FinishLiveWallpaper();
 	GlobalBackground.clear();
 	GlobalApplying = Applying();
 }

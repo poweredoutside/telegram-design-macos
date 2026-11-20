@@ -176,6 +176,11 @@ namespace {
 		&& Core::CanaryCommitHash[0] != '\0') {
 		result += u" \u00B7 "_q + QLatin1String(Core::CanaryCommitHash);
 	}
+#ifndef _DEBUG
+	if (Platform::IsWindows()) {
+		result += QLatin1String(TELEGA_BUILD_SUFFIX);
+	}
+#endif
 	return result;
 }
 

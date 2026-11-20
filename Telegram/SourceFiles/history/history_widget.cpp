@@ -3559,7 +3559,8 @@ void HistoryWidget::showHistory(
 			_businessBotStatus = std::make_unique<BusinessBotStatus>(
 				controller(),
 				_topBars.get(),
-				user);
+				user,
+				this);
 			_businessBotStatus->bar().heightValue(
 			) | rpl::on_next([=] {
 				updateControlsGeometry();
@@ -8591,7 +8592,7 @@ void HistoryWidget::updateControlsGeometry() {
 		topShadowLeft,
 		_topBar->bottomNoMargins(),
 		width - topShadowLeft - topShadowRight,
-		st::lineWidth);
+		_topBar->usesFloatingChatHeader() ? 0 : st::lineWidth);
 }
 
 void HistoryWidget::itemRemoved(not_null<const HistoryItem*> item) {

@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_replies_list.h"
 
+#include "data/data_message_archive.h"
+
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_helpers.h"
@@ -229,6 +231,7 @@ rpl::producer<MessagesSlice> RepliesList::source(
 }
 
 void RepliesList::appendClientSideMessages(MessagesSlice &slice) {
+	_history->owner().messageArchive().restore(_history);
 	const auto &messages = _history->clientSideMessages();
 	if (messages.empty()) {
 		return;

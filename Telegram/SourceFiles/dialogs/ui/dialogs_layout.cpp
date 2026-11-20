@@ -621,7 +621,7 @@ void PaintRow(
 			context.width,
 			context.st->photoSize);
 	} else if (!from && hiddenSenderInfo) {
-		hiddenSenderInfo->emptyUserpic.paintCircle(
+		hiddenSenderInfo->emptyUserpic.paintAvatar(
 			p,
 			context.st->padding.left(),
 			context.st->padding.top(),

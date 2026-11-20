@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "ui/painter.h"
+#include "ui/userpic_rounding.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
 #include "lang/lang_keys.h"
@@ -276,7 +277,8 @@ void Folder::paintUserpic(
 	p.setBrush(overrideBg ? *overrideBg : st::historyPeerArchiveUserpicBg);
 	{
 		PainterHighQualityEnabler hq(p);
-		p.drawEllipse(x, y, size, size);
+		Ui::PaintUserpicBackground(
+			p, { x, y, size, size }, Ui::ResolveUserpicRounding());
 	}
 	if (size == st::defaultDialogRow.photoSize) {
 		const auto rect = QRect{ x, y, size, size };

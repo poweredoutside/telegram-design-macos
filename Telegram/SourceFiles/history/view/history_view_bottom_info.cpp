@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lottie/lottie_icon.h"
 #include "data/data_channel.h"
 #include "data/data_session.h"
+#include "data/data_message_archive.h"
 #include "data/data_message_reactions.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h"
@@ -517,7 +518,10 @@ void BottomInfo::layoutDateText() {
 			& (Data::Flag::ForwardedDate | Data::Flag::FullDate))
 		? Ui::FormatDateTimeSavedFrom(_data.date)
 		: Core::Telega::FormatTime(_data.date.time()));
-	const auto afterAuthor = prefix + date;
+	const auto markedDate = _data.deletedMark.isEmpty()
+		? date
+		: (_data.deletedMark + ' ' + date);
+	const auto afterAuthor = prefix + markedDate;
 	const auto afterAuthorWidth = st::msgDateFont->width(afterAuthor);
 	const auto authorWidth = st::msgDateFont->width(author);
 	const auto maxWidth = st::maxSignatureSize;
@@ -529,9 +533,9 @@ void BottomInfo::layoutDateText() {
 	const auto full = (_data.flags & Data::Flag::Sponsored)
 		? QString()
 		: (_data.flags & Data::Flag::Imported)
-		? (date + ' ' + tr::lng_imported(tr::now))
+		? (markedDate + ' ' + tr::lng_imported(tr::now))
 		: name.isEmpty()
-		? date
+		? markedDate
 		: (name + afterAuthor);
 	auto helper = Ui::Text::CustomEmojiHelper(
 		Core::TextContext({ .session = &_reactionsOwner->session() }));
@@ -686,6 +690,12 @@ BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 
 	auto result = BottomInfo::Data();
 	result.date = message->dateTime();
+	if (IsClientMsgId(item->id)) {
+		const auto &archive = item->history()->owner().messageArchive();
+		if (archive.isDeleted(item->fullId())) {
+			result.deletedMark = Data::DeletedMarkText(archive.mark());
+		}
+	}
 	result.effectId = item->effectId();
 	if (message->hasOutLayout()) {
 		result.flags |= Flag::OutLayout;

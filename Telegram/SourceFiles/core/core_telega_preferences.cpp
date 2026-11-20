@@ -4,7 +4,7 @@
 #include "core/core_settings.h"
 #include "history/history.h"
 #include "history/history_item.h"
-#include "ui/userpic_view.h"
+#include "ui/userpic_rounding.h"
 
 #include <QtCore/QLocale>
 #include <QtCore/QRegularExpression>
@@ -419,7 +419,8 @@ void SetAvatarCornerPercent(int percent) {
 
 void InitAvatarAppearance() {
 	Ui::InitUserpicRounding(AvatarCornerPercent() / 100.,
-		DisplayEnabled(DisplayOption::UniformAvatarRadius));
+		DisplayEnabled(DisplayOption::UniformAvatarRadius),
+		DisplayEnabled(DisplayOption::RoundedContactAvatars));
 }
 
 AppIconAppearance ApplicationIconAppearance() {

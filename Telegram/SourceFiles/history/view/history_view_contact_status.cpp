@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "lang/lang_keys.h"
 #include "ui/controls/userpic_button.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
@@ -45,7 +46,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_controller.h"
 #include "window/main_window.h"
+#include "window/section_widget.h"
 #include "window/window_session_controller.h"
+#include "window/themes/window_theme_glass.h"
+#include "mainwidget.h"
 #include "apiwrap.h"
 #include "api/api_blocked_peers.h"
 #include "main/main_session.h"
@@ -63,6 +67,8 @@ namespace HistoryView {
 namespace {
 
 constexpr auto kAddTooltipDelay = crl::time(1000);
+constexpr auto kBusinessBotInset = 12;
+constexpr auto kBusinessBotVerticalInset = 2;
 
 [[nodiscard]] bool BarCurrentlyHidden(not_null<PeerData*> peer) {
 	const auto settings = peer->barSettings();
@@ -1085,7 +1091,10 @@ void ContactStatus::hide() {
 
 class BusinessBotStatus::Bar final : public Ui::RpWidget {
 public:
-	Bar(QWidget *parent);
+	Bar(
+		QWidget *parent,
+		not_null<Window::SessionController*> window,
+		not_null<QWidget*> backgroundHost);
 	~Bar() override;
 
 	void showState(State state);
@@ -1101,6 +1110,9 @@ private:
 
 	void showMenu();
 
+	const not_null<Window::SessionController*> _window;
+	const not_null<QWidget*> _backgroundHost;
+	Ui::LiquidGlassBackdropCache _glassBackdrop;
 	const style::UserpicButton _photoStyle;
 	const style::RoundButton _toggleStyle;
 	const style::IconButton _settingsStyle;
@@ -1116,8 +1128,13 @@ private:
 
 };
 
-BusinessBotStatus::Bar::Bar(QWidget *parent)
+BusinessBotStatus::Bar::Bar(
+		QWidget *parent,
+		not_null<Window::SessionController*> window,
+		not_null<QWidget*> backgroundHost)
 : RpWidget(parent)
+, _window(window)
+, _backgroundHost(backgroundHost)
 , _photoStyle([] {
 	auto result = st::historyBusinessBotPhoto;
 	const auto size = style::ConvertScale(30);
@@ -1152,6 +1169,9 @@ BusinessBotStatus::Bar::Bar(QWidget *parent)
 	_settings->setClickedCallback([=] {
 		showMenu();
 	});
+	Window::Theme::GlassStyleValue() | rpl::skip(1) | rpl::on_next([=] {
+		update();
+	}, lifetime());
 }
 
 BusinessBotStatus::Bar::~Bar() {
@@ -1243,24 +1263,61 @@ void BusinessBotStatus::Bar::showMenu() {
 }
 
 void BusinessBotStatus::Bar::paintEvent(QPaintEvent *e) {
-	QPainter p(this);
-	p.fillRect(e->rect(), st::historyContactStatusButton.bgColor);
+	auto p = QPainter(this);
+	const auto glass = Window::Theme::GlassStyle();
+	const auto tint = st::historyContactStatusButton.bgColor->c;
+	if (!glass.enabled) {
+		p.fillRect(e->rect(), tint);
+		return;
+	}
+	const auto edge = style::ConvertScale(kBusinessBotInset);
+	const auto vertical = style::ConvertScale(kBusinessBotVerticalInset);
+	const auto area = rect().marginsRemoved({ edge, vertical, edge, vertical });
+	if (area.isEmpty() || !e->rect().intersects(area)) {
+		return;
+	}
+
+	auto backdrop = QImage();
+	if (glass.opacity < 100) {
+		const auto ratio = (glass.blur > 0) ? 1. : devicePixelRatioF();
+		backdrop = QImage(
+			area.size() * ratio,
+			QImage::Format_ARGB32_Premultiplied);
+		backdrop.setDevicePixelRatio(ratio);
+		backdrop.fill(Qt::transparent);
+		auto sample = QPainter(&backdrop);
+		const auto content = _window->content();
+		const auto origin = mapTo(_backgroundHost.get(), area.topLeft());
+		const auto clip = QRect(origin, area.size()).translated(
+			0, -content->backgroundFromY());
+		sample.translate(-clip.topLeft());
+		Window::SectionWidget::PaintBackground(
+			sample,
+			_window->currentChatTheme(),
+			QSize(_backgroundHost->width(), content->height()),
+			clip,
+			_window->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+	}
+	Ui::PaintLiquidGlass(
+		p, area, backdrop, tint, glass, area.height() / 2, &_glassBackdrop);
 }
 
 int BusinessBotStatus::Bar::resizeGetHeight(int newWidth) {
-	const auto height = _settingsStyle.height;
-	const auto photoLeft = style::ConvertScale(25);
+	const auto edge = style::ConvertScale(kBusinessBotInset);
+	const auto vertical = style::ConvertScale(kBusinessBotVerticalInset);
+	const auto height = _settingsStyle.height + 2 * vertical;
+	const auto photoLeft = edge + style::ConvertScale(25);
 	const auto textLeft = photoLeft + _photoStyle.photoSize
 		+ style::ConvertScale(11);
-	const auto textInset = style::ConvertScale(4);
-	_settings->moveToRight(0, 0, newWidth);
+	const auto textInset = vertical + style::ConvertScale(4);
+	_settings->moveToRight(edge, vertical, newWidth);
 	if (_userpic) {
 		_userpic->moveToLeft(
 			photoLeft,
 			(height - _photoStyle.photoSize) / 2,
 			newWidth);
 	}
-	auto right = _settings->width();
+	auto right = edge + _settings->width();
 	if (!_togglePaused->isHidden()) {
 		_togglePaused->moveToRight(
 			right,
@@ -1283,9 +1340,10 @@ int BusinessBotStatus::Bar::resizeGetHeight(int newWidth) {
 BusinessBotStatus::BusinessBotStatus(
 	not_null<Window::SessionController*> window,
 	not_null<Ui::RpWidget*> parent,
-	not_null<PeerData*> peer)
+	not_null<PeerData*> peer,
+	not_null<QWidget*> backgroundHost)
 : _controller(window)
-, _inner(Ui::CreateChild<Bar>(parent.get()))
+, _inner(Ui::CreateChild<Bar>(parent.get(), window, backgroundHost))
 , _bar(parent, object_ptr<Bar>::fromRaw(_inner)) {
 	setupState(peer);
 	setupHandlers(peer);

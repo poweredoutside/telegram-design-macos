@@ -27,6 +27,12 @@ public:
 
 	EmptyUserpic(const BgColors &colors, const QString &name);
 
+	void paintAvatar(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size) const;
 	void paintCircle(
 		QPainter &p,
 		int x,
