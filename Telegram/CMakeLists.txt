@@ -211,6 +211,8 @@ PRIVATE
     api/api_forward_reply.h
     api/api_global_privacy.cpp
     api/api_global_privacy.h
+    api/api_gemini_chat.cpp
+    api/api_gemini_chat.h
     api/api_hash.cpp
     api/api_hash.h
     api/api_invite_links.cpp
@@ -628,6 +630,8 @@ PRIVATE
     core/core_cloud_password.h
     core/core_screenshot_protection.cpp
     core/core_screenshot_protection.h
+    core/core_telega_preferences.cpp
+    core/core_telega_preferences.h
     core/core_settings.cpp
     core/core_settings.h
     core/core_settings_proxy.cpp
@@ -2033,6 +2037,8 @@ PRIVATE
     settings/sections/settings_local_storage.cpp
     settings/sections/settings_local_storage.h
     settings/sections/settings_main.cpp
+    settings/sections/settings_telega.cpp
+    settings/sections/settings_telega.h
     settings/sections/settings_main.h
     settings/sections/settings_macos_general.cpp
     settings/sections/settings_macos_general.h
@@ -2609,6 +2615,8 @@ PRIVATE
     window/window_main_menu.h
     window/window_main_menu_helpers.cpp
     window/window_main_menu_helpers.h
+    window/window_telega_feed.cpp
+    window/window_telega_feed.h
     window/window_media_preview.cpp
     window/window_media_preview.h
     window/window_no_paid_token.cpp
@@ -2639,6 +2647,7 @@ PRIVATE
     window/themes/window_theme_glass.cpp
     window/themes/window_theme_glass.h
     window/themes/window_theme.h
+    window/themes/window_theme_local.h
     window/themes/window_theme_editor.cpp
     window/themes/window_theme_editor.h
     window/themes/window_theme_editor_block.cpp

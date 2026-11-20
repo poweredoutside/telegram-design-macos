@@ -27,6 +27,8 @@ class PlainShadow;
 
 namespace Platform {
 
+void SetTitleControlsOnRight(bool right);
+
 class TitleWidget : public RpWidget {
 public:
 	explicit TitleWidget(not_null<RpWidget*> parent);

@@ -54,6 +54,9 @@ private:
 };
 
 bool checkReadyUpdate();
+[[nodiscard]] bool InstallUpdatesOnRestart();
+[[nodiscard]] bool SetInstallUpdatesOnRestart(bool enabled);
+[[nodiscard]] QString UpdateReleaseNotesUrl();
 QString UpdateStagingPath();
 void UpdateApplication();
 QString countAlphaVersionSignature(uint64 version);

@@ -16,6 +16,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
 #include "history/history_item_text.h"
+#include "iv/iv_rich_message_html_export.h"
+#include "data/data_groups.h"
+#include "history/history_item_text.h"
 #include "history/history_streamed_drafts.h"
 #include "history/view/media/history_view_gram_transfer.h"
 #include "history/view/media/history_view_media.h"
@@ -85,6 +88,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "lang/lang_keys.h"
 #include "lang/lang_tag.h"
+#include "core/core_telega_preferences.h"
 #include "boxes/peers/edit_participant_box.h"
 #include "boxes/delete_messages_box.h"
 #include "boxes/moderate_messages_box.h"
@@ -710,6 +714,17 @@ ListWidget::ListWidget(
 	_session->data().peerDecorationsUpdated(
 	) | rpl::on_next([=] {
 		update();
+	}, lifetime());
+	constexpr auto onlineBadge = Core::Telega::DisplayOption::OnlineSenderBadge;
+	Core::Telega::DisplayValue(onlineBadge) | rpl::on_next([=] {
+		update();
+	}, lifetime());
+	_session->changes().peerUpdates(Data::PeerUpdate::Flag::OnlineStatus
+	) | rpl::on_next([=](const Data::PeerUpdate &change) {
+		if (Core::Telega::DisplayEnabled(onlineBadge)
+			&& _userpics.contains(change.peer)) {
+			update();
+		}
 	}, lifetime());
 
 	_session->data().itemRemoved(
@@ -3380,7 +3395,10 @@ bool ListWidget::markingContentsRead() const {
 }
 
 bool ListWidget::markingMessagesRead() const {
-	return markingContentsRead() && !session().supportMode();
+	return markingContentsRead()
+		&& !session().supportMode()
+		&& !Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::PauseAutomaticChatReads);
 }
 
 void ListWidget::showFinished() {
@@ -3684,6 +3702,11 @@ void ListWidget::paintUserpics(
 					view->width(),
 					st::msgPhotoSize,
 					context.paused);
+				if (Core::Telega::DisplayEnabled(
+						Core::Telega::DisplayOption::OnlineSenderBadge)) {
+					Dialogs::Ui::PaintSenderOnlineBadge(p, from,
+						st::historyPhotoLeft, userpicTop, view->width(), st::msgPhotoSize);
+				}
 			} else if (const auto info = item->displayHiddenSenderInfo()) {
 				if (info->customUserpic.empty()) {
 					info->emptyUserpic.paintCircle(
@@ -4355,19 +4378,62 @@ void ListWidget::mouseDoubleClickEvent(QMouseEvent *e) {
 			|| _mouseCursorState == CursorState::Date)
 		&& _selected.empty()
 		&& _overElement
-		&& (_overElement->data()->isRegular()
-			|| CanReplyToEphemeral(_overElement->data()))) {
-		mouseActionCancel();
-		switch (CurrentQuickAction()) {
-		case DoubleClickQuickAction::Reply: {
-			replyToMessageRequestNotify({ _overElement->data()->fullId() });
-		} break;
-		case DoubleClickQuickAction::React: {
-			toggleFavoriteReaction(_overElement);
-		} break;
-		default: break;
-		}
+		&& e->button() == Qt::LeftButton) {
+		activateMessageQuickAction(_overElement,
+			MessageQuickAction(_overElement->data()->out(), false));
 	}
+}
+
+bool ListWidget::activateMessageQuickAction(
+		not_null<Element*> view,
+		DoubleClickQuickAction action) {
+	using Action = DoubleClickQuickAction;
+	if (action == Action::Inherited) {
+		action = CurrentQuickAction();
+	}
+	const auto item = view->data();
+	if (action == Action::None || item->isSponsored()
+		|| (!item->isRegular() && !CanReplyToEphemeral(item))) {
+		return false;
+	}
+	mouseActionCancel();
+	switch (action) {
+	case Action::Reply:
+		replyToMessageRequestNotify({ item->fullId() });
+		return true;
+	case Action::React:
+		toggleFavoriteReaction(view);
+		return true;
+	case Action::Edit:
+		if (!item->isUploading() && item->allowsEdit(base::unixtime::now())) {
+			const auto target = session().data().groups().findItemToEdit(item);
+			editMessageRequestNotify(target->fullId());
+			return true;
+		}
+		break;
+	case Action::Copy:
+		if (item->isRegular()) {
+			if (!showCopyRestriction(item)) {
+				if (const auto group = session().data().groups().find(item)) {
+					TextUtilities::SetClipboardText(HistoryGroupText(group));
+				} else {
+					Iv::SetRichBlocksClipboard(
+						HistoryItemText(item), HistoryItemRichBlocks(item), &session());
+				}
+			}
+			return true;
+		}
+		break;
+	case Action::Forward:
+		if (controllerOrNull() && item->allowsForward() && !IsAnchoredEphemeral(item)) {
+			Window::ShowForwardMessagesBox(controller(), { 1, item->fullId() });
+			return true;
+		}
+		break;
+	case Action::None:
+	case Action::Inherited: break;
+	}
+	return false;
 }
 
 void ListWidget::toggleFavoriteReaction(not_null<Element*> view) const {
@@ -4443,6 +4509,30 @@ void ListWidget::contextMenuEvent(QContextMenuEvent *e) {
 		e->accept();
 		return;
 	}
+	if (e->reason() == QContextMenuEvent::Mouse
+		&& !ClickHandler::getActive()
+		&& _selected.empty()
+		&& !hasSelectedText()
+		&& _overElement
+		&& _overElement->data()->isRegular()
+		&& !_overElement->data()->isSponsored()
+		&& controllerOrNull()) {
+		const auto view = _overElement;
+		const auto action = MessageQuickAction(view->data()->out(), true);
+		if (action != DoubleClickQuickAction::None) {
+			const auto global = e->globalPos();
+			if (_rightClickQuickAction.delayMenu(view->data()->fullId(), [=] {
+				auto menuEvent = QContextMenuEvent(
+					QContextMenuEvent::Mouse, mapFromGlobal(global), global);
+				showContextMenu(&menuEvent);
+				_widgetSelection->watch(_menu.get());
+			}) || activateMessageQuickAction(view, action)) {
+				e->accept();
+				return;
+			}
+		}
+	}
+	_rightClickQuickAction.cancel();
 	showContextMenu(e);
 	_widgetSelection->watch(_menu.get());
 }

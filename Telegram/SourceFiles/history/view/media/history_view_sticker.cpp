@@ -26,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/power_saving.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/click_handler_types.h"
 #include "window/window_session_controller.h"
 #include "data/data_session.h"
@@ -199,6 +200,14 @@ bool Sticker::readyToDrawAnimationFrame() {
 
 QSize Sticker::Size() {
 	const auto side = std::min(st::maxStickerSize, kMaxSizeFixed);
+	const auto percent = Core::Telega::StickerScale();
+	if (percent != 100) {
+		const auto scaled = std::clamp(
+			side * percent / 100,
+			style::ConvertScale(50),
+			style::ConvertScale(kMaxSizeFixed));
+		return { scaled, scaled };
+	}
 	if (OptionStickerSize.value() > 0) [[unlikely]] {
 		const auto scaled = std::clamp(
 			style::ConvertScale(OptionStickerSize.value()),

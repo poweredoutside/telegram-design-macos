@@ -885,6 +885,7 @@ ChatWidget::ChatWidget(
 		PeerUpdateFlag::Rights
 			| PeerUpdateFlag::IsBlocked
 			| PeerUpdateFlag::Notifications
+			| PeerUpdateFlag::DiscussionLink
 			| PeerUpdateFlag::ChannelAmIn
 			| PeerUpdateFlag::BotStartToken
 			| PeerUpdateFlag::FullInfo

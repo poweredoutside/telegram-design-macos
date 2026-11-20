@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_gif.h"
+#include "core/core_telega_preferences.h"
 
 #include "apiwrap.h"
 #include "api/api_transcribes.h"
@@ -355,9 +356,11 @@ QSize Gif::sizeForAspectRatio() const {
 }
 
 QSize Gif::countThumbSize(int &inOutWidthMax) const {
-	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
+	const auto fullWidth = IsHostedInstantViewMedia(_parent)
+		|| (_data->isVideoFile()
+			&& Core::Telega::IsWideChannelPost(_parent->data()));
 	const auto maxSize = [&] {
-		if (hostedInstantView) {
+		if (fullWidth) {
 			return std::max(inOutWidthMax, 1);
 		} else if (_data->isVideoFile()) {
 			return st::maxMediaSize;
@@ -367,7 +370,7 @@ QSize Gif::countThumbSize(int &inOutWidthMax) const {
 		return st::maxGifSize;
 	}();
 	const auto size = style::ConvertScale(videoSize());
-	if (hostedInstantView) {
+	if (fullWidth) {
 		inOutWidthMax = std::max(inOutWidthMax, 1);
 	} else {
 		accumulate_min(inOutWidthMax, maxSize);

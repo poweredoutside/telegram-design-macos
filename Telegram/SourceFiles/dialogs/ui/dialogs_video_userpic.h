@@ -79,4 +79,12 @@ void PaintUserpic(
 	int size,
 	bool paused);
 
+void PaintSenderOnlineBadge(
+	Painter &painter,
+	not_null<PeerData*> peer,
+	int left,
+	int top,
+	int outerWidth,
+	int size);
+
 } // namespace Dialogs::Ui

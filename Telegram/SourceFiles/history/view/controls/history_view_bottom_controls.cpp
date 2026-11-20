@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "boxes/star_gift_box.h"
 #include "chat_helpers/message_field.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
 #include "data/data_chat_participant_status.h"
@@ -51,6 +52,12 @@ BottomControls::BottomControls(
 	setupOpenChatButton();
 	setupAboutHiddenAuthor();
 	setupPeerUpdates();
+	if (_mode == BottomControlsMode::History && _peer && _peer->isBroadcast()) {
+		Core::Telega::BottomActionValue() | rpl::skip(1) | rpl::on_next([=] {
+			refreshMuteUnmuteText();
+			updateControlsVisibility();
+		}, lifetime());
+	}
 }
 
 BottomControls::~BottomControls() = default;
@@ -121,7 +128,7 @@ void BottomControls::applyPeerUpdate(Data::PeerUpdate::Flags flags) {
 		refreshGiftToChannelShown();
 		refreshDirectMessageShown();
 	}
-	if (flags & Flag::Notifications) {
+	if (flags & (Flag::Notifications | Flag::DiscussionLink)) {
 		refreshMuteUnmuteText();
 	}
 }
@@ -260,7 +267,17 @@ void BottomControls::setupButtons() {
 			_actionRequests.fire(BottomControlsAction::JoinChannel);
 		});
 		_muteUnmute->setClickedCallback([=] {
-			_actionRequests.fire(BottomControlsAction::MuteUnmute);
+			if (const auto discussion = bottomDiscussion()) {
+				if (_peer->asBroadcast()->invitePeekExpires()) {
+					_controller->showToast(
+						tr::lng_channel_invite_private(tr::now));
+				} else {
+					_controller->showPeerHistory(
+						discussion, Window::SectionShow::Way::Forward);
+				}
+			} else {
+				_actionRequests.fire(BottomControlsAction::MuteUnmute);
+			}
 		});
 		_reportMessages->setClickedCallback([=] {
 			_actionRequests.fire(BottomControlsAction::Report);
@@ -468,7 +485,9 @@ void BottomControls::refreshMuteUnmuteText() {
 	if (!_muteUnmute) {
 		return;
 	}
-	_muteUnmute->setText((_history->muted()
+	_muteUnmute->setText((bottomDiscussion()
+		? tr::lng_profile_view_discussion(tr::now)
+		: _history->muted()
 		? tr::lng_channel_unmute(tr::now)
 		: tr::lng_channel_mute(tr::now)).toUpper());
 }
@@ -567,10 +586,19 @@ bool BottomControls::isMuteUnmute() const {
 	if (_mode != BottomControlsMode::History) {
 		return false;
 	}
-	return (_peer->isBroadcast() && !_peer->asChannel()->canPostMessages())
+	return (_peer->isBroadcast() && !_peer->asChannel()->canPostMessages()
+			&& Core::Telega::BottomAction() != Core::Telega::ChannelBottomAction::Hidden)
 		|| (_peer->isGigagroup() && !Data::CanSendAnything(_peer))
 		|| _peer->isRepliesChat()
 		|| _peer->isVerifyCodes();
+}
+
+PeerData *BottomControls::bottomDiscussion() const {
+	const auto channel = _peer ? _peer->asBroadcast() : nullptr;
+	return channel && Core::Telega::BottomAction()
+			== Core::Telega::ChannelBottomAction::Discussion
+		? channel->discussionLink()
+		: nullptr;
 }
 
 bool BottomControls::isReportMessages() const {

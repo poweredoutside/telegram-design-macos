@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/unread_counter_format.h"
 
+#include <QtCore/QLocale>
+
 QString FormatUnreadCounter(
 		int unreadCounter,
 		bool hasMentionOrReaction,
@@ -34,4 +36,25 @@ QString FormatUnreadCounterShort(int unreadCounter) {
 		: (unreadCounter < 1'000'000'000)
 		? (QString::number(unreadCounter / 1'000'000) + 'M')
 		: (QString::number(unreadCounter / 1'000'000'000) + 'B');
+}
+
+QString FormatUnreadCounterCompact(int unreadCounter) {
+	if (unreadCounter <= 0) {
+		return {};
+	}
+	for (const auto &[divisor, suffix] : {
+		std::pair(1'000'000'000, QChar('B')),
+		std::pair(1'000'000, QChar('M')),
+		std::pair(1'000, QChar('K')),
+	}) {
+		if (unreadCounter >= divisor) {
+			const auto tenths = unreadCounter / (divisor / 10);
+			return QString::number(tenths / 10)
+				+ ((tenths % 10 && tenths < 100)
+					? QLocale().decimalPoint() + QString::number(tenths % 10)
+					: QString())
+				+ suffix;
+		}
+	}
+	return QString::number(unreadCounter);
 }

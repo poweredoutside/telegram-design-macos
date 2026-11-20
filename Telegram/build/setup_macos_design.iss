@@ -1,6 +1,8 @@
 #define AppName "Telega Desktop"
 #define LegacyAppName "Telegram macOS Design"
 #define AppGuid "{AE8B9692-D9D9-43B0-B1C9-8923E9C75E2B}"
+#define AppModelId "PoweredOutside.TelegaDesktop"
+#define ProtocolAppId "TelegaDesktop"
 #ifndef PayloadDir
   #define PayloadDir SourcePath + "..\..\out\Release"
 #endif
@@ -34,7 +36,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=6.1
 OutputDir=..\..\out\setup
 OutputBaseFilename={#SetupFilename}
-SetupIconFile=..\Resources\art\icon256.ico
+SetupIconFile=..\Resources\art\telega256.ico
 UninstallDisplayIcon={app}\Telegram.exe
 UninstallDisplayName={#AppName}
 VersionInfoVersion={#FileVersion}
@@ -51,6 +53,7 @@ UsePreviousGroup=no
 AllowNoIcons=yes
 CloseApplications=no
 RestartApplications=no
+ChangesAssociations=yes
 SetupLogging=yes
 LicenseFile=..\..\LICENSE
 
@@ -94,9 +97,31 @@ Source: "..\..\LEGAL"; DestDir: "{app}"; Flags: ignoreversion
 Source: "setup_macos_design_info.txt"; DestDir: "{app}"; DestName: "Readme.txt"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\Telegram.exe"; WorkingDir: "{app}"
+Name: "{group}\{#AppName}"; Filename: "{app}\Telegram.exe"; WorkingDir: "{app}"; AppUserModelID: "{#AppModelId}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\{#AppName}"; Filename: "{app}\Telegram.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userdesktop}\{#AppName}"; Filename: "{app}\Telegram.exe"; WorkingDir: "{app}"; AppUserModelID: "{#AppModelId}"; Tasks: desktopicon
+
+[Registry]
+Root: HKCU; Subkey: "Software\{#ProtocolAppId}"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\{#ProtocolAppId}\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\{#ProtocolAppId}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{#AppName}"
+Root: HKCU; Subkey: "Software\{#ProtocolAppId}\Capabilities\UrlAssociations"; ValueType: string; ValueName: "tg"; ValueData: "{#ProtocolAppId}.tg"
+Root: HKCU; Subkey: "Software\{#ProtocolAppId}\Capabilities\UrlAssociations"; ValueType: string; ValueName: "ton"; ValueData: "{#ProtocolAppId}.ton"
+Root: HKCU; Subkey: "Software\{#ProtocolAppId}\Capabilities\UrlAssociations"; ValueType: string; ValueName: "tonsite"; ValueData: "{#ProtocolAppId}.tonsite"
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "SOFTWARE\{#ProtocolAppId}\Capabilities"; Flags: uninsdeletevalue
+
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tg"; ValueType: string; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tg"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tg\DefaultIcon"; ValueType: string; ValueData: """{app}\Telegram.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tg\shell\open\command"; ValueType: string; ValueData: """{app}\Telegram.exe"" -- ""%1"""
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.ton"; ValueType: string; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.ton"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.ton\DefaultIcon"; ValueType: string; ValueData: """{app}\Telegram.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.ton\shell\open\command"; ValueType: string; ValueData: """{app}\Telegram.exe"" -- ""%1"""
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tonsite"; ValueType: string; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tonsite"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tonsite\DefaultIcon"; ValueType: string; ValueData: """{app}\Telegram.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\{#ProtocolAppId}.tonsite\shell\open\command"; ValueType: string; ValueData: """{app}\Telegram.exe"" -- ""%1"""
 
 [Run]
 Filename: "{app}\Telegram.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

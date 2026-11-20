@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_inner_widget_accessibility.h"
+#include "core/core_telega_preferences.h"
 
 #include "data/notify/data_notify_settings.h"
 #include "data/data_channel.h"
@@ -138,9 +139,7 @@ namespace {
 		if (dateTime.date() == now.date()) {
 			timeText = tr::lng_schedule_at(tr::now)
 				+ u" "_q
-				+ QLocale().toString(
-					dateTime.time(),
-					QLocale::ShortFormat);
+				+ Core::Telega::FormatTime(dateTime.time());
 		} else {
 			timeText = Ui::FormatDateTime(dateTime);
 		}
@@ -498,9 +497,7 @@ QString SubItemValue(
 		}
 		const auto now = QDateTime::currentDateTime();
 		if (dateTime.date() == now.date()) {
-			return QLocale().toString(
-				dateTime.time(),
-				QLocale::ShortFormat);
+			return Core::Telega::FormatTime(dateTime.time());
 		}
 		return Ui::FormatDateTime(dateTime);
 	}

@@ -13,5 +13,6 @@ namespace Ui {
 
 [[nodiscard]] std::unique_ptr<TranslateProvider> CreateUrlTranslateProvider(
 	QString urlTemplate);
+[[nodiscard]] std::unique_ptr<TranslateProvider> CreateGoogleTranslateProvider();
 
 } // namespace Ui

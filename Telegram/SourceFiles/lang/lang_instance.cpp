@@ -20,6 +20,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "lang_auto_counts.h" // kKeysCount, kTagsCount.
 
+#include <QtCore/QRegularExpression>
+
 namespace Lang {
 namespace {
 
@@ -29,11 +31,44 @@ constexpr auto kCloudLangPackName = "tdesktop"_cs;
 constexpr auto kCustomLanguage = "#custom"_cs;
 constexpr auto kLangValuesLimit = 20000;
 
+QString BrandDisplayText(QString text) {
+	if (!text.contains(u"Telegram") && !text.contains(u"Telega")) {
+		return text;
+	}
+	static const auto Pattern = QRegularExpression(
+		uR"regex((?:\b[a-z][a-z0-9+.-]*://|\bwww\.|@)[^\s<>()"\]]+|(\bofficial Telegram Desktop app\b|\bTelegram Desktop\b)|(\b(?:Telegram|Telega)\b)(?=\s+(?:Premium|Business|for Business|для бизнеса|Премиум)\b)|(\bTelegram\b)(?![./\\][\p{L}\p{N}_]))regex"_q,
+		QRegularExpression::UseUnicodePropertiesOption);
+	auto result = QString();
+	auto offset = qsizetype(0);
+	auto matches = Pattern.globalMatch(text);
+	while (matches.hasNext()) {
+		const auto match = matches.next();
+		if (match.lastCapturedIndex() == 0) {
+			continue;
+		}
+		result.append(QStringView(text).mid(offset, match.capturedStart() - offset));
+		result.append(match.capturedStart(1) >= 0
+			? u"Telega Desktop"_q
+			: match.capturedStart(2) >= 0
+			? u"Telegram"_q
+			: u"Telega"_q);
+		offset = match.capturedEnd();
+	}
+	if (!offset) {
+		return text;
+	}
+	return result.append(QStringView(text).sliced(offset));
+}
+
+QString BrandedOriginalValue(ushort key) {
+	return BrandDisplayText(GetOriginalValue(key));
+}
+
 std::vector<QString> PrepareDefaultValues() {
 	auto result = std::vector<QString>();
 	result.reserve(kKeysCount);
 	for (auto i = 0; i != kKeysCount; ++i) {
-		result.emplace_back(GetOriginalValue(ushort(i)));
+		result.emplace_back(BrandedOriginalValue(ushort(i)));
 	}
 	return result;
 }
@@ -298,7 +333,7 @@ void Instance::reset(const Language &data) {
 	_version = 0;
 	_nonDefaultValues.clear();
 	for (auto i = 0, count = int(_values.size()); i != count; ++i) {
-		_values[i] = GetOriginalValue(ushort(i));
+		_values[i] = BrandedOriginalValue(ushort(i));
 	}
 	ranges::fill(_nonDefaultSet, 0);
 	updateChoosingStickerReplacement();
@@ -724,17 +759,15 @@ std::map<ushort, QString> Instance::ParseStrings(
 QString Instance::getNonDefaultValue(const QByteArray &key) const {
 	const auto i = _nonDefaultValues.find(key);
 	return (i != end(_nonDefaultValues))
-		? QString::fromUtf8(i->second)
+		? BrandDisplayText(QString::fromUtf8(i->second))
 		: _base
 		? _base->getNonDefaultValue(key)
 		: QString();
 }
 
 void Instance::applyValue(const QByteArray &key, const QByteArray &value) {
-	auto branded = value;
-	branded.replace("official Telegram Desktop app", AppName.data());
-	branded.replace("Telegram Desktop", AppName.data());
-	_nonDefaultValues[key] = branded;
+	const auto branded = BrandDisplayText(QString::fromUtf8(value)).toUtf8();
+	_nonDefaultValues[key] = value;
 	ParseKeyValue(key, branded, [&](ushort key, QString &&value) {
 		_nonDefaultSet[key] = 1;
 		if (!_derived) {
@@ -776,9 +809,9 @@ void Instance::resetValue(const QByteArray &key) {
 				: QString();
 			_values[keyIndex] = !base.isEmpty()
 				? base
-				: GetOriginalValue(keyIndex);
+				: BrandedOriginalValue(keyIndex);
 		} else if (!_derived->_nonDefaultSet[keyIndex]) {
-			_derived->_values[keyIndex] = GetOriginalValue(keyIndex);
+			_derived->_values[keyIndex] = BrandedOriginalValue(keyIndex);
 		}
 		if (keyIndex == tr::lng_send_action_choose_sticker.base
 			|| keyIndex == tr::lng_user_action_choose_sticker.base) {

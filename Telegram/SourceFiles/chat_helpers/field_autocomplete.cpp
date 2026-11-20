@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/tabbed_selector.h" // ChatHelpers::FileChosen.
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/recent_inline_bots.h"
 #include "data/components/top_peers.h"
@@ -2035,12 +2036,24 @@ void InitFieldAutocomplete(
 		const auto user = data.user;
 		const auto ctrlClick = base::IsCtrlPressed()
 			&& data.method == FieldAutocomplete::ChooseMethod::ByClick;
-		if (data.mention.isEmpty() || ctrlClick) {
-			field->insertTag(
-				user->firstName.isEmpty() ? user->name() : user->firstName,
-				PrepareMentionTag(user));
-		} else {
-			field->insertTag('@' + data.mention);
+		const auto named = data.mention.isEmpty() || ctrlClick;
+		const auto text = named
+			? (user->firstName.isEmpty() ? user->name() : user->firstName)
+			: ('@' + data.mention);
+		field->insertTag(text, named ? PrepareMentionTag(user) : QString());
+		if (Core::Telega::CommaAfterMention()) {
+			auto cursor = field->rawTextEdit()->textCursor();
+			const auto position = cursor.position();
+			const auto start = position - text.size() - 1;
+			const auto &full = field->getLastText();
+			if (start >= 0 && position <= full.size()
+				&& full[position - 1] == ' '
+				&& full.left(start).trimmed().isEmpty()) {
+				cursor.movePosition(
+					QTextCursor::PreviousCharacter,
+					QTextCursor::KeepAnchor);
+				cursor.insertText(u", "_q);
+			}
 		}
 	}, raw->lifetime());
 

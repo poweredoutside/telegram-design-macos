@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/launcher.h"
 #include "core/update_channel.h"
 #include "core/update_checker.h"
+#include "core/update_keys.h"
 #include "data/data_auto_download.h"
 #include "data/data_session.h"
 #include "export/export_manager.h"
@@ -101,7 +102,8 @@ void BuildConnectionRow(SectionBuilder &builder) {
 	const auto account = &builder.session()->account();
 	const auto connectionType = [=] {
 		const auto transport = account->mtp().dctransport();
-		if (!Core::App().settings().proxy().isEnabled()) {
+		if (Core::App().effectiveProxySettings()
+			!= MTP::ProxyData::Settings::Enabled) {
 			return transport.isEmpty()
 				? tr::lng_connection_auto_connecting(tr::now)
 				: tr::lng_connection_auto(tr::now, lt_transport, transport);
@@ -1218,6 +1220,7 @@ void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
 	builder.scope([&] {
 		install = (cAlphaVersion()
 			|| Core::BuildIsCanary
+			|| Core::Updates::UsesMacosDesignFeed()
 			|| KSandbox::isInside())
 			? nullptr
 			: builder.addButton({
@@ -1290,10 +1293,7 @@ void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
 		SetDefaultStatus(checker, texts, downloading, update, version);
 
 		update->setClickedCallback([] {
-			if (!Core::UpdaterDisabled()) {
-				Core::checkReadyUpdate();
-			}
-			Core::Restart();
+			Core::RestartToInstallUpdate();
 		});
 	}
 
@@ -1506,7 +1506,8 @@ void SetupConnectionType(
 		not_null<Ui::VerticalLayout*> container) {
 	const auto connectionType = [=] {
 		const auto transport = account->mtp().dctransport();
-		if (!Core::App().settings().proxy().isEnabled()) {
+		if (Core::App().effectiveProxySettings()
+			!= MTP::ProxyData::Settings::Enabled) {
 			return transport.isEmpty()
 				? tr::lng_connection_auto_connecting(tr::now)
 				: tr::lng_connection_auto(tr::now, lt_transport, transport);
@@ -1563,6 +1564,7 @@ void SetupUpdate(not_null<Ui::VerticalLayout*> container) {
 	const auto inner = options->entity();
 	const auto install = (cAlphaVersion()
 		|| Core::BuildIsCanary
+		|| Core::Updates::UsesMacosDesignFeed()
 		|| KSandbox::isInside())
 		? nullptr
 		: inner->add(object_ptr<Button>(
@@ -1648,10 +1650,7 @@ void SetupUpdate(not_null<Ui::VerticalLayout*> container) {
 		checker.start();
 	});
 	update->addClickHandler([] {
-		if (!Core::UpdaterDisabled()) {
-			Core::checkReadyUpdate();
-		}
-		Core::Restart();
+		Core::RestartToInstallUpdate();
 	});
 }
 

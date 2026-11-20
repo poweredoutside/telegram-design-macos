@@ -503,7 +503,10 @@ not_null<Ui::VerticalLayout*> AddGroupedSettingsRows(
 	return container->add(object_ptr<Ui::VerticalLayout>(container));
 }
 
-void FinishGroupedSettingsRows(not_null<Ui::VerticalLayout*> group) {
+void FinishGroupedSettingsRows(
+		not_null<Ui::VerticalLayout*> group,
+		const style::color *background) {
+	const auto &pageBackground = background ? *background : st::boxSearchBg;
 	const auto overlay = Ui::CreateChild<Ui::RpWidget>(group);
 	overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
 	group->sizeValue() | rpl::on_next([=](QSize size) {
@@ -516,7 +519,7 @@ void FinishGroupedSettingsRows(not_null<Ui::VerticalLayout*> group) {
 	}, overlay->lifetime());
 	overlay->paintRequest() | rpl::on_next([=] {
 		auto p = QPainter(overlay);
-		const auto plain = (st::boxSearchBg->c == st::windowBg->c);
+		const auto plain = (pageBackground->c == st::windowBg->c);
 		auto rows = std::vector<not_null<Ui::RpWidget*>>();
 		for (auto i = 0; i != group->count(); ++i) {
 			const auto row = group->widgetAt(i);
@@ -541,7 +544,7 @@ void FinishGroupedSettingsRows(not_null<Ui::VerticalLayout*> group) {
 			const auto radius = std::min(
 				st::macSettingsRadius, overlay->height() / 2);
 			outside.addRoundedRect(overlay->rect(), radius, radius);
-			p.fillPath(outside, st::boxSearchBg);
+			p.fillPath(outside, pageBackground);
 		}
 	}, overlay->lifetime());
 	for (auto i = 0; i != group->count(); ++i) {

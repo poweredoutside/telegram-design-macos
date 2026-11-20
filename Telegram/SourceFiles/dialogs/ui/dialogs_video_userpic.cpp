@@ -7,12 +7,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/ui/dialogs_video_userpic.h"
 
+#include "base/unixtime.h"
 #include "core/file_location.h"
 #include "data/data_peer.h"
+#include "data/data_peer_values.h"
 #include "data/data_photo.h"
 #include "data/data_photo_media.h"
 #include "data/data_file_origin.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "dialogs/dialogs_entry.h"
 #include "dialogs/ui/dialogs_layout.h"
 #include "ui/painter.h"
@@ -170,6 +173,34 @@ void PaintUserpic(
 	} else {
 		peer->paintUserpicLeft(p, view, x, y, outerWidth, size);
 	}
+}
+
+void PaintSenderOnlineBadge(
+		Painter &painter,
+		not_null<PeerData*> peer,
+		int left,
+		int top,
+		int outerWidth,
+		int size) {
+	const auto user = peer->asUser();
+	const auto now = base::unixtime::now();
+	if (!user || user->isSelf() || !Data::IsUserOnline(user, now)) {
+		return;
+	}
+	user->owner().watchForOffline(user, now);
+	const auto diameter = size / 3.5;
+	const auto badgeLeft = rtl()
+		? (outerWidth - left - size)
+		: (left + size - diameter);
+	painter.save();
+	{
+		auto hq = PainterHighQualityEnabler(painter);
+		painter.setPen(QPen(st::windowBg, 2. * st::lineWidth));
+		painter.setBrush(st::dialogsOnlineBadgeFg);
+		painter.drawEllipse(QRectF(
+			badgeLeft, top + size - diameter, diameter, diameter));
+	}
+	painter.restore();
 }
 
 } // namespace Dialogs::Ui

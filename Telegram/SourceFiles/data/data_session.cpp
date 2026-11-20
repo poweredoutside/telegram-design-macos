@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/stickers_lottie.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/mime_type.h" // Core::IsMimeSticker
 #include "ui/image/image_location_factory.h" // Images::FromPhotoSize
 #include "ui/text/format_values.h" // Ui::FormatPhone
@@ -369,6 +370,41 @@ Session::Session(not_null<Main::Session*> session)
 	setupChannelLeavingViewer();
 	setupPeerNameViewer();
 	setupUserIsContactViewer();
+
+	Core::Telega::DisplayValue(
+		Core::Telega::DisplayOption::TimeWithSeconds
+	) | rpl::skip(1) | rpl::on_next([=] {
+		auto affected = std::vector<base::weak_ptr<ViewElement>>();
+		for (const auto &[item, views] : _views) {
+			for (const auto &view : views) {
+				affected.push_back(base::make_weak(view.get()));
+			}
+		}
+		for (const auto &weak : affected) {
+			if (const auto view = weak.get()) {
+				view->itemDataChanged();
+			}
+		}
+	}, _lifetime);
+
+	Core::Telega::DisplayValue(
+		Core::Telega::DisplayOption::WideChannelPosts
+	) | rpl::skip(1) | rpl::on_next([=] {
+		auto affected = std::vector<base::weak_ptr<ViewElement>>();
+		for (const auto &[item, views] : _views) {
+			if (!item->isPost() || !item->history()->peer->isBroadcast()) {
+				continue;
+			}
+			for (const auto &view : views) {
+				affected.push_back(base::make_weak(view.get()));
+			}
+		}
+		for (const auto &weak : affected) {
+			if (const auto view = weak.get()) {
+				requestViewResize(view);
+			}
+		}
+	}, _lifetime);
 
 	session->changes().peerUpdates(
 		PeerUpdate::Flag::VerifyInfo

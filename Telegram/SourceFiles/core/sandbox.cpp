@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/launcher.h"
 #include "core/local_url_handlers.h"
 #include "core/update_checker.h"
+#include "core/update_keys.h"
 #include "core/deadlock_detector.h"
 #include "base/timer.h"
 #include "base/concurrent_timer.h"
@@ -482,6 +483,7 @@ void Sandbox::socketError(QLocalSocket::LocalSocketError e) {
 
 	if (!Core::UpdaterDisabled()
 		&& !cNoStartUpdate()
+		&& Core::InstallUpdatesOnRestart()
 		&& Core::checkReadyUpdate()) {
 		cSetRestartingUpdate(true);
 		DEBUG_LOG(("Sandbox Info: installing update instead of starting app..."));
@@ -515,7 +517,13 @@ void Sandbox::singleInstanceChecked() {
 	}, [&](const QByteArray &crashdump) {
 		// If crash dump is empty with that status it means that we
 		// didn't close the application properly. Just ignore for now.
-		if (crashdump.isEmpty()) {
+		const auto telegaStable = Updates::UsesMacosDesignFeed()
+			&& !cInstallBetaVersion()
+			&& !cAlphaVersion();
+		if (crashdump.isEmpty() || telegaStable) {
+			if (!crashdump.isEmpty()) {
+				LOG(("App Info: resuming after a crash without a startup update check."));
+			}
 			if (CrashReports::Restart() == CrashReports::CantOpen) {
 				new NotStartedWindow();
 			} else {
@@ -728,15 +736,14 @@ void Sandbox::checkForQuit() {
 void Sandbox::refreshGlobalProxy() {
 	const auto proxy = !Core::IsAppLaunched()
 		? _sandboxProxy
-		: Core::App().settings().proxy().isEnabled()
-		? Core::App().settings().proxy().selected()
-		: MTP::ProxyData();
+		: Core::App().effectiveProxy();
 	if (proxy.type == MTP::ProxyData::Type::Socks5
 		|| proxy.type == MTP::ProxyData::Type::Http) {
 		QNetworkProxy::setApplicationProxy(
 			MTP::ToNetworkProxy(MTP::ToDirectIpProxy(proxy)));
 	} else if (!Core::IsAppLaunched()
-		|| Core::App().settings().proxy().isSystem()) {
+		|| (!Core::App().bundledProxyEnabled()
+			&& Core::App().settings().proxy().isSystem())) {
 		QNetworkProxyFactory::setUseSystemConfiguration(true);
 	} else {
 		QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);

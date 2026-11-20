@@ -176,6 +176,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_status_lastseen_minutes#other" = "last seen {count} minutes ago";
 "lng_status_lastseen_hours#one" = "last seen {count} hour ago";
 "lng_status_lastseen_hours#other" = "last seen {count} hours ago";
+"lng_telega_lastseen_days#one" = "last seen {count} day ago";
+"lng_telega_lastseen_days#other" = "last seen {count} days ago";
 "lng_status_lastseen_today" = "last seen today at {time}";
 "lng_status_lastseen_yesterday" = "last seen yesterday at {time}";
 "lng_status_lastseen_date" = "last seen {date}";

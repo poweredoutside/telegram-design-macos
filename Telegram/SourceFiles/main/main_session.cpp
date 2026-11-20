@@ -188,6 +188,7 @@ Session::Session(
 , _saveSettingsTimer([=] { saveSettings(); }) {
 	Expects(_settings != nullptr);
 
+	_updates->watchOutgoingMessages(_data.get());
 	_api->requestTermsUpdate();
 	_api->requestFullPeer(_user);
 

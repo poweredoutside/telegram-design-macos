@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/format_values.h"
 
 #include "base/unixtime.h"
+#include "core/core_telega_preferences.h"
 #include "lang/lang_keys.h"
 #include "countries/countries_instance.h"
 
@@ -81,32 +82,31 @@ QString FormatProgressText(qint64 ready, qint64 total) {
 
 QString FormatDateTime(QDateTime date) {
 	const auto now = QDateTime::currentDateTime();
+	const auto time = Core::Telega::FormatTime(date.time());
 	if (date.date() == now.date()) {
 		return tr::lng_mediaview_today(
 			tr::now,
 			lt_time,
-			QLocale().toString(date.time(), QLocale::ShortFormat));
+			time);
 	} else if (date.date().addDays(1) == now.date()) {
 		return tr::lng_mediaview_yesterday(
 			tr::now,
 			lt_time,
-			QLocale().toString(date.time(), QLocale::ShortFormat));
+			time);
 	} else {
 		return tr::lng_mediaview_date_time(
 			tr::now,
 			lt_date,
 			QLocale().toString(date.date(), QLocale::ShortFormat),
 			lt_time,
-			QLocale().toString(date.time(), QLocale::ShortFormat));
+			time);
 	}
 }
 
 QString FormatDateTimeSavedFrom(QDateTime dateTime) {
 	const auto current = QDate::currentDate();
 	const auto date = dateTime.date();
-	const auto timeStr = QLocale().toString(
-		dateTime.time(),
-		QLocale::ShortFormat);
+	const auto timeStr = Core::Telega::FormatTime(dateTime.time());
 
 	if (date == current) {
 		return tr::lng_mediaview_today(tr::now, lt_time, timeStr);
@@ -731,7 +731,7 @@ QString FormatDialogsDate(const QDateTime &lastTime) {
 
 	if ((lastDate == nowDate)
 		|| (std::abs(lastTime.secsTo(now)) < kRecentlyInSeconds)) {
-		return QLocale().toString(lastTime.time(), QLocale::ShortFormat);
+		return Core::Telega::FormatTime(lastTime.time());
 	} else if (std::abs(lastDate.daysTo(nowDate)) < 7) {
 		return langDayOfWeek(lastDate);
 	} else {

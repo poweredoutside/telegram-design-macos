@@ -25,6 +25,9 @@ class PlainShadow;
 namespace Core {
 struct WindowPosition;
 enum class QuitReason;
+namespace Telega {
+struct AppIconAppearance;
+} // namespace Telega
 } // namespace Core
 
 namespace Window {
@@ -38,9 +41,10 @@ struct SeparateId;
 [[nodiscard]] const QImage &Logo();
 [[nodiscard]] const QImage &LogoNoMargin();
 void OverrideApplicationIcon(QImage image);
-[[nodiscard]] QIcon CreateIcon(
-	Main::Session *session = nullptr,
-	bool returnNullIfDefault = false);
+[[nodiscard]] const QImage &ApplicationLogo(bool noMargin = false);
+[[nodiscard]] QIcon CreateIcon(Main::Session *session = nullptr);
+[[nodiscard]] QIcon CreateApplicationIconPreview(
+	Core::Telega::AppIconAppearance appearance);
 void ConvertIconToBlack(QImage &image);
 
 struct CounterLayerArgs {

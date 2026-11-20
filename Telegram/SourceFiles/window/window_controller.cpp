@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_columns.h"
 #include "window/window_session_controller.h"
 #include "window/themes/window_theme_editor.h"
+#include "window/themes/window_theme_local.h"
 #include "ui/boxes/confirm_box.h"
 #include "data/components/promo_suggestions.h"
 #include "data/data_thread.h"
@@ -378,7 +379,8 @@ bool Controller::locked() const {
 void Controller::checkThemeEditor() {
 	using namespace Window::Theme;
 
-	if (const auto editing = Background()->editingTheme()) {
+	if (const auto editing = Background()->editingTheme();
+		editing && !HasLocalThemeDraft()) {
 		showRightColumn(Box<Editor>(this, *editing));
 	}
 }

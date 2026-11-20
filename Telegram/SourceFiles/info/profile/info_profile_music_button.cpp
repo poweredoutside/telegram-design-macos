@@ -115,6 +115,12 @@ void MusicButton::updateData(MusicButtonData data) {
 	update();
 }
 
+void MusicButton::setCover(QImage cover) {
+	_cover = std::move(cover);
+	_cache = QImage();
+	update();
+}
+
 void MusicButton::setOverrideBg(std::optional<QColor> color) {
 	if (_overrideBg == color) {
 		return;
@@ -200,7 +206,13 @@ void MusicButton::validateCache() {
 	auto left = padding.left();
 	p.setPen(_colors.primary);
 	p.setFont(st::infoProfileBalancePillLabelFont);
-	p.drawText(left, _baseline, _noteSymbol);
+	if (_cover.isNull()) {
+		p.drawText(left, _baseline, _noteSymbol);
+	} else {
+		const auto side = std::min(_noteWidth - 2, height() - 4);
+		p.setRenderHint(QPainter::SmoothPixmapTransform);
+		p.drawImage(QRect(left, (height() - side) / 2, side, side), _cover);
+	}
 	left += _noteWidth;
 	paintRun(p, _performer, left, _performerShare, _colors.primary);
 	left += _performerShare + _textSkip;

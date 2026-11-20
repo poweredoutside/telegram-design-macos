@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_reply.h"
 
 #include "core/click_handler_types.h"
+#include "core/core_telega_preferences.h"
 #include "core/ui_integration.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "data/data_channel.h"
@@ -836,14 +837,16 @@ void Reply::paint(
 	y += st::historyReplyTop;
 	const auto rect = QRect(x, y, w, _height);
 	const auto selected = context.selected();
-	const auto backgroundEmojiId = _colorPeer
-		? _colorPeer->backgroundEmojiId()
+	const auto plain = Core::Telega::PlainReplyPreviews();
+	const auto colorPeer = plain ? nullptr : _colorPeer;
+	const auto backgroundEmojiId = colorPeer
+		? colorPeer->backgroundEmojiId()
 		: DocumentId();
-	const auto colorIndexPlusOne = _colorPeer
-		? (_colorPeer->colorIndex() + 1)
-		: _hiddenSenderColorIndexPlusOne;
-	const auto &colorCollectible = _colorPeer
-		? _colorPeer->colorCollectible()
+	const auto colorIndexPlusOne = colorPeer
+		? (colorPeer->colorIndex() + 1)
+		: plain ? 0 : _hiddenSenderColorIndexPlusOne;
+	const auto &colorCollectible = colorPeer
+		? colorPeer->colorCollectible()
 		: nullptr;
 	const auto useColorCollectible = colorCollectible && !context.outbg;
 	const auto useColorIndex = colorIndexPlusOne && !context.outbg;

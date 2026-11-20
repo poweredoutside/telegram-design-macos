@@ -21,6 +21,10 @@ namespace Main {
 class Session;
 } // namespace Main
 
+namespace Data {
+class Session;
+}
+
 namespace ChatHelpers {
 struct EmojiInteractionsBunch;
 } // namespace ChatHelpers
@@ -30,6 +34,7 @@ namespace Api {
 class Updates final {
 public:
 	explicit Updates(not_null<Main::Session*> session);
+	void watchOutgoingMessages(not_null<Data::Session*> data);
 
 	[[nodiscard]] Main::Session &session() const;
 	[[nodiscard]] ApiWrap &api() const;

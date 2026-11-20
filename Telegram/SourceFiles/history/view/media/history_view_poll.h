@@ -95,6 +95,7 @@ private:
 	QSize countCurrentSize(int newWidth) override;
 
 	[[nodiscard]] bool showVotes() const;
+	[[nodiscard]] bool paintVotes() const;
 	[[nodiscard]] PollData::VoteRestriction knownVoteRestriction() const;
 	[[nodiscard]] bool voteRestricted() const;
 	void showVoteRestrictionToast() const;
@@ -118,6 +119,7 @@ private:
 	};
 
 	not_null<PollData*> _poll;
+	const bool _previewResults;
 	std::vector<RegisteredWebpage> _registeredWebpages;
 	int _pollVersion = 0;
 	int _totalVotes = 0;

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/options.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_msg_id.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
@@ -32,7 +33,11 @@ base::options::option<QString> OptionTranslateUrlTemplate({
 namespace Ui {
 
 std::unique_ptr<TranslateProvider> CreateTranslateProvider(
-		not_null<Main::Session*> session) {
+		not_null<Main::Session*> session,
+		bool allowGoogle) {
+	if (allowGoogle && Core::Telega::UseGoogleTranslation()) {
+		return CreateGoogleTranslateProvider();
+	}
 	const auto urlTemplate = OptionTranslateUrlTemplate.value();
 	if (!urlTemplate.isEmpty()
 		&& urlTemplate.contains(u"%q"_q)) {

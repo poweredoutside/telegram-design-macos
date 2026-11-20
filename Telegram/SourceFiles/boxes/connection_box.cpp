@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/local_url_handlers.h"
+#include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "main/main_account.h"
 #include "main/main_session.h"
@@ -22,6 +23,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/mtproto_config.h"
 #include "mtproto/proxy_check.h"
 #include "mtproto/web_proxy/web_proxy_transport.h"
+#ifdef Q_OS_WIN
+#include "platform/win/bundled_tg_ws_proxy.h"
+#endif
 #include "qr/qr_generate.h"
 #include "settings/settings_common.h"
 #include "storage/localstorage.h"
@@ -1348,6 +1352,31 @@ void ProxiesBox::setupContent() {
 		}
 	}, inner->lifetime());
 
+#ifdef Q_OS_WIN
+	if (Platform::BundledTgWsProxy::Available()) {
+		const auto russian = Lang::GetInstance().id().startsWith(u"ru"_q);
+		const auto label = russian
+			? u"Использовать tg-ws-proxy"_q
+			: u"Use tg-ws-proxy"_q;
+		const auto bundled = inner->add(object_ptr<Ui::Checkbox>(
+			inner, label, Core::App().bundledProxyEnabled()), st::proxyTryIPv6Padding);
+		bundled->setToolTip(russian
+			? u"При выключении tg-ws-proxy Telega подключается напрямую."_q
+			: u"When tg-ws-proxy is turned off, Telega connects directly."_q);
+		_settings.connectionTypeChanges() | rpl::on_next([=] {
+			bundled->setChecked(Core::App().bundledProxyEnabled(),
+				Ui::Checkbox::NotifyAboutChange::DontNotify);
+		}, bundled->lifetime());
+		bundled->checkedChanges() | rpl::on_next([=](bool enabled) {
+			if (!Core::App().setBundledProxyEnabled(enabled)) {
+				uiShow()->showToast(russian
+					? u"Не удалось запустить tg-ws-proxy."_q
+					: u"Could not start tg-ws-proxy."_q);
+			}
+		}, bundled->lifetime());
+	}
+#endif // Q_OS_WIN
+
 	_tryIPv6 = inner->add(
 		object_ptr<Ui::Checkbox>(
 			inner,
@@ -1356,7 +1385,7 @@ void ProxiesBox::setupContent() {
 		st::proxyTryIPv6Padding);
 	_proxySettings
 		= std::make_shared<Ui::RadioenumGroup<ProxyData::Settings>>(
-			_settings.settings());
+			Core::App().effectiveProxySettings());
 	inner->add(
 		object_ptr<Ui::Radioenum<ProxyData::Settings>>(
 			inner,
@@ -1436,8 +1465,9 @@ void ProxiesBox::setupContent() {
 		st::proxyRowPadding.bottom()));
 
 	_proxySettings->setChangedCallback([=](ProxyData::Settings value) {
-		if (!_controller->setProxySettings(value)) {
-			_proxySettings->setValue(_settings.settings());
+		if (value != Core::App().effectiveProxySettings()
+			&& !_controller->setProxySettings(value)) {
+			_proxySettings->setValue(Core::App().effectiveProxySettings());
 			addNewProxy();
 		}
 		refreshProxyRotation();
@@ -1508,7 +1538,8 @@ void ProxiesBox::refreshProxyRotation() {
 	if (!_proxyRotation || !_proxyRotationOptions) {
 		return;
 	}
-	const auto visible = (_proxySettings->current()
+	const auto visible = !Core::App().bundledProxyEnabled()
+		&& (_proxySettings->current()
 			== ProxyData::Settings::Enabled)
 		&& _settings.selected()
 		&& (_settings.list().size() > 1);
@@ -2209,7 +2240,7 @@ ProxiesBoxController::ProxiesBoxController(not_null<Main::Account*> account)
 
 	_settings.connectionTypeChanges(
 	) | rpl::on_next([=] {
-		_proxySettingsChanges.fire_copy(_settings.settings());
+		_proxySettingsChanges.fire(Core::App().effectiveProxySettings());
 		const auto i = findByProxy(_settings.selected());
 		if (i != end(_list)) {
 			updateView(*i);
@@ -2519,8 +2550,7 @@ void ProxiesBoxController::ShowApplyConfirmation(
 auto ProxiesBoxController::proxySettingsValue() const
 -> rpl::producer<ProxyData::Settings> {
 	return _proxySettingsChanges.events_starting_with_copy(
-		_settings.settings()
-	) | rpl::distinct_until_changed();
+		Core::App().effectiveProxySettings());
 }
 
 void ProxiesBoxController::refreshChecker(Item &item) {
@@ -2849,7 +2879,7 @@ void ProxiesBoxController::addNewItem(const ProxyData &proxy) {
 }
 
 bool ProxiesBoxController::setProxySettings(ProxyData::Settings value) {
-	if (_settings.settings() == value) {
+	if (Core::App().effectiveProxySettings() == value) {
 		return true;
 	} else if (value == ProxyData::Settings::Enabled) {
 		if (_settings.list().empty()) {

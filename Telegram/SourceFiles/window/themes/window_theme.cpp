@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/themes/window_themes_chat.h"
 #include "window/themes/window_themes_embedded.h"
 #include "window/themes/window_theme_editor.h"
+#include "window/themes/window_theme_local.h"
 #include "window/window_controller.h"
 #include "platform/platform_specific.h"
 #include "mainwidget.h"
@@ -41,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/confirm_box.h"
 #include "boxes/background_box.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "webview/webview_common.h"
 
 #include <QtCore/QBuffer>
@@ -477,7 +479,9 @@ void RefreshEmbeddedTheme(Saved &saved) {
 }
 
 bool InitializeFromSaved(Saved &&saved) {
-	const auto editing = ReadEditingPalette();
+	const auto editing = HasLocalThemeDraft()
+		? std::nullopt
+		: ReadEditingPalette();
 	if (!editing) {
 		RefreshEmbeddedTheme(saved);
 	}
@@ -546,6 +550,7 @@ void ClearApplying() {
 
 void ClearEditingPalette() {
 	QFile(EditingPalettePath()).remove();
+	QFile(EditingPalettePath() + u".local"_q).remove();
 }
 
 } // namespace
@@ -1422,6 +1427,43 @@ bool Initialize(Saved &&saved) {
 void Uninitialize() {
 	GlobalBackground.clear();
 	GlobalApplying = Applying();
+}
+
+static int &BackgroundBrightnessValue() {
+	static auto result = std::clamp(
+		Core::App().settings().readPref<int>("telega.wallpaper.brightness", 100),
+		25,
+		150);
+	return result;
+}
+
+bool HasThemePreview() {
+	return AreTestingTheme();
+}
+
+bool HasLocalThemeDraft() {
+	return QFile::exists(EditingPalettePath() + u".local"_q);
+}
+
+bool SetLocalThemeDraft(bool local) {
+	auto file = QFile(EditingPalettePath() + u".local"_q);
+	return local
+		? file.open(QIODevice::WriteOnly)
+		: !file.exists() || file.remove();
+}
+
+int ChatBackgroundBrightness() {
+	return BackgroundBrightnessValue();
+}
+
+void SetChatBackgroundBrightness(int percent) {
+	percent = std::clamp(percent, 25, 150);
+	if (percent == BackgroundBrightnessValue()) {
+		return;
+	}
+	BackgroundBrightnessValue() = percent;
+	Core::App().settings().writePref<int>("telega.wallpaper.brightness", percent);
+	Core::App().saveSettingsDelayed();
 }
 
 bool Apply(

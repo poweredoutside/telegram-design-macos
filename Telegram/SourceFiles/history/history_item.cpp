@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "media/audio/media_audio.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "wallet/wallet_address.h"
 #include "wallet/wallet_fiat.h"
 #include "wallet/wallet_panel.h"
@@ -3613,8 +3614,13 @@ bool HistoryItem::canDeleteForEveryone(TimeId now) const {
 }
 
 bool HistoryItem::canBeSelected() const {
+	if (isService()) {
+		return Core::Telega::DisplayEnabled(
+				Core::Telega::DisplayOption::SelectServiceMessages)
+			&& isRegular()
+			&& canDelete();
+	}
 	return (isRegular() || isEphemeral())
-		&& !isService()
 		&& !IsAnchoredEphemeral(this);
 }
 

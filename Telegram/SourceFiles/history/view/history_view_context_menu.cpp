@@ -39,6 +39,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_session.h"
 #include "iv/iv_rich_message_html_export.h"
 #include "ui/effects/ripple_animation.h"
+#include "ui/layers/generic_box.h"
+#include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/menu/menu_action.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
@@ -105,7 +107,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "info/statistics/info_statistics_widget.h"
 #include "lang/lang_keys.h"
+#include "lang/lang_instance.h"
 #include "core/application.h"
+#include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
+#include "core/file_location.h"
+#include "api/api_gemini_chat.h"
+#include "data/data_document_media.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -122,6 +130,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
+#include <QtCore/QPointer>
+#include <QtCore/QFile>
 
 namespace HistoryView {
 namespace {
@@ -129,6 +139,110 @@ namespace {
 constexpr auto kRescheduleLimit = 20;
 constexpr auto kTagNameLimit = 12;
 constexpr auto kPublicPostLinkToastDuration = 4 * crl::time(1000);
+
+constexpr auto kQuickActionPref = "telega.messages.quick-action-order";
+
+struct TelegaQuickAction {
+	QString id;
+	tr::phrase<> title;
+	const style::icon *icon;
+};
+
+const auto &TelegaQuickActions() {
+	static const auto actions = std::array{
+		TelegaQuickAction{ u"reply"_q, tr::lng_context_reply_msg, &st::menuIconReply },
+		TelegaQuickAction{ u"copy"_q, tr::lng_context_copy_text, &st::menuIconCopy },
+		TelegaQuickAction{ u"forward"_q, tr::lng_context_forward_msg, &st::menuIconForward },
+		TelegaQuickAction{ u"edit"_q, tr::lng_context_edit_msg, &st::menuIconEdit },
+		TelegaQuickAction{ u"pin"_q, tr::lng_context_pin_msg, &st::menuIconPin },
+		TelegaQuickAction{ u"delete"_q, tr::lng_context_delete_msg, &st::menuIconDelete },
+		TelegaQuickAction{ u"select"_q, tr::lng_context_select_msg, &st::menuIconSelect },
+	};
+	return actions;
+}
+
+class TelegaQuickRowButton final : public Ui::AbstractButton {
+public:
+	using Ui::AbstractButton::AbstractButton;
+
+protected:
+	void onStateChanged(State, StateChangeSource) override {
+		update();
+	}
+};
+
+class TelegaQuickRow final : public Ui::Menu::ItemBase {
+public:
+	TelegaQuickRow(not_null<Ui::PopupMenu*> menu)
+	: ItemBase(menu->menu(), menu->st().menu)
+	, _placeholder(new QAction(this)) {
+		fitToMenuWidth();
+		widthValue() | rpl::on_next([=] { layoutButtons(); }, lifetime());
+	}
+
+	[[nodiscard]] not_null<QAction*> action() const override {
+		return _placeholder;
+	}
+	[[nodiscard]] bool isEnabled() const override {
+		return false;
+	}
+	void add(
+			not_null<Ui::PopupMenu*> menu,
+			not_null<QAction*> source,
+			not_null<const style::icon*> icon) {
+		const auto button = Ui::CreateChild<TelegaQuickRowButton>(this);
+		const auto text = source->text();
+		button->setAccessibleName(text);
+		button->setToolTip(text);
+		button->setPointerCursor(true);
+		const auto menuStyle = &menu->st().menu;
+		button->paintRequest() | rpl::on_next([=] {
+			auto painter = QPainter(button);
+			if (button->isOver() || button->isDown()) {
+				auto quality = PainterHighQualityEnabler(painter);
+				painter.setPen(Qt::NoPen);
+				painter.setBrush(menuStyle->itemBgOver);
+				painter.drawRoundedRect(button->rect(), style::ConvertScale(8),
+					style::ConvertScale(8));
+			}
+			icon->paintInCenter(painter, button->rect());
+		}, button->lifetime());
+		button->setClickedCallback([menu = QPointer(menu.get()),
+				source = QPointer(source.get())] {
+			if (source && source->isEnabled()) {
+				source->trigger();
+			}
+			if (menu) {
+				menu->hideMenu();
+			}
+		});
+		_buttons.push_back(button);
+		setMinWidth(style::ConvertScale(40) * int(_buttons.size()));
+		layoutButtons();
+	}
+
+protected:
+	[[nodiscard]] int contentHeight() const override {
+		return style::ConvertScale(40);
+	}
+
+private:
+	void layoutButtons() {
+		const auto count = int(_buttons.size());
+		if (!count) {
+			return;
+		}
+		const auto buttonWidth = std::min(width() / count, style::ConvertScale(48));
+		const auto left = (width() - buttonWidth * count) / 2;
+		for (auto index = 0; index != count; ++index) {
+			_buttons[index]->setGeometry(left + index * buttonWidth, 0,
+				buttonWidth, contentHeight());
+		}
+	}
+
+	const not_null<QAction*> _placeholder;
+	std::vector<not_null<Ui::AbstractButton*>> _buttons;
+};
 
 class RevertAction final : public Ui::Menu::ItemBase {
 public:
@@ -371,19 +485,24 @@ void AddPhotoActions(
 		not_null<ListWidget*> list) {
 	const auto contextId = item ? item->fullId() : FullMsgId();
 	if (!list->hasCopyMediaRestriction(item)) {
-		menu->addAction(
-			tr::lng_context_save_image(tr::now),
-			base::fn_delayed(
-				st::defaultDropdownMenu.menu.ripple.hideDuration,
-				&photo->session(),
-				[=] { SavePhotoToFile(photo); }),
-			&st::menuIconSaveImage);
-		menu->addAction(tr::lng_context_copy_image(tr::now), [=] {
-			const auto item = photo->owner().message(contextId);
-			if (item && !list->showCopyMediaRestriction(item)) {
-				CopyImage(photo);
-			}
-		}, &st::menuIconCopy);
+		using Option = Core::Telega::DisplayOption;
+		if (!Core::Telega::DisplayEnabled(Option::HideSaveMediaAction)) {
+			menu->addAction(
+				tr::lng_context_save_image(tr::now),
+				base::fn_delayed(
+					st::defaultDropdownMenu.menu.ripple.hideDuration,
+					&photo->session(),
+					[=] { SavePhotoToFile(photo); }),
+				&st::menuIconSaveImage);
+		}
+		if (!Core::Telega::DisplayEnabled(Option::HideCopyPhotoAction)) {
+			menu->addAction(tr::lng_context_copy_image(tr::now), [=] {
+				const auto item = photo->owner().message(contextId);
+				if (item && !list->showCopyMediaRestriction(item)) {
+					CopyImage(photo);
+				}
+			}, &st::menuIconCopy);
+		}
 	}
 	if (photo->hasAttachedStickers()) {
 		const auto controller = list->controller();
@@ -1415,6 +1534,9 @@ void AddMessageActions(
 	AddSelectionAction(menu, request, list);
 	if (request.item && request.selectedItems.empty()) {
 		AddEphemeralAboutAction(menu, request.item);
+		if (request.selectedText.empty()) {
+			AddTelegaMessageActions(menu, request.item, list->controller());
+		}
 	}
 	AddRescheduleAction(menu, request, list);
 }
@@ -1963,6 +2085,81 @@ void FillContextMenuItems(
 	}
 }
 
+QStringList TelegaQuickActionIds() {
+	auto result = QStringList();
+	for (const auto &entry : TelegaQuickActions()) {
+		result.push_back(entry.id);
+	}
+	return result;
+}
+
+QStringList DefaultTelegaQuickActions() {
+	return { u"reply"_q, u"delete"_q, u"copy"_q, u"forward"_q, u"pin"_q };
+}
+
+QStringList TelegaQuickActionOrder() {
+	const auto raw = Core::App().settings().readPref<QByteArray>(kQuickActionPref);
+	const auto available = TelegaQuickActionIds();
+	if (raw.isEmpty()) {
+		return DefaultTelegaQuickActions();
+	}
+	auto result = QStringList();
+	for (const auto &id : QString::fromUtf8(raw).split(u',')) {
+		if (available.contains(id) && !result.contains(id)) {
+			result.push_back(id);
+			if (result.size() == kTelegaQuickActionLimit) {
+				break;
+			}
+		}
+	}
+	return result;
+}
+
+QString TelegaQuickActionTitle(const QString &id) {
+	const auto &entries = TelegaQuickActions();
+	const auto entry = ranges::find(entries, id, &TelegaQuickAction::id);
+	return (entry != end(entries)) ? entry->title(tr::now) : QString();
+}
+
+void SetTelegaQuickActionOrder(const QStringList &order) {
+	Core::App().settings().writePref<QByteArray>(kQuickActionPref,
+		order.isEmpty() ? QByteArray("-") : order.join(u',').toUtf8());
+	Core::App().saveSettingsDelayed();
+}
+
+void AddTelegaQuickActionRow(not_null<Ui::PopupMenu*> menu) {
+	if (!Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::QuickMessageActions)) {
+		return;
+	}
+	const auto &entries = TelegaQuickActions();
+	auto row = base::unique_qptr<TelegaQuickRow>();
+	for (const auto &id : TelegaQuickActionOrder()) {
+		const auto entry = ranges::find(entries, id, &TelegaQuickAction::id);
+		const auto label = entry->title(tr::now);
+		const auto unpin = (id == u"pin"_q)
+			? tr::lng_context_unpin_msg(tr::now)
+			: QString();
+		const auto &actions = menu->actions();
+		const auto action = ranges::find_if(actions, [&](not_null<QAction*> item) {
+			return item->isEnabled() && !item->isSeparator() && !item->menu()
+				&& (item->text() == label || (!unpin.isEmpty() && item->text() == unpin));
+		});
+		if (action != end(actions)) {
+			if (!row) {
+				row = base::make_unique_q<TelegaQuickRow>(menu);
+			}
+			row->add(menu, *action, ((*action)->text() == unpin)
+				? &st::menuIconUnpin
+				: entry->icon);
+		}
+	}
+	if (row) {
+		menu->addSeparator();
+		menu->addAction(std::move(row));
+	}
+}
+
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		not_null<ListWidget*> list,
 		const ContextMenuRequest &request) {
@@ -1980,6 +2177,9 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 
 	// Build the full message menu.
 	FillContextMenuItems(result, list, request, hasPollOption);
+	if (item && !hasPollOption && request.selectedItems.empty()) {
+		AddTelegaQuickActionRow(result.get());
+	}
 
 	if (item) {
 		const auto media = item->media();
@@ -2504,7 +2704,7 @@ void AddWhenEditedForwardedAuthorActionHelper(
 						lt_date,
 						langDayOfMonthShort(sent.date()),
 						lt_time,
-						QLocale().toString(sent.time(), QLocale::ShortFormat))));
+						Core::Telega::FormatTime(sent.time()))));
 				label->setAttribute(Qt::WA_TransparentForMouseEvents);
 				menu->addAction(std::move(label));
 			} else {
@@ -2615,6 +2815,199 @@ void MaybeAddWhenEditedForwardedAction(
 		not_null<HistoryItem*> item,
 		not_null<Window::SessionController*> controller) {
 	AddWhenEditedForwardedAuthorActionHelper(menu, item, controller, true);
+}
+
+void AddTelegaRecordingTranscription(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<HistoryItem*> item,
+		not_null<Window::SessionController*> controller) {
+	namespace Gemini = Api::GeminiChat;
+	const auto eligible = [](not_null<HistoryItem*> message) -> DocumentData* {
+		if (!message->isRegular() || message->isLocal() || !message->allowsForward()
+			|| message->isEphemeral() || ItemHasTtl(message)) {
+			return nullptr;
+		}
+		const auto media = message->media();
+		const auto document = media ? media->document() : nullptr;
+		return (document && ((document->isVoiceMessage()
+				&& Gemini::Preference("transcribeVoice", 0))
+			|| (document->isVideoMessage()
+				&& Gemini::Preference("transcribeRoundVideo", 0))))
+			? document
+			: nullptr;
+	};
+	const auto selected = Gemini::HasKey() ? eligible(item) : nullptr;
+	if (!selected) {
+		return;
+	}
+	const auto round = selected->isVideoMessage();
+	const auto text = [russian = Lang::GetInstance().id().startsWith(u"ru"_q)](
+			QString russianText, QString englishText) {
+		return russian ? std::move(russianText) : std::move(englishText);
+	};
+	const auto messageId = item->fullId();
+	const auto weak = base::make_weak(controller.get());
+	const auto title = text(u"Расшифровать через Gemini"_q, u"Transcribe with Gemini"_q);
+	menu->addAction(title, [=] {
+		const auto strong = weak.get();
+		if (!strong) {
+			return;
+		}
+		strong->show(Ui::MakeConfirmBox({
+			.text = rpl::single(round ? text(
+				u"Отправить этот видеокружок целиком (видео и звук) в Google Gemini для расшифровки?"_q,
+				u"Send this entire round video (picture and audio) to Google Gemini for transcription?"_q) : text(
+				u"Отправить эту голосовую запись в Google Gemini для расшифровки?"_q,
+				u"Send this voice recording to Google Gemini for transcription?"_q)),
+			.confirmed = [=](Fn<void()> &&close) {
+				close();
+				const auto strong = weak.get();
+				if (!strong || !Gemini::HasKey()) {
+					return;
+				}
+				const auto item = strong->session().data().message(messageId);
+				const auto document = item ? eligible(item) : nullptr;
+				if (!document || document->isVideoMessage() != round) {
+					return;
+				}
+				auto bytes = document->createMediaView()->bytes();
+				if (bytes.isEmpty()) {
+					const auto &location = document->location(true);
+					if (location.accessEnable()) {
+						auto file = QFile(location.name());
+						if (file.open(QIODevice::ReadOnly) && file.size() <= Gemini::kRecordingBytesLimit) {
+							bytes = file.read(Gemini::kRecordingBytesLimit + 1);
+						}
+						location.accessDisable();
+					}
+				}
+				if (bytes.isEmpty() || bytes.size() > Gemini::kRecordingBytesLimit) {
+					strong->showToast(text(
+						u"Сначала загрузите запись размером до 8 МиБ."_q,
+						u"Download the recording first. It must be 8 MiB or smaller."_q));
+					return;
+				}
+				if (round ? (bytes.mid(4, 4) != "ftyp") : !bytes.startsWith("OggS")) {
+					strong->showToast(text(u"Этот формат записи не поддерживается."_q,
+						u"This recording format is not supported."_q));
+					return;
+				}
+				Gemini::Transcribe(std::move(bytes), round
+					? Gemini::Recording::RoundVideo
+					: Gemini::Recording::Voice, [=](QString result, bool ok) {
+					if (const auto strong = weak.get()) {
+						if (!ok) {
+							strong->showToast(text(u"Gemini не смог расшифровать запись."_q,
+								u"Gemini could not transcribe this recording."_q));
+						} else {
+							strong->show(Ui::MakeInformBox(rpl::single(std::move(result))));
+						}
+					}
+				});
+			},
+			.confirmText = rpl::single(title),
+		}));
+	}, &st::menuIconCopy);
+}
+
+void AddTelegaMessageActions(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<HistoryItem*> item,
+		not_null<Window::SessionController*> controller) {
+	if (!item->isRegular() || item->isEphemeral() || ItemHasTtl(item)) {
+		return;
+	}
+	AddTelegaRecordingTranscription(menu, item, controller);
+	using Option = Core::Telega::DisplayOption;
+	const auto repeat = Core::Telega::DisplayEnabled(Option::RepeatMessageAction);
+	const auto details = Core::Telega::DisplayEnabled(Option::MessageDetailsAction);
+	if (!repeat && !details) {
+		return;
+	}
+	const auto text = [russian = Lang::GetInstance().id().startsWith(u"ru"_q)](
+			QString ru, QString en) {
+		return russian ? std::move(ru) : std::move(en);
+	};
+	const auto itemId = item->fullId();
+	const auto session = &controller->session();
+	const auto threadFor = [](not_null<HistoryItem*> message) -> Data::Thread* {
+		if (const auto topic = message->topic()) {
+			return topic;
+		}
+		return message->topicRootId() ? nullptr : message->history().get();
+	};
+	if (repeat && item->allowsForward()
+		&& !item->history()->peer->isSelf()
+		&& !item->history()->peer->isMonoforum()
+		&& !item->history()->peer->starsPerMessage()) {
+		const auto thread = threadFor(item);
+		if (thread && Data::CanSendAnything(thread)) {
+			menu->addAction(text(u"Повторить сообщение"_q, u"Repeat Message"_q), [=] {
+				const auto message = session->data().message(itemId);
+				if (!message || !message->allowsForward()
+					|| message->isEphemeral() || ItemHasTtl(message)
+					|| message->history()->peer->starsPerMessage()) {
+					return;
+				}
+				const auto destination = threadFor(message);
+				if (!destination || !Data::CanSendAnything(destination)) {
+					return;
+				}
+				auto draft = Data::ResolvedForwardDraft{
+					.items = { message },
+					.options = Data::ForwardOptions::NoSenderNames,
+				};
+				auto action = Api::SendAction(destination);
+				action.clearDraft = false;
+				const auto error = GetErrorForSending(action.history->peer, {
+					.topicRootId = action.replyTo.topicRootId,
+					.forward = &draft.items,
+				});
+				if (!error) {
+					session->api().forwardMessages(std::move(draft), action);
+				} else if (!error.text.isEmpty()) {
+					controller->showToast(error.text);
+				}
+			}, &st::menuIconRestore);
+		}
+	}
+	if (!details) {
+		return;
+	}
+	const auto title = text(u"Сведения о сообщении"_q, u"Message Details"_q);
+	menu->addAction(title, [=] {
+		const auto message = session->data().message(itemId);
+		if (!message || message->isEphemeral() || ItemHasTtl(message)) {
+			return;
+		}
+		auto rows = QStringList();
+		const auto add = [&](const QString &label, const QString &value) {
+			rows.push_back(label + u": "_q + value);
+		};
+		add(text(u"ID сообщения"_q, u"Message ID"_q), QString::number(itemId.msg.bare));
+		add(text(u"ID чата"_q, u"Chat ID"_q),
+			QString::number(itemId.peer.value & PeerId::kChatTypeMask));
+		add(text(u"Отправлено"_q, u"Sent"_q),
+			langDateTimeFull(base::unixtime::parse(message->date())));
+		if (const auto from = message->from()) {
+			add(text(u"ID отправителя"_q, u"Sender ID"_q),
+				QString::number(from->id.value & PeerId::kChatTypeMask));
+		}
+		if (const auto edited = message->Get<HistoryMessageEdited>()) {
+			if (edited->date && !message->hideEditedBadge()) {
+				rows.push_back(tr::lng_edited_date(tr::now, lt_date,
+					langDateTimeFull(base::unixtime::parse(edited->date))));
+			}
+		}
+		controller->show(Box([title, value = rows.join(u'\n')](
+				not_null<Ui::GenericBox*> box) {
+			box->setTitle(rpl::single(title));
+			const auto label = box->addRow(object_ptr<Ui::FlatLabel>(
+				box, rpl::single(value), st::boxLabel));
+			label->setSelectable(true);
+			box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+		}));
+	}, &st::menuIconInfo);
 }
 
 void AddEditTagAction(

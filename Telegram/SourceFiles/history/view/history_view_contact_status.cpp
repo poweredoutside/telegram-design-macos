@@ -1086,6 +1086,7 @@ void ContactStatus::hide() {
 class BusinessBotStatus::Bar final : public Ui::RpWidget {
 public:
 	Bar(QWidget *parent);
+	~Bar() override;
 
 	void showState(State state);
 
@@ -1100,6 +1101,9 @@ private:
 
 	void showMenu();
 
+	const style::UserpicButton _photoStyle;
+	const style::RoundButton _toggleStyle;
+	const style::IconButton _settingsStyle;
 	object_ptr<Ui::UserpicButton> _userpic = { nullptr };
 	object_ptr<Ui::FlatLabel> _name;
 	object_ptr<Ui::FlatLabel> _status;
@@ -1114,19 +1118,46 @@ private:
 
 BusinessBotStatus::Bar::Bar(QWidget *parent)
 : RpWidget(parent)
+, _photoStyle([] {
+	auto result = st::historyBusinessBotPhoto;
+	const auto size = style::ConvertScale(30);
+	result.size = QSize(size, size);
+	result.photoSize = size;
+	return result;
+}())
+, _toggleStyle([] {
+	auto result = st::historyBusinessBotToggle;
+	result.width = -style::ConvertScale(16);
+	result.height = style::ConvertScale(24);
+	result.textTop = (result.height - result.style.font->height) / 2;
+	return result;
+}())
+, _settingsStyle([] {
+	auto result = st::historyBusinessBotSettings;
+	result.width = result.height = style::ConvertScale(40);
+	result.rippleAreaSize = style::ConvertScale(32);
+	const auto inset = (result.width - result.rippleAreaSize) / 2;
+	result.rippleAreaPosition = QPoint(inset, inset);
+	return result;
+}())
 , _name(this, st::historyBusinessBotName)
 , _status(this, st::historyBusinessBotStatus)
-, _togglePaused(
-	this,
-	rpl::single(QString()),
-	st::historyBusinessBotToggle)
-, _settings(this, st::historyBusinessBotSettings) {
+, _togglePaused(this, rpl::single(QString()), _toggleStyle)
+, _settings(this, _settingsStyle) {
 	_name->setAttribute(Qt::WA_TransparentForMouseEvents);
 	_status->setAttribute(Qt::WA_TransparentForMouseEvents);
 	_togglePaused->setFullRadius(true);
+	_togglePaused->setWidthChangedCallback([=] { resizeToWidth(width()); });
+	_settings->setAccessibleName(tr::lng_menu_settings(tr::now));
 	_settings->setClickedCallback([=] {
 		showMenu();
 	});
+}
+
+BusinessBotStatus::Bar::~Bar() {
+	_userpic.destroy();
+	_togglePaused.destroy();
+	_settings.destroy();
 }
 
 void BusinessBotStatus::Bar::showState(State state) {
@@ -1135,7 +1166,7 @@ void BusinessBotStatus::Bar::showState(State state) {
 	_userpic = object_ptr<Ui::UserpicButton>(
 		this,
 		state.bot,
-		st::historyBusinessBotPhoto);
+		_photoStyle);
 	_userpic->setAttribute(Qt::WA_TransparentForMouseEvents);
 	_userpic->show();
 	_name->setText(state.bot->name());
@@ -1217,30 +1248,36 @@ void BusinessBotStatus::Bar::paintEvent(QPaintEvent *e) {
 }
 
 int BusinessBotStatus::Bar::resizeGetHeight(int newWidth) {
-	const auto &st = st::defaultPeerList.item;
+	const auto height = _settingsStyle.height;
+	const auto photoLeft = style::ConvertScale(25);
+	const auto textLeft = photoLeft + _photoStyle.photoSize
+		+ style::ConvertScale(11);
+	const auto textInset = style::ConvertScale(4);
 	_settings->moveToRight(0, 0, newWidth);
 	if (_userpic) {
 		_userpic->moveToLeft(
-			st.photoPosition.x(),
-			st.photoPosition.y(),
+			photoLeft,
+			(height - _photoStyle.photoSize) / 2,
 			newWidth);
 	}
-	auto available = newWidth - _settings->width() - st.namePosition.x();
+	auto right = _settings->width();
 	if (!_togglePaused->isHidden()) {
 		_togglePaused->moveToRight(
-			_settings->width(),
-			(st.height - _togglePaused->height()) / 2,
+			right,
+			(height - _togglePaused->height()) / 2,
 			newWidth);
-		available -= _togglePaused->width();
+		right += _togglePaused->width();
 	}
+	const auto available = std::max(
+		1, newWidth - textLeft - right - style::ConvertScale(10));
 	_name->resizeToWidth(available);
-	_name->moveToLeft(st.namePosition.x(), st.namePosition.y(), newWidth);
+	_name->moveToLeft(textLeft, textInset, newWidth);
 	_status->resizeToWidth(available);
 	_status->moveToLeft(
-		st.statusPosition.x(),
-		st.statusPosition.y(),
+		textLeft,
+		height - _status->height() - textInset,
 		newWidth);
-	return st.height;
+	return height;
 }
 
 BusinessBotStatus::BusinessBotStatus(

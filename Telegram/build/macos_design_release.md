@@ -8,19 +8,16 @@ only. Configure with `DESKTOP_APP_SPECIAL_TARGET=win64`,
 `TDESKTOP_UPDATE_CHANNEL=stable`, and
 `TDESKTOP_MACOS_DESIGN_UPDATE_KEYS_DIR=<public bundle directory>`.
 
-For a distributable build set `TDESKTOP_API_RUNTIME=ON`,
-`TDESKTOP_API_TEST=OFF`, `TDESKTOP_API_ID=0`, and `TDESKTOP_API_HASH=`.
-Unset the private `TDESKTOP_RELEASE_API_ID` and `TDESKTOP_RELEASE_API_HASH`
-environment variables. This build embeds no application credentials. On first
-launch, each user enters their own application ID and hash from
-`https://my.telegram.org/apps`. The app encrypts them for the current Windows
-user and saves them in `tdata/telega-api.dat`. To replace them, close Telega
-and remove only that file; leave the rest of the profile intact. Moving the
-profile to another Windows user may require entering the credentials again.
+For the Telega installer, set `TDESKTOP_API_RUNTIME=OFF` and
+`TDESKTOP_API_TEST=OFF`. Leave the cache entries `TDESKTOP_API_ID=0` and
+`TDESKTOP_API_HASH=` and supply the application credentials with the private
+`TDESKTOP_RELEASE_API_ID` and `TDESKTOP_RELEASE_API_HASH` environment variables
+of the build process. The installed client opens the normal sign-in screen.
 
-Builds made with `TDESKTOP_API_RUNTIME=OFF` embed their credentials. Do not
-publish such builds or their build trees. Before publishing, verify that no
-private credentials occur in the sources, installer payload, or update package.
+The resulting binary contains the application credentials and they can be
+extracted from it. Do not publish the private build tree, generated sources,
+credentials, or logs. Before pushing or tagging source, scan tracked content
+and the commits to be published for both credential values.
 
 The public bundle is `root-public.pem` (Ed25519), `manifest.min.json` (V2
 trust manifest) and `manifest.sig` (raw Ed25519 signature over the exact

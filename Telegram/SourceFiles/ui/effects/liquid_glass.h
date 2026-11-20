@@ -19,13 +19,20 @@ struct LiquidGlassStyle {
 
 class LiquidGlassBackdropCache {
 public:
-	[[nodiscard]] QImage prepare(const QImage &image, QSize size, int blur);
+	[[nodiscard]] QImage prepare(
+		const QImage &image,
+		QSize size,
+		int radius,
+		int blur,
+		int refraction);
 
 private:
 	QImage _source;
 	QImage _filtered;
 	QSize _size;
+	int _radius = 0;
 	int _blur = 0;
+	int _refraction = 0;
 
 };
 

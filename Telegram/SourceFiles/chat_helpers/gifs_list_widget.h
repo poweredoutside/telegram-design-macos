@@ -96,6 +96,7 @@ public:
 		_inlineQueryPeer = peer;
 	}
 	void searchForGifs(const QString &query);
+	void resolveSearchBot(const QString &username);
 	void sendInlineRequest();
 
 	void cancelled();
@@ -212,6 +213,7 @@ private:
 	QTimer _inlineRequestTimer;
 
 	UserData *_searchBot = nullptr;
+	QString _searchBotUsername;
 	mtpRequestId _searchBotRequestId = 0;
 	PeerData *_inlineQueryPeer = nullptr;
 	QString _inlineQuery, _inlineNextQuery, _inlineNextOffset;

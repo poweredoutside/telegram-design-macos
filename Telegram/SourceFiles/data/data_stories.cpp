@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "apiwrap.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "data/components/top_peers.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
@@ -1229,7 +1230,9 @@ void Stories::loadAround(FullStoryId id, StoriesContext context) {
 }
 
 void Stories::markAsRead(FullStoryId id, bool viewed) {
-	if (id.peer == _owner->session().userPeerId()) {
+	if (id.peer == _owner->session().userPeerId()
+		|| Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::HideStoryViewReceipts)) {
 		return;
 	}
 	const auto maybeStory = lookup(id);

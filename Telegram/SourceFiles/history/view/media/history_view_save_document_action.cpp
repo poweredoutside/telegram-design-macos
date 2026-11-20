@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_save_document_action.h"
 
 #include "base/call_delayed.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_document.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_file_origin.h"
@@ -43,6 +44,8 @@ void AddSaveDocumentAction(
 	const auto savedMusic = &document->owner().savedMusic();
 	const auto show = controller->uiShow();
 	const auto inProfile = savedMusic->has(document);
+	const auto hideLocalSave = Core::Telega::DisplayEnabled(
+		Core::Telega::DisplayOption::HideSaveMediaAction);
 	const auto &ripple = st::defaultDropdownMenu.menu.ripple;
 	const auto duration = ripple.hideDuration;
 	const auto saveAs = base::fn_delayed(duration, controller, [=] {
@@ -52,6 +55,9 @@ void AddSaveDocumentAction(
 			DocumentSaveClickHandler::Mode::ToNewFile);
 	});
 	if (!document->isMusicForProfile() || (fromSaved && inProfile)) {
+		if (hideLocalSave) {
+			return;
+		}
 		const auto text = document->isVideoFile()
 			? tr::lng_context_save_video(tr::now)
 			: document->isVoiceMessage()
@@ -85,10 +91,12 @@ void AddSaveDocumentAction(
 				[=] { Window::ForwardToSelf(show, { { contextId } }); },
 				&st::menuIconSavedMessages);
 		}
-		menu->addAction(
-			tr::lng_context_save_music_folder(tr::now),
-			saveAs,
-			&st::menuIconDownload);
+		if (!hideLocalSave) {
+			menu->addAction(
+				tr::lng_context_save_music_folder(tr::now),
+				saveAs,
+				&st::menuIconDownload);
+		}
 
 		menu->addSeparator(&st::expandedMenuSeparator);
 

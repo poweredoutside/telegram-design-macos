@@ -69,6 +69,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "chat_helpers/message_field.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/update_checker.h"
 #include "core/shortcuts.h"
 #include "window/window_columns.h"
@@ -551,9 +552,7 @@ Widget::Widget(
 			switch (action) {
 			case NavigationAction::Contacts:
 			case NavigationAction::Calls:
-				if (_settingsSidebar) {
-					_settingsSidebar->hide();
-				}
+				hideMacSettings();
 				controller->window().hideSettingsAndLayer();
 				controller->clearSectionStack();
 				_navigationList = CreateNavigationList(this, controller, action,
@@ -567,9 +566,7 @@ Widget::Widget(
 				break;
 			case NavigationAction::Chats:
 				_navigationList.reset();
-				if (_settingsSidebar) {
-					_settingsSidebar->hide();
-				}
+				hideMacSettings();
 				_navigation->setActive(NavigationAction::Chats);
 				controller->window().hideSettingsAndLayer();
 				controller->clearSectionStack();
@@ -578,23 +575,7 @@ Widget::Widget(
 				setInnerFocus();
 				break;
 			case NavigationAction::Settings:
-				_navigationList.reset();
-				if (!_settingsSidebar) {
-					_settingsSidebar = std::make_unique<Settings::Sidebar>(
-						this, controller, [=] { showMainMenu(); },
-						[=] { _navigation->update(); });
-				}
-				{
-					auto params = Window::SectionShow(
-						Window::SectionShow::Way::ClearStack);
-					params.forbidLayer = true;
-					controller->showSettings(_settingsSidebar->selected(), params);
-				}
-				_settingsSidebar->setGeometry(0, 0, width(), height());
-				_settingsSidebar->show();
-				_settingsSidebar->raise();
-				_navigation->raise();
-				_navigation->setActive(NavigationAction::Settings);
+				controller->window().showSettings();
 				break;
 			}
 		}, [=](QRect area) {
@@ -622,32 +603,13 @@ Widget::Widget(
 			controller->show(PrepareContactsBox(controller));
 		});
 		_compose->show();
-		controller->mainSectionShownChanges() | rpl::on_next([=](bool shown) {
-			if (!shown) {
-				Ui::PostponeCall(this, [=] {
-					if (!controller->mainSectionShown()
-						&& _settingsSidebar
-						&& !_settingsSidebar->isHidden()) {
-						_settingsSidebar->hide();
-						_navigation->setActive(NavigationAction::Chats);
-					}
-				});
-			}
-		}, lifetime());
-		controller->activeChatChanges() | rpl::on_next([=](Key key) {
-			if (key && _settingsSidebar && !_settingsSidebar->isHidden()) {
-				_settingsSidebar->hide();
-				_navigation->setActive(NavigationAction::Chats);
-			}
-		}, lifetime());
 		controller->activeChatsFilter() | rpl::skip(1) | rpl::on_next([=] {
 			if (_navigationList) {
 				_navigationList.reset();
 				_navigation->setActive(NavigationAction::Chats);
 			}
-			if (_settingsSidebar && !_settingsSidebar->isHidden()) {
-				_settingsSidebar->hide();
-				_navigation->setActive(NavigationAction::Chats);
+			if (macSettingsShown()) {
+				hideMacSettings();
 				controller->window().hideSettingsAndLayer();
 				controller->clearSectionStack();
 			}
@@ -1677,6 +1639,11 @@ void Widget::setupMainMenuToggle() {
 }
 
 void Widget::setupStories() {
+	Core::Telega::HideStoriesValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		updateStoriesVisibility();
+	}, _stories->lifetime());
+
 	_stories->verticalScrollEvents(
 	) | rpl::on_next([=](not_null<QWheelEvent*> e) {
 		_scroll->viewportEvent(e);
@@ -2877,6 +2844,7 @@ void Widget::updateStoriesVisibility() {
 	const auto pulledDown = _scroll->position().overscroll
 		< -st::dialogsFilterSkip;
 	const auto hiddenInstant = _showAnimation
+		|| Core::Telega::HideStories()
 		|| _openedForum
 		|| _openedCommunity
 		|| (widthAnimation && !suggestionsAnimation)
@@ -3336,6 +3304,49 @@ void Widget::searchRequested(SearchRequestDelay delay) {
 		search();
 	} else {
 		_searchTimer.callOnce(kSearchRequestDelay);
+	}
+}
+
+bool Widget::showMacSettings() {
+	if (!_navigation) {
+		return false;
+	}
+	const auto sessionController = controller();
+	_navigationList.reset();
+	if (!_settingsSidebar) {
+		_settingsSidebar = std::make_unique<Settings::Sidebar>(
+			this,
+			sessionController,
+			[=] { showMainMenu(); },
+			[=] { _navigation->update(); });
+		_settingsSidebar->hide();
+	}
+	auto params = Window::SectionShow(Window::SectionShow::Way::ClearStack);
+	params.forbidLayer = true;
+	if (sessionController->adaptive().isOneColumn()) {
+		sessionController->clearSectionStack(params);
+		if (sessionController->mainSectionShown()) {
+			return true;
+		}
+	} else {
+		sessionController->showSettings(_settingsSidebar->selected(), params);
+	}
+	_settingsSidebar->setGeometry(0, 0, width(), height());
+	_settingsSidebar->show();
+	_settingsSidebar->raise();
+	_navigation->raise();
+	_navigation->setActive(NavigationAction::Settings);
+	return true;
+}
+
+bool Widget::macSettingsShown() const {
+	return _settingsSidebar && !_settingsSidebar->isHidden();
+}
+
+void Widget::hideMacSettings() {
+	if (macSettingsShown()) {
+		_settingsSidebar->hide();
+		_navigation->setActive(NavigationAction::Chats);
 	}
 }
 

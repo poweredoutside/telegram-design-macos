@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_media_unwrapped.h"
 
+#include "core/core_telega_preferences.h"
+#include "data/data_document.h"
+#include "data/data_media_types.h"
 #include "data/data_session.h"
 #include "history/history.h"
 #include "history/view/media/history_view_ephemeral_plate.h"
@@ -725,6 +728,17 @@ QPoint UnwrappedMedia::calculateFastActionPosition(
 }
 
 bool UnwrappedMedia::needInfoDisplay() const {
+	using Timestamp = Core::Telega::StickerTimestamp;
+	const auto mode = Core::Telega::StickerTime();
+	if (mode != Timestamp::Automatic) {
+		const auto media = _parent->data()->media();
+		const auto document = media ? media->document() : nullptr;
+		if (document && document->sticker()) {
+			return mode == Timestamp::Always
+				|| _parent->data()->isSending()
+				|| _parent->data()->hasFailed();
+		}
+	}
 	return _parent->data()->isSending()
 		|| _parent->data()->hasFailed()
 		|| _parent->isUnderCursor()

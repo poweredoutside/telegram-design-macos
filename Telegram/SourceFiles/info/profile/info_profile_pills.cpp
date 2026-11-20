@@ -7,6 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_pills.h"
 
+#include "core/core_telega_preferences.h"
+#include "data/data_document.h"
+#include "data/data_document_media.h"
+#include "data/data_file_origin.h"
 #include "data/data_saved_music.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
@@ -14,8 +18,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_balance_pill.h"
 #include "info/profile/info_profile_music_button.h"
 #include "info/profile/info_profile_top_bar.h"
+#include "main/main_session.h"
+#include "ui/image/image.h"
+#include "ui/image/image_prepare.h"
 #include "ui/text/format_song_document_name.h"
 #include "ui/rect.h"
+#include "ui/style/style_core_scale.h"
 #include "wallet/wallet_card_view.h"
 
 #include "styles/style_info.h"
@@ -25,6 +33,37 @@ namespace Info::Profile {
 namespace {
 
 constexpr auto kFadeStart = 0.6;
+
+void SetupMusicCover(
+		not_null<MusicButton*> music,
+		not_null<DocumentData*> document,
+		not_null<UserData*> user,
+		rpl::lifetime &lifetime) {
+	const auto media = document->createMediaView();
+	document->loadThumbnail(Data::FileOriginFullUser{ peerToUser(user->id) });
+	const auto apply = [=] {
+		const auto image = media->thumbnail();
+		if (!image || image->isNull()) {
+			return false;
+		}
+		const auto &source = image->original();
+		const auto square = std::min(source.width(), source.height());
+		const auto side = st::infoProfileBalancePillHeight
+			* style::DevicePixelRatio();
+		auto scaled = source.copy(
+			(source.width() - square) / 2,
+			(source.height() - square) / 2,
+			square,
+			square).scaled(side, side, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+		music->setCover(Images::Circle(std::move(scaled)));
+		return true;
+	};
+	if (!apply()) {
+		document->session().downloaderTaskFinished(
+		) | rpl::filter(apply) | rpl::take(1) | rpl::on_next([] {
+		}, lifetime);
+	}
+}
 
 [[nodiscard]] rpl::producer<DocumentData*> ProfileMusicValue(
 		not_null<UserData*> user) {
@@ -75,11 +114,18 @@ PillsRow::PillsRow(
 		music->setOverrideBg(color);
 	}, _lifetime);
 
-	ProfileMusicValue(
-		user
-	) | rpl::on_next([=](DocumentData *document) {
+	const auto coverLifetime = _lifetime.make_state<rpl::lifetime>();
+	rpl::combine(
+		ProfileMusicValue(user),
+		Core::Telega::DisplayValue(Core::Telega::DisplayOption::ProfileMusicCover)
+	) | rpl::on_next([=](DocumentData *document, bool showCover) {
+		coverLifetime->destroy();
+		music->setCover({});
 		if (document) {
 			music->updateData({ Ui::Text::FormatSongNameFor(document) });
+			if (showCover) {
+				SetupMusicCover(music, document, user, *coverLifetime);
+			}
 			music->show();
 		} else {
 			music->hide();

@@ -28,11 +28,18 @@ constexpr auto kCard2Angle = -16.; // Tunable.
 constexpr auto kCard2Radius = 0.16; // Tunable. Even less rounded.
 constexpr auto kCard2Opacity = 0.3; // Tunable.
 constexpr auto kGap = 0.02; // Tunable.
+auto AvatarRadius = .5;
+auto UniformAvatarRadius = false;
 
 } // namespace
 
+void InitUserpicRounding(float64 radius, bool uniform) {
+	AvatarRadius = radius;
+	UniformAvatarRadius = uniform;
+}
+
 float64 ForumUserpicRadiusMultiplier() {
-	return 0.3;
+	return UniformAvatarRadius ? AvatarRadius : 0.3;
 }
 
 void PaintCommunityUserpicEffect(
@@ -153,6 +160,11 @@ void ValidateUserpicCache(
 	view.empty = empty;
 	view.shape = shapeValue;
 	view.paletteVersion = version;
+	const auto forum = (shape == PeerUserpicShape::Forum);
+	const auto factor = forum
+		? Ui::ForumUserpicRadiusMultiplier()
+		: AvatarRadius;
+	const auto radius = int(base::SafeRound(size * factor));
 
 	if (cloud) {
 		view.cached = cloud->scaled(
@@ -161,14 +173,12 @@ void ValidateUserpicCache(
 			Qt::SmoothTransformation);
 		if (shape == PeerUserpicShape::Monoforum) {
 			view.cached = Ui::ApplyMonoforumShape(std::move(view.cached));
-		} else if (shape == PeerUserpicShape::Forum) {
+		} else if (factor >= .5) {
+			view.cached = Images::Circle(std::move(view.cached));
+		} else if (radius > 0) {
 			view.cached = Images::Round(
 				std::move(view.cached),
-				Images::CornersMask(size
-					* Ui::ForumUserpicRadiusMultiplier()
-					/ style::DevicePixelRatio()));
-		} else {
-			view.cached = Images::Circle(std::move(view.cached));
+				Images::CornersMask(std::max(1, radius / style::DevicePixelRatio())));
 		}
 	} else {
 		if (view.cached.size() != full) {
@@ -179,16 +189,18 @@ void ValidateUserpicCache(
 		auto p = QPainter(&view.cached);
 		if (shape == PeerUserpicShape::Monoforum) {
 			empty->paintMonoforum(p, 0, 0, size, size);
-		} else if (shape == PeerUserpicShape::Forum) {
+		} else if (factor >= .5) {
+			empty->paintCircle(p, 0, 0, size, size);
+		} else if (radius > 0) {
 			empty->paintRounded(
 				p,
 				0,
 				0,
 				size,
 				size,
-				size * Ui::ForumUserpicRadiusMultiplier());
+				radius);
 		} else {
-			empty->paintCircle(p, 0, 0, size, size);
+			empty->paintSquare(p, 0, 0, size, size);
 		}
 	}
 }

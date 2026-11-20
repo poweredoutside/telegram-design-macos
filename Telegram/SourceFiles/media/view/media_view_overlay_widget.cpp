@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/click_handler_types.h"
 #include "core/core_screenshot_protection.h"
+#include "core/core_telega_preferences.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
 #include "core/ui_integration.h"
@@ -189,7 +190,6 @@ constexpr auto kMaxZoomLevel = 7; // x8
 constexpr auto kZoomToScreenLevel = 1024;
 constexpr auto kPinchZoomStep = 0.25;
 constexpr auto kOverlayLoaderPriority = 2;
-constexpr auto kSeekTimeMs = 5 * crl::time(1000);
 constexpr auto kSeekTimeMsLong = 10 * crl::time(1000);
 constexpr auto kFrameStepFallbackFps = 30.;
 constexpr auto kFrameStepThrottleMs = crl::time(150);
@@ -685,6 +685,16 @@ OverlayWidget::OverlayWidget()
 }) {
 	_layerBg->setStyleOverrides(&st::groupCallBox, &st::groupCallLayerBox);
 	_layerBg->setHideByBackgroundClick(true);
+	QObject::connect(qGuiApp, &QGuiApplication::applicationStateChanged,
+		_widget.get(), [=](Qt::ApplicationState state) {
+			if (state != Qt::ApplicationActive
+				&& Core::Telega::PauseVideoInBackground()
+				&& !_stories
+				&& _streamed
+				&& !isHidden()) {
+				_streamed->instance.pause();
+			}
+		});
 
 	_recognition.setSources(&_recognitionResult, &_staticContent);
 
@@ -3062,7 +3072,9 @@ void OverlayWidget::assignMediaPointer(DocumentData *document) {
 		_streamedQualityChangeFinished = false;
 		if ((_document = document)) {
 			_quality = _document->initialPlaybackVideoQuality(
-				Core::App().settings().videoQuality());
+				(_document->isVideoFile() && Core::Telega::PreferOriginalVideo())
+					? VideoQuality{ .manual = 1, .original = 1 }
+					: Core::App().settings().videoQuality());
 			_chosenQuality = _document->chooseQuality(_message, _quality);
 			_documentMedia = _document->createMediaView();
 			_videoCover = LookupVideoCover(_document, _message);
@@ -7479,10 +7491,10 @@ void OverlayWidget::handleKeyPress(not_null<QKeyEvent*> e) {
 				restartAtProgress(index / 10.0);
 			} else if (key == Qt::Key_Left) {
 				activateControls();
-				seekRelativeTime(-kSeekTimeMs);
+				seekRelativeTime(-Core::Telega::VideoSeekStep() * crl::time(1000));
 			} else if (key == Qt::Key_Right) {
 				activateControls();
-				seekRelativeTime(kSeekTimeMs);
+				seekRelativeTime(Core::Telega::VideoSeekStep() * crl::time(1000));
 			}
 			return;
 		}

@@ -32,6 +32,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/translate_box.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
+#include "core/core_telega_preferences.h"
 #include "core/ui_integration.h"
 #include "data/business/data_business_common.h"
 #include "data/business/data_business_info.h"
@@ -231,11 +232,24 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 
 [[nodiscard]] rpl::producer<TextWithEntities> AboutWithAdvancedValue(
 		not_null<PeerData*> peer) {
-
-	return AboutValue(
-		peer
-	) | rpl::map([=](TextWithEntities &&value) {
-		if (ShowPeerIdBelowAbout.value()) {
+	using Option = Core::Telega::DisplayOption;
+	return rpl::combine(
+		AboutValue(peer),
+		rpl::single(ShowPeerIdBelowAbout.value()) | rpl::then(
+			ShowPeerIdBelowAbout.changes() | rpl::map([] {
+				return ShowPeerIdBelowAbout.value();
+			})),
+		Core::Telega::DisplayValue(Option::ProfilePhotoDc),
+		peer->session().changes().peerFlagsValue(
+			peer,
+			Data::PeerUpdate::Flag::Photo) | rpl::map([=] {
+				const auto location = peer->userpicLocation();
+				const auto storage = std::get_if<StorageFileLocation>(
+					&location.file().data);
+				return storage ? int(storage->dcId()) : 0;
+			})
+	) | rpl::map([=](TextWithEntities value, bool showId, bool showDc, int dc) {
+		if (showId) {
 			using namespace Ui::Text;
 			if (!value.empty()) {
 				value.append("\n\n");
@@ -246,11 +260,17 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 				Italic(Lang::FormatCountDecimal(raw)),
 				kPeerIdLinkIndex));
 		}
+		if (showDc && dc > 0) {
+			if (!value.empty()) {
+				value.append(showId ? u"\n"_q : u"\n\n"_q);
+			}
+			value.append(Ui::Text::Italic(u"DC: "_q + QString::number(dc)));
+		}
 		if (ShowChannelJoinedBelowAbout.value()) {
 			if (const auto channel = peer->asChannel()) {
 				if (!channel->amCreator() && channel->inviteDate) {
 					if (!value.empty()) {
-						if (ShowPeerIdBelowAbout.value()) {
+						if (showId || (showDc && dc > 0)) {
 							value.append("\n");
 						} else {
 							value.append("\n\n");
@@ -270,18 +290,15 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 				}
 			}
 		}
-		return std::move(value);
+		return value;
 	});
 }
 
 void SetupAboutPeerIdDrag(
 		not_null<Ui::FlatLabel*> label,
 		not_null<PeerData*> peer) {
-	if (!ShowPeerIdBelowAbout.value()) {
-		return;
-	}
 	const auto id = QString::number(peer->id.value & PeerId::kChatTypeMask);
-	AboutValue(
+	AboutWithAdvancedValue(
 		peer
 	) | rpl::on_next([=] {
 		label->setLink(

@@ -35,6 +35,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/edit_peer_permissions_box.h" // ShowAboutGigagroup.
 #include "boxes/peers/edit_peer_requests_box.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
 #include "history/view/history_view_draw_to_reply.h"
@@ -490,7 +491,26 @@ HistoryWidget::HistoryWidget(
 	_unblock->addClickHandler([=] { unblockUser(); });
 	_botStart->addClickHandler([=] { sendBotStartCommand(); });
 	_joinChannel->addClickHandler([=] { joinChannel(); });
-	_muteUnmute->addClickHandler([=] { toggleMuteUnmute(); });
+	_muteUnmute->addClickHandler([=] {
+		if (const auto discussion = bottomDiscussion()) {
+			if (_peer->asBroadcast()->invitePeekExpires()) {
+				controller->showToast(tr::lng_channel_invite_private(tr::now));
+			} else {
+				controller->showPeerHistory(
+					discussion,
+					Window::SectionShow::Way::Forward);
+			}
+		} else {
+			toggleMuteUnmute();
+		}
+	});
+	Core::Telega::BottomActionValue() | rpl::skip(1) | rpl::on_next([=] {
+		if (_history) {
+			updateNotifyControls();
+			updateControlsVisibility();
+			updateControlsGeometry();
+		}
+	}, lifetime());
 	setupGiftToChannelButton();
 	setupDirectMessageButton();
 	_reportMessages->addClickHandler([=] { reportSelectedMessages(); });
@@ -538,6 +558,8 @@ HistoryWidget::HistoryWidget(
 	) | rpl::on_next([=] {
 		fieldChanged();
 	}, _field->lifetime());
+	Core::Telega::DisplayValue(Core::Telega::DisplayOption::CountCharacters)
+	| rpl::skip(1) | rpl::on_next([=] { checkCharsLimitation(); }, lifetime());
 	Data::AmPremiumValue(&session()) | rpl::on_next([=] {
 		checkCharsLimitation();
 		updateAiButtonVisibility();
@@ -1050,7 +1072,7 @@ HistoryWidget::HistoryWidget(
 		if (flags & PeerUpdateFlag::Migration) {
 			handlePeerMigration();
 		}
-		if (flags & PeerUpdateFlag::Notifications) {
+		if (flags & (PeerUpdateFlag::Notifications | PeerUpdateFlag::DiscussionLink)) {
 			updateNotifyControls();
 		}
 		if (flags & PeerUpdateFlag::UnavailableReason) {
@@ -4073,7 +4095,9 @@ void HistoryWidget::updateNotifyControls() {
 		return;
 	}
 
-	_muteUnmute->setText((_history->muted()
+	_muteUnmute->setText((bottomDiscussion()
+		? tr::lng_profile_view_discussion(tr::now)
+		: _history->muted()
 		? tr::lng_channel_unmute(tr::now)
 		: tr::lng_channel_mute(tr::now)).toUpper());
 	if (!session().data().notifySettings().silentPostsUnknown(_peer)) {
@@ -4250,11 +4274,19 @@ void HistoryWidget::refreshSuggestPostToggle() {
 }
 
 void HistoryWidget::setupSendAsToggle() {
-	session().sendAsPeers().updated(
+	auto updates = session().sendAsPeers().updated(
 	) | rpl::filter([=](Main::SendAsKey key) {
 		return (key.peer == _peer)
 			&& (key.type == Main::SendAsType::Message);
-	}) | rpl::on_next([=] {
+	}) | rpl::to_empty;
+	rpl::merge(
+		std::move(updates),
+		Core::Telega::DisplayValue(Core::Telega::DisplayOption::HideSendAs)
+			| rpl::skip(1) | rpl::to_empty
+	) | rpl::on_next([=] {
+		if (!_peer) {
+			return;
+		}
 		refreshSendAsToggle();
 		updateControlsVisibility();
 		updateControlsGeometry();
@@ -4266,7 +4298,9 @@ void HistoryWidget::refreshSendAsToggle() {
 	Expects(_peer != nullptr);
 
 	const auto key = Main::SendAsKey{ _peer, Main::SendAsType::Message };
-	if (_editMsgId || !session().sendAsPeers().shouldChoose(key)) {
+	if (_editMsgId
+		|| Core::Telega::DisplayEnabled(Core::Telega::DisplayOption::HideSendAs)
+		|| !session().sendAsPeers().shouldChoose(key)) {
 		_sendAs.destroy();
 		return;
 	} else if (_sendAs) {
@@ -4405,7 +4439,7 @@ void HistoryWidget::updateControlsVisibility() {
 		} else if (isJoinChannel()) {
 			toggle(_joinChannel);
 		} else if (isMuteUnmute()) {
-			toggle(_muteUnmute);
+			toggle(showMuteUnmute() ? _muteUnmute.data() : nullptr);
 		} else if (isBotStart()) {
 			toggle(_botStart);
 		}
@@ -5074,7 +5108,10 @@ void HistoryWidget::windowShown() {
 }
 
 bool HistoryWidget::markingMessagesRead() const {
-	return markingContentsRead() && !session().supportMode();
+	return markingContentsRead()
+		&& !session().supportMode()
+		&& !Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::PauseAutomaticChatReads);
 }
 
 bool HistoryWidget::markingContentsRead() const {
@@ -7007,6 +7044,20 @@ bool HistoryWidget::isMuteUnmute() const {
 			|| _peer->isVerifyCodes());
 }
 
+bool HistoryWidget::showMuteUnmute() const {
+	return isMuteUnmute()
+		&& (!_peer->isBroadcast() || Core::Telega::BottomAction()
+			!= Core::Telega::ChannelBottomAction::Hidden);
+}
+
+PeerData *HistoryWidget::bottomDiscussion() const {
+	const auto channel = _peer ? _peer->asBroadcast() : nullptr;
+	return channel && Core::Telega::BottomAction()
+			== Core::Telega::ChannelBottomAction::Discussion
+		? channel->discussionLink()
+		: nullptr;
+}
+
 bool HistoryWidget::isSearching() const {
 	return _composeSearch != nullptr;
 }
@@ -8358,7 +8409,7 @@ void HistoryWidget::handleHistoryChange(not_null<const History*> history) {
 			const auto unblock = isBlocked();
 			const auto botStart = isBotStart();
 			const auto joinChannel = isJoinChannel();
-			const auto muteUnmute = isMuteUnmute();
+			const auto muteUnmute = showMuteUnmute();
 			const auto reportMessages = isReportMessages();
 			const auto update = false
 				|| (_reportMessages->isHidden() == reportMessages)
@@ -8796,7 +8847,10 @@ void HistoryWidget::updateHistoryGeometry(
 			|| isJoinChannel()
 			|| isMuteUnmute()
 			|| isReportMessages())) {
-		newScrollHeight -= _unblock->height();
+		if (isSearching() || isBlocked() || isBotStart() || isJoinChannel()
+			|| showMuteUnmute() || isReportMessages()) {
+			newScrollHeight -= _unblock->height();
+		}
 	} else {
 		if (editingMessage() || _canSendMessages) {
 			newScrollHeight -= (fieldHeight() + ComposeVerticalPadding());
@@ -10641,23 +10695,28 @@ void HistoryWidget::checkCharsCount() {
 }
 
 void HistoryWidget::checkCharsLimitation() {
-	if (!_history || !_editMsgId) {
+	const auto showCount = Core::Telega::DisplayEnabled(
+		Core::Telega::DisplayOption::CountCharacters);
+	if (!_history || (!_editMsgId && !showCount)) {
 		_charsLimitation = nullptr;
 		return;
 	}
-	const auto item = session().data().message(_history->peer, _editMsgId);
-	if (!item) {
+	const auto item = _editMsgId
+		? session().data().message(_history->peer, _editMsgId)
+		: nullptr;
+	if (_editMsgId && !item) {
 		_charsLimitation = nullptr;
 		return;
 	}
-	const auto hasMediaWithCaption = item->media()
+	const auto hasMediaWithCaption = item && item->media()
 		&& item->media()->allowsEditCaption();
 	const auto limits = Data::PremiumLimits(&session());
 	const auto maxTextSize = hasMediaWithCaption
 		? limits.captionLengthCurrent()
 		: limits.messageLengthCurrent();
-	const auto remove = _fieldCharsCountManager.count() - maxTextSize;
-	if (remove > 0) {
+	const auto count = _fieldCharsCountManager.count();
+	const auto remove = count - maxTextSize;
+	if (remove > 0 || (showCount && count > 0)) {
 		if (!_charsLimitation) {
 			_charsLimitation = base::make_unique_q<CharactersLimitLabel>(
 				this,
@@ -10665,7 +10724,7 @@ void HistoryWidget::checkCharsLimitation() {
 				style::al_bottom);
 			_charsLimitation->show();
 		}
-		_charsLimitation->setLeft(remove);
+		_charsLimitation->setLeft(remove > 0 ? remove : -count);
 	} else {
 		_charsLimitation = nullptr;
 	}
@@ -10717,6 +10776,14 @@ void HistoryWidget::replyToMessage(
 		return;
 	}
 	fields.messageId = item->fullId();
+	if (fields.quote.empty() && item->allowsForward()
+		&& Core::Telega::DisplayEnabled(Core::Telega::DisplayOption::QuoteReplies)) {
+		const auto limit = session().appConfig().quoteLengthMax();
+		if (limit > 0) {
+			fields.quote = Ui::Text::Mid(item->originalText(), 0, limit);
+			fields.quoteOffset = 0;
+		}
+	}
 	_processingReplyTo = fields;
 	_processingReplyItem = item;
 	processReply();
@@ -11241,7 +11308,7 @@ void HistoryWidget::forwardSelected() {
 void HistoryWidget::confirmDeleteSelected() {
 	if (!_list) return;
 
-	auto ids = _list->getSelectedItems();
+	auto ids = _list->getSelectedItems(true);
 	auto ephemeral = _list->getSelectedEphemeral();
 	if (ids.empty()) {
 		if (!ephemeral.empty()) {
@@ -11578,11 +11645,10 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	}
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+	const auto replyArea = myrtlrect(0, backy, width(),
+		_field->y() - ComposeTopPadding() - backy);
 	if (!Platform::IsWindows() || _field->isHidden() || isRecording()) {
 		p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
-	} else if (backy < _field->y() - ComposeTopPadding()) {
-		p.fillRect(myrtlrect(0, backy, width(),
-			_field->y() - ComposeTopPadding() - backy), st::historyReplyBg);
 	}
 	if (Platform::IsWindows() && !_field->isHidden()) {
 		const auto glass = Window::Theme::GlassStyle();
@@ -11597,10 +11663,10 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 			std::max(0, width() - logicalLeft - right),
 			_field->height());
 		const auto backdropFor = [&](QRect area) {
-			if (!glass.enabled || area.isEmpty()) {
+			if (!glass.enabled || glass.opacity >= 100 || area.isEmpty()) {
 				return QImage();
 			}
-			const auto ratio = devicePixelRatioF();
+			const auto ratio = (glass.blur > 0) ? 1. : devicePixelRatioF();
 			auto image = QImage(area.size() * ratio,
 				QImage::Format_ARGB32_Premultiplied);
 			image.setDevicePixelRatio(ratio);
@@ -11615,14 +11681,24 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 				controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 			return image;
 		};
-		Ui::PaintLiquidGlass(p, fieldRect, backdropFor(fieldRect),
-			st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius);
-		Ui::PaintLiquidGlass(p, _attachToggle->geometry(),
-			backdropFor(_attachToggle->geometry()),
-			st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius);
+		const auto paint = [&](QRect area, Ui::LiquidGlassBackdropCache &cache) {
+			if (rect.intersects(area)) {
+				Ui::PaintLiquidGlass(p, area, backdropFor(area),
+					st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius,
+					&cache);
+			}
+		};
+		if (!isRecording() && !replyArea.isEmpty()) {
+			if (glass.enabled) {
+				paint(replyArea.marginsRemoved({ edge, 0, edge, 0 }), _replyGlass);
+			} else {
+				p.fillRect(replyArea, st::historyReplyBg);
+			}
+		}
+		paint(fieldRect, _fieldGlass);
+		paint(_attachToggle->geometry(), _attachmentGlass);
 		if (!sendButtonInField() && !_send->isHidden()) {
-			Ui::PaintLiquidGlass(p, _send->geometry(), backdropFor(_send->geometry()),
-				st::historyComposeAreaBg->c, glass, st::historyComposeMacRadius);
+			paint(_send->geometry(), _sendGlass);
 		}
 	}
 

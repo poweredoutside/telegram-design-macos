@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/rect.h"
 #include "ui/power_saving.h"
 #include "core/ui_integration.h"
+#include "core/core_telega_preferences.h"
 #include "lang/lang_keys.h"
 #include "lang/lang_text_entity.h"
 #include "styles/style_dialogs.h"
@@ -544,7 +545,8 @@ void MessageView::paint(
 				: st::dialogsNameFg;
 			p.setPen(color);
 			senderPalette.linkFg = color;
-			if (_senderUserpic) {
+			if (_senderUserpic && !Core::Telega::DisplayEnabled(
+					Core::Telega::DisplayOption::HideSenderMiniAvatars)) {
 				const auto &metrics = st::dialogsTextFont->metrics();
 				const auto advance = metrics.horizontalAdvance(u"\U0001F921"_q);
 				const auto glyphWidth = int(std::ceil(advance));

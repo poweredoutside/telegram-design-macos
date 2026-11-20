@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_about_view.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "api/api_peer_colors.h"
 #include "api/api_premium.h"
 #include "api/api_sending.h"
@@ -279,6 +281,10 @@ auto GenerateChatIntro(
 		pushText({ description }, title.isEmpty()
 			? st::chatIntroTitleMargin
 			: st::chatIntroMargin);
+		if (!data.sticker && Core::Telega::DisplayEnabled(
+				Core::Telega::DisplayOption::HideDefaultGreetingSticker)) {
+			return;
+		}
 		const auto sticker = [=] {
 			using Tag = ChatHelpers::StickerLottieSize;
 			auto sticker = data.sticker;

@@ -13,3 +13,5 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 	bool narrow = false);
 
 [[nodiscard]] QString FormatUnreadCounterShort(int unreadCounter);
+
+[[nodiscard]] QString FormatUnreadCounterCompact(int unreadCounter);

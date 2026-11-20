@@ -1269,6 +1269,7 @@ void BuildGlassSection(SectionBuilder &builder) {
 			auto result = object_ptr<Ui::RpWidget>(parent);
 			const auto preview = result.data();
 			preview->resize(0, 100);
+			const auto glassCache = preview->lifetime().make_state<Ui::LiquidGlassBackdropCache>();
 			preview->paintRequest() | rpl::on_next([=] {
 				auto p = QPainter(preview);
 				auto backdrop = QImage(preview->size(), QImage::Format_ARGB32_Premultiplied);
@@ -1287,7 +1288,7 @@ void BuildGlassSection(SectionBuilder &builder) {
 				p.drawImage(QPoint(), backdrop);
 				const auto area = preview->rect().adjusted(12, 14, -12, -14);
 				Ui::PaintLiquidGlass(p, area, backdrop.copy(area), st::dialogsBg->c,
-					Window::Theme::GlassStyle(), 18);
+					Window::Theme::GlassStyle(), 18, glassCache);
 				p.setFont(st::semiboldFont);
 				p.setPen(st::windowFg);
 				p.drawText(area, Qt::AlignCenter, u"Liquid Glass"_q);
@@ -2672,6 +2673,14 @@ void SetupThemeSettings(
 		}
 	}
 
+	SetupFontSettings(controller, container, highlights);
+}
+
+void SetupFontSettings(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::VerticalLayout*> container,
+		HighlightRegistry *highlights) {
+	const auto settings = &Core::App().settings();
 	const auto family = container->lifetime().make_state<
 		rpl::variable<QString>
 	>(settings->customFontFamily());

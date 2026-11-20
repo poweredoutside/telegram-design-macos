@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_transcribes.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
 #include "data/data_flags.h"
@@ -23,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "iv/iv_rich_page.h"
 #include "lang/translate_provider.h"
+#include "lang/translate_url_provider.h"
 #include "main/main_session.h"
 #include "spellcheck/platform/platform_language.h"
 
@@ -53,6 +55,13 @@ TranslateTracker::~TranslateTracker() {
 void TranslateTracker::setup() {
 	const auto peer = _history->peer;
 	peer->updateFull();
+	Core::Telega::UseGoogleTranslationValue() | rpl::on_next([=](bool enabled) {
+		if (!enabled && _googleProvider) {
+			cancelSentRequest();
+			_googleProvider.reset();
+			requestSome();
+		}
+	}, _lifetime);
 
 	const auto channel = peer->asChannel();
 	auto autoTranslationValue = (channel
@@ -303,6 +312,15 @@ void TranslateTracker::requestSome() {
 		return;
 	}
 	const auto owner = &session->data();
+	const auto useGoogle = Core::Telega::UseGoogleTranslation()
+		&& ranges::all_of(_requested, [&](const FullMsgId &id) {
+			const auto item = owner->message(id);
+			return item && !item->forbidsForward() && item->history()->peer->allowsForwarding();
+		});
+	if (useGoogle && !_googleProvider) {
+		_googleProvider = Ui::CreateGoogleTranslateProvider();
+	}
+	const auto provider = useGoogle ? _googleProvider.get() : _provider.get();
 	auto requests = std::vector<Ui::TranslateProviderRequest>();
 	requests.reserve(_requested.size());
 	auto ids = std::vector<FullMsgId>();
@@ -310,7 +328,7 @@ void TranslateTracker::requestSome() {
 	for (const auto &id : _requested) {
 		if (const auto item = owner->message(id)) {
 			requests.push_back(Ui::PrepareTranslateProviderRequest(
-				_provider.get(),
+				provider,
 				session->data().peer(id.peer),
 				id.msg,
 				item->originalText()));
@@ -324,7 +342,7 @@ void TranslateTracker::requestSome() {
 	}
 	_requestInProcess = true;
 	const auto requestToken = ++_requestToken;
-	_provider->requestBatch(
+	provider->requestBatch(
 		std::move(requests),
 		to,
 		[=](int index, Ui::TranslateProviderResult result) {

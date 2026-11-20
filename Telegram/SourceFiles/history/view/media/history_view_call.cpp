@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_cursor_state.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
+#include "core/core_telega_preferences.h"
 #include "calls/calls_instance.h"
 #include "data/data_media_types.h"
 #include "data/data_user.h"
@@ -49,9 +50,7 @@ Call::Call(
 , _video(call->video) {
 	const auto item = parent->data();
 	_text = Data::MediaCall::Text(item, _state, _conference, _video);
-	_status = QLocale().toString(
-		parent->dateTime().time(),
-		QLocale::ShortFormat);
+	_status = Core::Telega::FormatTime(parent->dateTime().time());
 	if (_duration) {
 		_status = tr::lng_call_duration_info(
 			tr::now,

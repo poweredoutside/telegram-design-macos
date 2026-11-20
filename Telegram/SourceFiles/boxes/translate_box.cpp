@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/click_handler_types.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/ui_integration.h"
 #include "data/data_msg_id.h"
 #include "data/data_peer.h"
@@ -453,26 +454,25 @@ void TranslateBox(
 		TextWithEntities text,
 		bool hasCopyRestriction) {
 	struct State {
-		State(not_null<Main::Session*> session)
-		: provider(CreateTranslateProvider(session)) {
+		State(not_null<Main::Session*> session, bool allowGoogle)
+		: provider(CreateTranslateProvider(session, allowGoogle)) {
 		}
 
 		std::unique_ptr<TranslateProvider> provider;
 		rpl::variable<LanguageId> to;
 	};
-	const auto state = box->lifetime().make_state<State>(&peer->session());
-	if (IsServerMsgId(msgId) && state->provider->supportsMessageId()) {
-		if (const auto item = peer->owner().message(peer->id, msgId)) {
-			if (const auto page = item->richPage()) {
-				if (TranslateRichBox(
-						box,
-						peer,
-						msgId,
-						page,
-						text,
-						hasCopyRestriction)) {
-					return;
-				}
+	const auto item = IsServerMsgId(msgId)
+		? peer->owner().message(peer->id, msgId)
+		: nullptr;
+	const auto allowGoogle = !hasCopyRestriction
+		&& peer->allowsForwarding()
+		&& (!IsServerMsgId(msgId) || (item && !item->forbidsForward()));
+	const auto google = allowGoogle && Core::Telega::UseGoogleTranslation();
+	const auto state = box->lifetime().make_state<State>(&peer->session(), allowGoogle);
+	if (item && state->provider->supportsMessageId()) {
+		if (const auto page = item->richPage()) {
+			if (TranslateRichBox(box, peer, msgId, page, text, hasCopyRestriction)) {
+				return;
 			}
 		}
 	}
@@ -497,6 +497,17 @@ void TranslateBox(
 		.request = [=](
 				LanguageId to,
 				Fn<void(TranslateBoxContentResult)> done) {
+			if (google) {
+				const auto current = IsServerMsgId(msgId)
+					? peer->owner().message(peer->id, msgId)
+					: nullptr;
+				if (!Core::Telega::UseGoogleTranslation()
+					|| !peer->allowsForwarding()
+					|| (IsServerMsgId(msgId) && (!current || current->forbidsForward()))) {
+					done(TranslateBoxContentResult{ .error = TranslateBoxContentError::Unknown });
+					return;
+				}
+			}
 			state->provider->request(
 				*request,
 				to,

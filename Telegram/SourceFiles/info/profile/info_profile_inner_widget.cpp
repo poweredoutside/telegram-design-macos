@@ -7,6 +7,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_inner_widget.h"
 
+#include "core/core_telega_preferences.h"
+#include "history/history.h"
+#include "history/history_item.h"
+#include "history/view/history_view_element.h"
+#include "lang/lang_instance.h"
+#include "window/window_session_controller.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
 #include "info/info_wrap_widget.h"
@@ -34,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_file_origin.h"
 #include "data/data_user.h"
 #include "data/data_saved_sublist.h"
+#include "data/data_session.h"
 #include "info_profile_actions.h"
 #include "main/main_session.h"
 #include "apiwrap.h"
@@ -53,6 +60,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/vertical_list.h"
 #include "ui/ui_utility.h"
 #include "styles/style_info.h"
+#include "styles/style_settings.h"
 
 namespace Info {
 namespace Profile {
@@ -60,6 +68,37 @@ namespace Profile {
 namespace {
 
 constexpr auto kMembersInlineMax = 5;
+
+[[nodiscard]] std::vector<not_null<UserData*>> VisibleGroupAuthors(
+		not_null<PeerData*> peer) {
+	const auto group = peer->asMegagroup();
+	if (!group || group->canViewMembers()
+		|| !(group->flags() & ChannelDataFlag::ParticipantsHidden)
+		|| !Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::VisibleGroupAuthors)) {
+		return {};
+	}
+	const auto history = peer->owner().historyLoaded(peer);
+	auto result = std::vector<not_null<UserData*>>();
+	if (!history) {
+		return result;
+	}
+	auto examined = 0;
+	for (const auto &block : ranges::views::reverse(history->blocks)) {
+		for (const auto &view : ranges::views::reverse(block->messages)) {
+			if (++examined > 400 || result.size() >= 20) {
+				return result;
+			}
+			const auto item = view->data();
+			const auto author = item->from()->asUser();
+			if (item->isRegular() && !item->isLocal() && !item->isEphemeral()
+				&& author && !ranges::contains(result, not_null{ author })) {
+				result.push_back(author);
+			}
+		}
+	}
+	return result;
+}
 
 [[nodiscard]] rpl::producer<bool> MembersInTabValue(not_null<PeerData*> peer) {
 	const auto channel = peer->asChannel();
@@ -361,6 +400,21 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 		}();
 		stack.addPlainSeparator();
 		stack.add(makeMembersSection(result.data(), std::move(shown)));
+	}
+	if (const auto authors = VisibleGroupAuthors(_peer); !authors.empty()) {
+		auto rows = object_ptr<Ui::VerticalLayout>(result.data());
+		const auto russian = Lang::GetInstance().id().startsWith(u"ru"_q);
+		rows->add(object_ptr<Ui::FlatLabel>(rows.data(), rpl::single(russian
+			? u"Недавние авторы загруженных сообщений"_q
+			: u"Recent authors from loaded messages"_q), st::boxDividerLabel));
+		const auto controller = _controller->parentController();
+		for (const auto author : authors) {
+			rows->add(object_ptr<Ui::SettingsButton>(rows.data(),
+				rpl::single(author->name()), st::macSettingsPageButtonNoIcon)
+			)->setClickedCallback([=] { controller->showPeerInfo(author); });
+		}
+		stack.addPlainSeparator();
+		stack.add(Section{ .widget = std::move(rows), .shown = rpl::single(true) });
 	}
 	if (tabs) {
 		addTabsHost();

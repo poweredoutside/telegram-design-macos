@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_peer.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "api/api_sensitive_content.h"
 #include "data/data_user.h"
 #include "data/data_chat.h"
@@ -306,9 +308,11 @@ Main::Account &PeerData::account() const {
 }
 
 void PeerData::updateNameDelayed(
-		const QString &newName,
-		const QString &newNameOrPhone,
+		const QString &rawName,
+		const QString &rawNameOrPhone,
 		const QString &newUsername) {
+	const auto newName = Core::Telega::FilterDisplayName(rawName);
+	const auto newNameOrPhone = Core::Telega::FilterDisplayName(rawNameOrPhone);
 	if (_name == newName && _nameVersion > 1) {
 		if (isUser()) {
 			if (asUser()->nameOrPhone == newNameOrPhone
@@ -451,6 +455,12 @@ void PeerData::paintUserpic(
 	const auto ratio = style::DevicePixelRatio();
 	if (context.shape == Ui::PeerUserpicShape::Auto) {
 		context.shape = userpicShape();
+		if (context.shape == Ui::PeerUserpicShape::Circle
+			&& isUser()
+			&& Core::Telega::DisplayEnabled(
+				Core::Telega::DisplayOption::RoundedContactAvatars)) {
+			context.shape = Ui::PeerUserpicShape::Forum;
+		}
 	}
 	Ui::ValidateUserpicCache(
 		view,

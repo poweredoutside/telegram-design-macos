@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "core/shortcuts.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/core_settings.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/wrap/fade_wrap.h"
@@ -133,6 +134,9 @@ TopBarWidget::TopBarWidget(
 , _menuToggle(this, Platform::IsWindows() ? st::topBarMenuMac : st::topBarMenuToggle)
 , _titlePeerText(st::windowMinWidth / 3)
 , _onlineUpdater([=] { updateOnlineDisplay(); }) {
+	Core::Telega::DisplayValue(
+		Core::Telega::DisplayOption::RelativeLastSeen
+	) | rpl::skip(1) | rpl::on_next([=] { updateOnlineDisplay(); }, lifetime());
 	setAttribute(Qt::WA_OpaquePaintEvent);
 
 	_clear->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/themes/window_theme.h"
 #include "window/themes/window_theme_editor_block.h"
 #include "window/themes/window_theme_editor_box.h"
+#include "window/themes/window_theme_preview.h"
 #include "window/themes/window_themes_embedded.h"
 #include "window/window_controller.h"
 #include "main/main_account.h"
@@ -666,9 +667,11 @@ void Editor::Inner::applyNewPalette(const QByteArray &newContent) {
 Editor::Editor(
 	QWidget*,
 	not_null<Window::Controller*> window,
-	const Data::CloudTheme &cloud)
+	const Data::CloudTheme &cloud,
+	Fn<QString(const QByteArray&)> saveLocal)
 : _window(window)
 , _cloud(cloud)
+, _saveLocal(std::move(saveLocal))
 , _scroll(this)
 , _close(this, st::defaultMultiSelect.fieldCancel)
 , _menuToggle(this, st::themesMenuToggle)
@@ -839,6 +842,19 @@ QByteArray Editor::ColorizeInContent(
 void Editor::save() {
 	if (Core::App().passcodeLocked()) {
 		_window->showToast(tr::lng_theme_editor_need_unlock(tr::now));
+		return;
+	} else if (_saveLocal) {
+		const auto path = _saveLocal(CollectForExport(_inner->paletteContent()));
+		auto preview = path.isEmpty() ? nullptr : PreviewFromFile({}, path, {});
+		if (!preview) {
+			_window->showToast(tr::lng_theme_editor_error(tr::now));
+			return;
+		}
+		Background()->clearEditingTheme(ClearEditing::KeepChanges);
+		if (Apply(std::move(preview))) {
+			KeepApplied();
+		}
+		closeEditor();
 		return;
 	} else if (!_window->account().sessionExists()) {
 		_window->showToast(tr::lng_theme_editor_need_auth(tr::now));

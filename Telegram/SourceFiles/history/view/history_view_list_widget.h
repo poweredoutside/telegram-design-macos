@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_cursor_state.h"
 #include "history/view/history_view_keyboard_text_selection.h"
+#include "history/view/history_view_quick_action.h"
 #include "history/view/history_view_touch_scroll.h"
 #include "history/history_inner_widget_accessibility.h"
 #include "history/history_view_highlight_manager.h"
@@ -774,6 +775,10 @@ private:
 	QPoint mapPointToItem(QPoint point, const Element *view) const;
 
 	void showContextMenu(QContextMenuEvent *e, bool showFromTouch = false);
+	bool activateMessageQuickAction(
+		not_null<Element*> view,
+		DoubleClickQuickAction action);
+	RightClickQuickAction _rightClickQuickAction;
 	void reactionChosen(ChosenReaction reaction);
 
 	void touchResetSpeed();

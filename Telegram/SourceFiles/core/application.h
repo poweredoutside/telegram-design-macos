@@ -235,6 +235,12 @@ public:
 	void setCurrentProxy(
 		const MTP::ProxyData &proxy,
 		MTP::ProxyData::Settings settings);
+	[[nodiscard]] MTP::ProxyData effectiveProxy() const;
+	[[nodiscard]] MTP::ProxyData::Settings effectiveProxySettings() const;
+	[[nodiscard]] bool bundledProxyEnabled() const;
+#ifdef Q_OS_WIN
+	[[nodiscard]] bool setBundledProxyEnabled(bool enabled, bool remember = true);
+#endif
 	void proxyRotationSettingsChanged();
 	void checkProxyRotation(not_null<Main::Account*> account, int32 state);
 	[[nodiscard]] rpl::producer<ProxyChange> proxyChanges() const;
@@ -405,6 +411,10 @@ private:
 	void showOpenGLCrashNotification();
 	void clearPasscodeLock();
 	void closeAdditionalWindows();
+	void notifyProxyChange(MTP::ProxyData was);
+#ifdef Q_OS_WIN
+	void stopBundledProxy();
+#endif
 
 	bool openCustomUrl(
 		const QString &protocol,
@@ -517,5 +527,6 @@ void Quit(QuitReason reason = QuitReason::Default);
 [[nodiscard]] bool Quitting();
 
 void Restart();
+void RestartToInstallUpdate();
 
 } // namespace Core

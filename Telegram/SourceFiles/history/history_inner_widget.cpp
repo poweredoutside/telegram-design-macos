@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_utilities.h"
 #include "core/click_handler_types.h"
 #include "core/phone_click_handler.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_chat_participant_status.h"
 #include "history/history_item_helpers.h"
 #include "history/view/controls/history_view_forward_panel.h"
@@ -469,6 +470,17 @@ HistoryInner::HistoryInner(
 	session().data().peerDecorationsUpdated(
 	) | rpl::on_next([=] {
 		update();
+	}, lifetime());
+	constexpr auto onlineBadge = Core::Telega::DisplayOption::OnlineSenderBadge;
+	Core::Telega::DisplayValue(onlineBadge) | rpl::on_next([=] {
+		update();
+	}, lifetime());
+	session().changes().peerUpdates(Data::PeerUpdate::Flag::OnlineStatus
+	) | rpl::on_next([=](const Data::PeerUpdate &change) {
+		if (Core::Telega::DisplayEnabled(onlineBadge)
+			&& _userpics.contains(change.peer)) {
+			update();
+		}
 	}, lifetime());
 	session().data().itemRemoved(
 	) | rpl::on_next(
@@ -1766,6 +1778,11 @@ void HistoryInner::paintEvent(QPaintEvent *e) {
 					width(),
 					st::msgPhotoSize,
 					context.paused);
+				if (Core::Telega::DisplayEnabled(
+						Core::Telega::DisplayOption::OnlineSenderBadge)) {
+					Dialogs::Ui::PaintSenderOnlineBadge(p, from,
+						st::historyPhotoLeft, userpicTop, width(), st::msgPhotoSize);
+				}
 			} else if (const auto info = item->displayHiddenSenderInfo()) {
 				if (info->customUserpic.empty()) {
 					info->emptyUserpic.paintCircle(
@@ -2783,18 +2800,54 @@ void HistoryInner::mouseDoubleClickEvent(QMouseEvent *e) {
 		&& !_emptyPainter
 		&& e->button() == Qt::LeftButton) {
 		if (const auto view = Element::Moused()) {
-			mouseActionCancel();
-			switch (HistoryView::CurrentQuickAction()) {
-			case HistoryView::DoubleClickQuickAction::Reply: {
-				_widget->replyToMessage(view->data());
-			} break;
-			case HistoryView::DoubleClickQuickAction::React: {
-				toggleFavoriteReaction(view);
-			} break;
-			default: break;
-			}
+			activateMessageQuickAction(view,
+				HistoryView::MessageQuickAction(view->data()->out(), false));
 		}
 	}
+}
+
+bool HistoryInner::activateMessageQuickAction(
+		not_null<Element*> view,
+		HistoryView::DoubleClickQuickAction action) {
+	using Action = HistoryView::DoubleClickQuickAction;
+	if (action == Action::Inherited) {
+		action = HistoryView::CurrentQuickAction();
+	}
+	const auto item = view->data();
+	if (action == Action::None || item->isSponsored()
+		|| (!item->isRegular() && !CanReplyToEphemeral(item))) {
+		return false;
+	}
+	mouseActionCancel();
+	switch (action) {
+	case Action::Reply:
+		_widget->replyToMessage(item);
+		return true;
+	case Action::React:
+		toggleFavoriteReaction(view);
+		return true;
+	case Action::Edit:
+		if (!item->isUploading() && item->allowsEdit(base::unixtime::now())) {
+			_widget->editMessage(item, TextSelection());
+			return true;
+		}
+		break;
+	case Action::Copy:
+		if (item->isRegular()) {
+			copyContextText(item->fullId());
+			return true;
+		}
+		break;
+	case Action::Forward:
+		if (item->allowsForward() && !IsAnchoredEphemeral(item)) {
+			forwardItem(item->fullId());
+			return true;
+		}
+		break;
+	case Action::None:
+	case Action::Inherited: break;
+	}
+	return false;
 }
 
 void HistoryInner::toggleFavoriteReaction(not_null<Element*> view) const {
@@ -2834,6 +2887,27 @@ void HistoryInner::contextMenuEvent(QContextMenuEvent *e) {
 		e->accept();
 		return;
 	}
+	if (e->reason() == QContextMenuEvent::Mouse
+		&& !ClickHandler::getActive()
+		&& !inSelectionMode().inSelectionMode) {
+		const auto view = Element::Moused();
+		if (view && view->data()->isRegular() && !view->data()->isSponsored()) {
+			const auto action = HistoryView::MessageQuickAction(view->data()->out(), true);
+			if (action != HistoryView::DoubleClickQuickAction::None) {
+				const auto global = e->globalPos();
+				if (_rightClickQuickAction.delayMenu(view->data()->fullId(), [=] {
+					auto menuEvent = QContextMenuEvent(
+						QContextMenuEvent::Mouse, mapFromGlobal(global), global);
+					showContextMenu(&menuEvent);
+					_widgetSelection->watch(_menu.get());
+				}) || activateMessageQuickAction(view, action)) {
+					e->accept();
+					return;
+				}
+			}
+		}
+	}
+	_rightClickQuickAction.cancel();
 	showContextMenu(e);
 	_widgetSelection->watch(_menu.get());
 }
@@ -3132,12 +3206,17 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		const auto media = photo->activeMediaView();
 		const auto itemId = item ? item->fullId() : FullMsgId();
 		if (!photo->isNull() && media && media->loaded() && !hasCopyMediaRestriction(item)) {
-			_menu->addAction(tr::lng_context_save_image(tr::now), base::fn_delayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [=] {
-				savePhotoToFile(photo);
-			}), &st::menuIconSaveImage);
-			_menu->addAction(tr::lng_context_copy_image(tr::now), [=] {
-				copyContextImage(photo, itemId);
-			}, &st::menuIconCopy);
+			using Option = Core::Telega::DisplayOption;
+			if (!Core::Telega::DisplayEnabled(Option::HideSaveMediaAction)) {
+				_menu->addAction(tr::lng_context_save_image(tr::now), base::fn_delayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [=] {
+					savePhotoToFile(photo);
+				}), &st::menuIconSaveImage);
+			}
+			if (!Core::Telega::DisplayEnabled(Option::HideCopyPhotoAction)) {
+				_menu->addAction(tr::lng_context_copy_image(tr::now), [=] {
+					copyContextImage(photo, itemId);
+				}, &st::menuIconCopy);
+			}
 		}
 		if (photo->hasAttachedStickers()) {
 			_menu->addAction(tr::lng_context_attached_stickers(tr::now), [=] {
@@ -3678,7 +3757,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 								Api::ToggleFavedSticker(controller->uiShow(), document, itemId);
 							}, isFaved ? &st::menuIconUnfave : &st::menuIconFave);
 						}
-						if (!hasCopyMediaRestriction(item)) {
+						if (!hasCopyMediaRestriction(item)
+							&& !Core::Telega::DisplayEnabled(
+								Core::Telega::DisplayOption::HideSaveMediaAction)) {
 							_menu->addAction(tr::lng_context_save_image(tr::now), base::fn_delayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [=] {
 								saveDocumentToFile(itemId, document);
 							}), &st::menuIconDownload);
@@ -3912,6 +3993,12 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			_menu,
 			leaderOrSelf,
 			_controller);
+	}
+	if (leaderOrSelf && !hasSelected) {
+		HistoryView::AddTelegaMessageActions(_menu, leaderOrSelf, controller);
+		if (pollOptionLink.isEmpty()) {
+			HistoryView::AddTelegaQuickActionRow(_menu.get());
+		}
 	}
 
 	if (!_menu->empty() && rateTranscriptionItem) {
@@ -5373,7 +5460,7 @@ bool HistoryInner::hasSelectedItems() const {
 	return !_selected.empty();
 }
 
-MessageIdsList HistoryInner::getSelectedItems() const {
+MessageIdsList HistoryInner::getSelectedItems(bool forDeletion) const {
 	using namespace ranges;
 
 	if (!hasSelectedItems()) {
@@ -5383,8 +5470,9 @@ MessageIdsList HistoryInner::getSelectedItems() const {
 	auto result = ranges::make_subrange(
 		_selected.begin(),
 		_selected.end()
-	) | views::filter([](const auto &item) {
-		return !item->isService() && item->isRegular();
+	) | views::filter([=](const auto &item) {
+		return item->isRegular()
+			&& (!item->isService() || (forDeletion && item->canBeSelected()));
 	}) | views::transform([](const auto &item) {
 		return item->fullId();
 	}) | to_vector;

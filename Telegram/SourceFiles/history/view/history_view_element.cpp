@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/premium_preview_box.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/click_handler_types.h"
 #include "core/ui_integration.h"
 #include "main/main_app_config.h"
@@ -2987,9 +2988,19 @@ void Element::setupReactions(Element *replacing) {
 
 void Element::refreshReactions() {
 	using namespace Reactions;
+	using Option = Core::Telega::DisplayOption;
+	const auto peer = history()->peer;
+	const auto option = peer->isUser()
+		? Option::HidePrivateReactions
+		: peer->isBroadcast()
+		? Option::HideChannelReactions
+		: Option::HideGroupReactions;
+	if (Core::Telega::DisplayEnabled(option) || context() == Context::MediaEditor) {
+		setReactions(nullptr);
+		return;
+	}
 	auto reactionsData = InlineListDataFromMessage(this);
-	if (reactionsData.reactions.empty()
-		|| context() == Context::MediaEditor) {
+	if (reactionsData.reactions.empty()) {
 		setReactions(nullptr);
 		return;
 	}

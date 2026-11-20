@@ -22,6 +22,9 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QFile>
 #include <QtCore/QDir>
+#include <QtCore/QCache>
+#include <QtGui/QFontDatabase>
+#include <QtGui/QTextLayout>
 
 #include <crl/crl_async.h>
 
@@ -93,6 +96,54 @@ auto TouchbarEmoji = (Instance*)nullptr;
 
 auto MainEmojiMap = std::map<int, QPixmap>();
 auto OtherEmojiMap = base::flat_map<int, std::map<int, QPixmap>>();
+
+auto SystemGlyphFamily = QString();
+
+[[nodiscard]] QImage RenderSystemGlyph(EmojiPtr emoji, int size) {
+	auto font = QFont(SystemGlyphFamily);
+	font.setPixelSize(std::max(1, size * 9 / 10));
+	auto layout = QTextLayout(emoji->text(), font);
+	layout.beginLayout();
+	auto line = layout.createLine();
+	if (line.isValid()) {
+		line.setLineWidth(4 * size);
+	}
+	layout.endLayout();
+	if (!line.isValid() || line.textLength() != emoji->text().size()) {
+		return {};
+	}
+	const auto runs = layout.glyphRuns();
+	if (runs.isEmpty() || ranges::any_of(runs, [](const QGlyphRun &run) {
+		return run.glyphIndexes().contains(0);
+	})) {
+		return {};
+	}
+	const auto bounds = line.naturalTextRect();
+	if (!bounds.isValid()) {
+		return {};
+	}
+	const auto scale = std::min({ 1., size / bounds.width(), size / bounds.height() });
+	auto image = QImage(size, size, QImage::Format_ARGB32_Premultiplied);
+	image.fill(Qt::transparent);
+	auto painter = QPainter(&image);
+	painter.setRenderHint(QPainter::TextAntialiasing);
+	painter.translate(size / 2., size / 2.);
+	painter.scale(scale, scale);
+	layout.draw(&painter, -bounds.center());
+	painter.end();
+	return image;
+}
+
+[[nodiscard]] const QImage &SystemGlyph(EmojiPtr emoji, int size) {
+	static auto cache = QCache<uint64, QImage>(256);
+	const auto key = (uint64(emoji->index()) << 32) | uint32(size);
+	if (const auto found = cache.object(key)) {
+		return *found;
+	}
+	const auto rendered = new QImage(RenderSystemGlyph(emoji, size));
+	cache.insert(key, rendered);
+	return *rendered;
+}
 
 int RowsCount(int index) {
 	if (index + 1 < SpritesCount) {
@@ -497,6 +548,21 @@ QImage UniversalImages::generate(int size, int index) const {
 	return result;
 }
 
+void SetUseSystemGlyphs(bool enabled) {
+#if defined Q_OS_WIN
+	const auto family = u"Segoe UI Emoji"_q;
+#elif defined Q_OS_MAC
+	const auto family = u"Apple Color Emoji"_q;
+#else
+	const auto family = u"Noto Color Emoji"_q;
+#endif
+	SystemGlyphFamily = (enabled && QFontDatabase::hasFamily(family))
+		? family
+		: QString();
+	MainEmojiMap.clear();
+	OtherEmojiMap.clear();
+}
+
 void Init() {
 	internal::Init();
 
@@ -796,6 +862,15 @@ const QPixmap &SinglePixmap(EmojiPtr emoji, int fontHeight) {
 }
 
 void Draw(QPainter &p, EmojiPtr emoji, int size, int x, int y) {
+	if (!SystemGlyphFamily.isEmpty()) {
+		const auto &image = SystemGlyph(emoji, size);
+		if (!image.isNull()) {
+			auto scaled = image;
+			scaled.setDevicePixelRatio(style::DevicePixelRatio());
+			p.drawImage(x, y, scaled);
+			return;
+		}
+	}
 #ifdef Q_OS_MAC
 	const auto s = (style::Scale() == kScaleForTouchBar)
 		? SizeLarge

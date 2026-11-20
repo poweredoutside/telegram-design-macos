@@ -10,6 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unique_qptr.h"
 #include "history/view/history_view_element.h"
 
+#include <QtCore/QStringList>
+
 namespace Data {
 class Session;
 struct ReactionId;
@@ -122,6 +124,18 @@ void AddWhoReactedAction(
 	not_null<HistoryItem*> item,
 	not_null<Window::SessionController*> controller);
 void MaybeAddWhenEditedForwardedAction(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<HistoryItem*> item,
+	not_null<Window::SessionController*> controller);
+void AddTelegaQuickActionRow(not_null<Ui::PopupMenu*> menu);
+inline constexpr auto kTelegaQuickActionLimit = 5;
+[[nodiscard]] QStringList TelegaQuickActionIds();
+[[nodiscard]] QStringList DefaultTelegaQuickActions();
+[[nodiscard]] QStringList TelegaQuickActionOrder();
+[[nodiscard]] QString TelegaQuickActionTitle(const QString &id);
+void SetTelegaQuickActionOrder(const QStringList &order);
+
+void AddTelegaMessageActions(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
 	not_null<Window::SessionController*> controller);

@@ -106,6 +106,7 @@ private:
 	[[nodiscard]] bool isJoinChannel() const;
 	[[nodiscard]] bool isJoinGroup() const;
 	[[nodiscard]] bool isMuteUnmute() const;
+	[[nodiscard]] PeerData *bottomDiscussion() const;
 	[[nodiscard]] bool isReportMessages() const;
 	[[nodiscard]] bool isChoosingTheme() const;
 

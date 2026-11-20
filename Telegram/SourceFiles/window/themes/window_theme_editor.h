@@ -52,7 +52,8 @@ public:
 	Editor(
 		QWidget*,
 		not_null<Window::Controller*> window,
-		const Data::CloudTheme &cloud);
+		const Data::CloudTheme &cloud,
+		Fn<QString(const QByteArray&)> saveLocal = {});
 
 	[[nodiscard]] static QByteArray ColorizeInContent(
 		QByteArray content,
@@ -76,6 +77,7 @@ private:
 
 	const not_null<Window::Controller*> _window;
 	const Data::CloudTheme _cloud;
+	const Fn<QString(const QByteArray&)> _saveLocal;
 
 	object_ptr<Ui::ScrollArea> _scroll;
 	class Inner;

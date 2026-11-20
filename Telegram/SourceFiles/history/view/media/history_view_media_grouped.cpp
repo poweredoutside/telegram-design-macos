@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_media_grouped.h"
+#include "core/core_telega_preferences.h"
 
 #include "history/history_item_components.h"
 #include "history/history_item.h"
@@ -207,9 +208,10 @@ QSize GroupedMedia::countOptimalSize() {
 }
 
 QSize GroupedMedia::countCurrentSize(int newWidth) {
-	const auto hostedInstantView = (_mode == Mode::Grid)
-		&& IsHostedInstantViewMedia(_parent);
-	if (!hostedInstantView) {
+	const auto fullWidth = (_mode == Mode::Grid)
+		&& (IsHostedInstantViewMedia(_parent)
+			|| Core::Telega::IsWideChannelPost(_parent->data()));
+	if (!fullWidth) {
 		accumulate_min(newWidth, maxWidth());
 	}
 	auto newHeight = 0;

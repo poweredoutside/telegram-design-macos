@@ -114,6 +114,10 @@ bool SectionWidget::showInternal(
 	return _content->showInternal(memento, params);
 }
 
+bool SectionWidget::isSettings() const {
+	return _content->key().settingsSelf() != nullptr;
+}
+
 bool SectionWidget::showBackInternal() {
 	return _content->closeByBackButton();
 }

@@ -61,6 +61,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_streamed_drafts.h"
 #include "history/history_unread_things.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "storage/storage_account.h"
 #include "storage/storage_facade.h"
 #include "storage/storage_user_photos.h"
@@ -244,7 +245,10 @@ Updates::Updates(not_null<Main::Session*> session)
 , _failDifferenceTimer([=] { getDifferenceAfterFail(); })
 , _idleFinishTimer([=] { checkIdleFinish(); }) {
 	_ptsWaiter.setRequesting(true);
-
+	Core::Telega::DisplayValue(Core::Telega::DisplayOption::HideOnlineAnnouncements
+	) | rpl::skip(1) | rpl::on_next([=] {
+		updateOnline();
+	}, _lifetime);
 	session->account().mtpUpdates(
 	) | rpl::on_next([=](const MTPUpdates &updates) {
 		mtpUpdateReceived(updates);
@@ -280,6 +284,24 @@ Updates::Updates(not_null<Main::Session*> session)
 				}
 			}
 		}
+	}, _lifetime);
+}
+
+void Updates::watchOutgoingMessages(not_null<Data::Session*> data) {
+	const auto lastOffline = _lifetime.make_state<crl::time>(0);
+	data->newItemAdded() | rpl::on_next([=](not_null<HistoryItem*> item) {
+		using Option = Core::Telega::DisplayOption;
+		if (!item->out() || !item->isRegular() || !item->isLocal()
+			|| !Core::Telega::DisplayEnabled(Option::HideOnlineAnnouncements)
+			|| !Core::Telega::DisplayEnabled(Option::SetOfflineAfterSending)) {
+			return;
+		}
+		const auto now = crl::now();
+		if (*lastOffline && now - *lastOffline < 10 * crl::time(1000)) {
+			return;
+		}
+		*lastOffline = now;
+		api().request(MTPaccount_UpdateStatus(MTP_bool(true))).send();
 	}, _lifetime);
 }
 
@@ -1018,6 +1040,10 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 				int(config.offlineIdleTimeout - idle));
 			Assert(updateIn >= 0);
 		}
+	}
+	if (Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::HideOnlineAnnouncements)) {
+		isOnline = false;
 	}
 	auto ms = crl::now();
 	if (isOnline != _lastWasOnline

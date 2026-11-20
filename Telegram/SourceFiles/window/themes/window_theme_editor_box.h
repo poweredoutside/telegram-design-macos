@@ -24,7 +24,8 @@ struct ParsedTheme;
 
 void StartEditor(
 	not_null<Window::Controller*> window,
-	const Data::CloudTheme &cloud);
+	const Data::CloudTheme &cloud,
+	Fn<QString(const QByteArray&)> saveLocal = {});
 void CreateBox(
 	not_null<Ui::GenericBox*> box,
 	not_null<Window::Controller*> window);

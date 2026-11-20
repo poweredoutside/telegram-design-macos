@@ -42,16 +42,38 @@ HRESULT(__stdcall *GetScaleFactorForMonitor)(
 	return Result;
 }
 
+class WindowsTitleControlsLayout final : public TitleControlsLayout {
+public:
+	WindowsTitleControlsLayout()
+	: TitleControlsLayout({
+		.left = { TitleControl::Close, TitleControl::Minimize, TitleControl::Maximize },
+	}) {
+	}
+
+	void setOnRight(bool right) {
+		if (right == !current().onLeft()) {
+			return;
+		}
+		_variable = right
+			? TitleLayout{
+				.right = { TitleControl::Minimize, TitleControl::Maximize, TitleControl::Close },
+			}
+			: TitleLayout{
+				.left = { TitleControl::Close, TitleControl::Minimize, TitleControl::Maximize },
+			};
+	}
+};
+
 } // namespace
 
 std::shared_ptr<TitleControlsLayout> TitleControlsLayout::Create() {
-	return std::shared_ptr<TitleControlsLayout>(new TitleControlsLayout({
-		.left = {
-			TitleControls::Control::Close,
-			TitleControls::Control::Minimize,
-			TitleControls::Control::Maximize,
-		}
-	}));
+	return std::make_shared<WindowsTitleControlsLayout>();
+}
+
+void SetTitleControlsOnRight(bool right) {
+	static const auto Layout = std::static_pointer_cast<WindowsTitleControlsLayout>(
+		TitleControlsLayout::Instance());
+	Layout->setOnRight(right);
 }
 
 struct TitleWidget::PaddingHelper {

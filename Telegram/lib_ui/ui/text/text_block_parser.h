@@ -13,6 +13,8 @@ namespace Ui::Text {
 
 struct QuoteDetails;
 
+void SetVisualNoiseFilter(bool enabled);
+
 class BlockParser {
 public:
 	BlockParser(

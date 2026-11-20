@@ -88,6 +88,7 @@ private:
 	FilterId _activeFilterId = 0;
 	int _reordering = 0;
 	bool _ignoreRefresh = false;
+	bool _allChatsHidden = false;
 	bool _waitingSuggested = false;
 
 	Api::RemoveComplexChatFilter _removeApi;

@@ -69,6 +69,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/web_proxy/web_proxy_transport.h"
 #include "media/audio/media_audio_track.h"
 #include "media/player/media_player_instance.h"
+#include "core/core_telega_preferences.h"
+#include "ui/text/text_block_parser.h"
+#include "data/data_audio_msg_id.h"
+#include "data/data_document.h"
 #include "media/player/media_player_float.h"
 #include "media/clip/media_clip_reader.h" // For Media::Clip::Finish().
 #include "media/media_video_encode.h"
@@ -116,7 +120,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <ksandbox.h>
 
 #ifdef Q_OS_WIN
+#include "base/platform/win/base_url_scheme_win.h"
 #include "platform/win/bundled_tg_ws_proxy.h"
+#include "platform/win/windows_app_user_model_id.h"
 
 #include <QtCore/QTimer>
 #endif
@@ -170,6 +176,8 @@ struct Application::Private {
 	std::unique_ptr<ProxyRotationManager> proxyRotation;
 #ifdef Q_OS_WIN
 	Platform::BundledTgWsProxy bundledProxy;
+	MTP::ProxyData bundledProxyConnection;
+	base::Timer bundledProxyMonitor;
 #endif
 };
 
@@ -273,6 +281,9 @@ void Application::closeAdditionalWindows() {
 }
 
 Application::~Application() {
+#ifdef Q_OS_WIN
+	_private->bundledProxyMonitor.cancel();
+#endif
 	if (_savedWindows) {
 		_savedWindows->writeNow();
 	}
@@ -326,6 +337,13 @@ void Application::run() {
 	_notifications = std::make_unique<Window::Notifications::System>();
 
 	startLocalStorage();
+	Telega::InitApplicationIconAppearance();
+#ifdef Q_OS_WIN
+	Platform::SetApplicationIcon(Window::CreateIcon(nullptr));
+	if (!Launcher::Instance().customWorkingDir()) {
+		InvokeQueued(this, [] { Platform::AppUserModelId::RefreshShortcutIcons(); });
+	}
+#endif
 
 	const auto customFont = settings().customFontFamily();
 	style::SetCustomFont((Platform::IsWindows() && customFont.isEmpty())
@@ -341,16 +359,18 @@ void Application::run() {
 
 	refreshGlobalProxy(); // Depends on app settings being read.
 
-#ifdef Q_OS_WIN
-	QTimer::singleShot(1500, this, [=] {
-		_private->bundledProxy.start();
-	});
-#endif
-
 	if (const auto old = Local::oldSettingsVersion(); old < AppVersion) {
+#ifndef Q_OS_WIN
 		autoRegisterUrlScheme();
+#endif
 		Platform::NewVersionLaunched(old);
 	}
+#ifdef Q_OS_WIN
+	if (Platform::AppUserModelId::IsInstalled()
+		&& !Launcher::Instance().customWorkingDir()) {
+		autoRegisterUrlScheme();
+	}
+#endif
 
 	if (cAutoStart() && !Platform::AutostartSupported()) {
 		cSetAutoStart(false);
@@ -368,7 +388,12 @@ void Application::run() {
 	style::StartManager(cScale());
 	Ui::Accessible::Init();
 	Ui::InitTextOptions();
+	Ui::Text::SetVisualNoiseFilter(Telega::DisplayEnabled(
+		Telega::DisplayOption::FilterVisualNoise));
 	Ui::StartCachedCorners();
+	Telega::InitAvatarAppearance();
+	Ui::Emoji::SetUseSystemGlyphs(Telega::DisplayEnabled(
+		Telega::DisplayOption::SystemEmoji));
 	Ui::Emoji::Init();
 	Ui::PreloadTextSpoilerMask(_lifetime);
 	startShortcuts();
@@ -462,6 +487,12 @@ void Application::run() {
 
 	DEBUG_LOG(("Application Info: window created..."));
 
+#ifdef Q_OS_WIN
+	if (Platform::BundledTgWsProxy::StartAutomatically()
+		&& !setBundledProxyEnabled(true, false)) {
+		LOG(("TgWsProxy: automatic activation failed."));
+	}
+#endif
 	startDomain();
 	startTray();
 
@@ -930,14 +961,85 @@ void Application::constructFallbackProductionConfig(
 void Application::setCurrentProxy(
 		const MTP::ProxyData &proxy,
 		MTP::ProxyData::Settings settings) {
+	const auto was = effectiveProxy();
+#ifdef Q_OS_WIN
+	if (bundledProxyEnabled()) {
+		stopBundledProxy();
+		Platform::BundledTgWsProxy::SetStartAutomatically(false);
+	}
+#endif
 	auto &my = _private->settings.proxy();
-	const auto current = [&] {
-		return my.isEnabled() ? my.selected() : MTP::ProxyData();
-	};
-	const auto was = current();
 	my.setSelected(proxy);
 	my.setSettings(settings);
-	const auto now = current();
+	notifyProxyChange(was);
+}
+
+MTP::ProxyData Application::effectiveProxy() const {
+#ifdef Q_OS_WIN
+	if (bundledProxyEnabled()) {
+		return _private->bundledProxyConnection;
+	}
+#endif
+	const auto &proxy = _private->settings.proxy();
+	return proxy.isEnabled() ? proxy.selected() : MTP::ProxyData();
+}
+
+MTP::ProxyData::Settings Application::effectiveProxySettings() const {
+	return bundledProxyEnabled()
+		? MTP::ProxyData::Settings::Enabled
+		: _private->settings.proxy().settings();
+}
+
+bool Application::bundledProxyEnabled() const {
+#ifdef Q_OS_WIN
+	return _private->bundledProxyConnection.type == MTP::ProxyData::Type::Mtproto;
+#else
+	return false;
+#endif
+}
+
+#ifdef Q_OS_WIN
+bool Application::setBundledProxyEnabled(bool enabled, bool remember) {
+	auto &settings = _private->settings.proxy();
+	if (enabled != bundledProxyEnabled()
+		|| (!enabled && !settings.isDisabled())) {
+		const auto was = effectiveProxy();
+		if (enabled) {
+			auto proxy = _private->bundledProxy.start();
+			if (!proxy) {
+				settings.connectionTypeChangesNotify();
+				return false;
+			}
+			_private->bundledProxyConnection = std::move(proxy);
+			_private->bundledProxyMonitor.setCallback([=] {
+				if (!_private->bundledProxy.running()
+					&& setBundledProxyEnabled(false, false)) {
+					LOG(("TgWsProxy: stopped, using a direct connection."));
+				}
+			});
+			_private->bundledProxyMonitor.callEach(1000);
+		} else {
+			stopBundledProxy();
+		}
+		settings.setSettings(MTP::ProxyData::Settings::Disabled);
+		saveSettingsDelayed();
+		notifyProxyChange(was);
+	}
+	if (remember) {
+		Platform::BundledTgWsProxy::SetStartAutomatically(enabled);
+	}
+	return true;
+}
+
+void Application::stopBundledProxy() {
+	_private->bundledProxyMonitor.cancel();
+	_private->bundledProxy.stop();
+	_private->bundledProxyConnection = {};
+}
+#endif // Q_OS_WIN
+
+void Application::notifyProxyChange(MTP::ProxyData was) {
+	const auto now = effectiveProxy();
 	if (_badProxyConfiguration && *_badProxyConfiguration != now) {
 		_badProxyConfiguration.reset();
 		if (const auto box = base::take(_badProxyDisableBox)) {
@@ -946,7 +1048,7 @@ void Application::setCurrentProxy(
 	}
 	refreshGlobalProxy();
 	_proxyChanges.fire({ was, now });
-	my.connectionTypeChangesNotify();
+	_private->settings.proxy().connectionTypeChangesNotify();
 	proxyRotationSettingsChanged();
 }
 
@@ -1132,6 +1234,17 @@ void Application::handleAppActivated() {
 }
 
 void Application::handleAppDeactivated() {
+	using Option = Telega::DisplayOption;
+	using Type = AudioMsgId::Type;
+	const auto player = Media::Player::instance();
+	if (const auto document = player->current(Type::Voice).audio()) {
+		const auto option = document->isVideoMessage()
+			? Option::PauseRoundVideoInBackground
+			: Option::PauseVoiceInBackground;
+		if (Telega::DisplayEnabled(option)) {
+			player->pause(Type::Voice);
+		}
+	}
 	enumerateWindows([&](not_null<Window::Controller*> w) {
 		w->updateIsActiveBlur();
 	});
@@ -2078,10 +2191,7 @@ void Application::postponeCall(FnMut<void()> &&callable) {
 }
 
 void Application::refreshGlobalProxy() {
-	const auto &proxySettings = settings().proxy();
-	const auto proxy = proxySettings.isEnabled()
-		? proxySettings.selected()
-		: MTP::ProxyData();
+	const auto proxy = effectiveProxy();
 	if (proxy.type == MTP::ProxyData::Type::Web && proxy.valid()) {
 		MTP::WebProxy::Transport::Activate(proxy);
 	} else {
@@ -2158,9 +2268,7 @@ void Application::refreshApplicationIcon() {
 void Application::refreshApplicationIcon(Main::Session *session) {
 	const auto support = session && session->supportMode();
 	Shortcuts::ToggleSupportShortcuts(support);
-	Platform::SetApplicationIcon(Window::CreateIcon(
-		session,
-		Platform::IsMac()));
+	Platform::SetApplicationIcon(Window::CreateIcon(session));
 }
 
 void Application::startShortcuts() {
@@ -2206,38 +2314,33 @@ void Application::RegisterUrlScheme() {
 		? u"-workdir \"%1\""_q.arg(cWorkingDir())
 		: QString();
 
-	base::Platform::RegisterUrlScheme(base::Platform::UrlSchemeDescriptor{
-		.executable = Platform::ExecutablePathForShortcuts(),
-		.arguments = arguments,
-		.protocol = u"tg"_q,
-		.protocolName = u"Telegram Link"_q,
-		.shortAppName = u"tdesktop"_q,
-		.longAppName = QCoreApplication::applicationName(),
-		.displayAppName = AppName.utf16(),
-		.displayAppDescription = AppName.utf16(),
-	});
-
-	base::Platform::RegisterUrlScheme(base::Platform::UrlSchemeDescriptor{
-		.executable = Platform::ExecutablePathForShortcuts(),
-		.arguments = arguments,
-		.protocol = u"tonsite"_q,
-		.protocolName = u"TonSite Link"_q,
-		.shortAppName = u"tdesktop"_q,
-		.longAppName = QCoreApplication::applicationName(),
-		.displayAppName = AppName.utf16(),
-		.displayAppDescription = AppName.utf16(),
-	});
-
-	base::Platform::RegisterUrlScheme(base::Platform::UrlSchemeDescriptor{
-		.executable = Platform::ExecutablePathForShortcuts(),
-		.arguments = arguments,
-		.protocol = u"ton"_q,
-		.protocolName = u"Ton Link"_q,
-		.shortAppName = u"tdesktop"_q,
-		.longAppName = QCoreApplication::applicationName(),
-		.displayAppName = AppName.utf16(),
-		.displayAppDescription = AppName.utf16(),
-	});
+	const auto executable = Platform::ExecutablePathForShortcuts();
+	const auto displayName = AppName.utf16();
+	const auto add = [&](const QString &protocol, const QString &name) {
+		base::Platform::UrlSchemeDescriptor descriptor{
+			.executable = executable,
+			.arguments = arguments,
+			.protocol = protocol,
+			.protocolName = name,
+#ifdef Q_OS_WIN
+			.shortAppName = u"TelegaDesktop"_q,
+			.longAppName = u"TelegaDesktop"_q,
+#else
+			.shortAppName = u"tdesktop"_q,
+			.longAppName = QCoreApplication::applicationName(),
+#endif
+			.displayAppName = displayName,
+			.displayAppDescription = displayName,
+		};
+#ifdef Q_OS_WIN
+		base::Platform::RegisterNamedUrlScheme(descriptor);
+#else
+		base::Platform::RegisterUrlScheme(descriptor);
+#endif
+	};
+	add(u"tg"_q, u"Telega Link"_q);
+	add(u"tonsite"_q, u"TonSite Link"_q);
+	add(u"ton"_q, u"Ton Link"_q);
 }
 
 bool IsAppLaunched() {
@@ -2274,15 +2377,22 @@ void SetLaunchState(LaunchState state) {
 }
 
 void Restart() {
-   const auto updateReady = !UpdaterDisabled()
-	   && (UpdateChecker().state() == UpdateChecker::State::Ready);
-   if (updateReady) {
-	   cSetRestartingUpdate(true);
-   } else {
-	   cSetRestarting(true);
-	   cSetRestartingToSettings(true);
-   }
-   Quit();
+	if (!UpdaterDisabled()
+		&& InstallUpdatesOnRestart()
+		&& UpdateChecker().state() == UpdateChecker::State::Ready) {
+		cSetRestartingUpdate(true);
+	} else {
+		cSetRestarting(true);
+		cSetRestartingToSettings(true);
+	}
+	Quit();
+}
+
+void RestartToInstallUpdate() {
+	if (!UpdaterDisabled() && checkReadyUpdate()) {
+		cSetRestartingUpdate(true);
+		Quit();
+	}
 }
 
 } // namespace Core

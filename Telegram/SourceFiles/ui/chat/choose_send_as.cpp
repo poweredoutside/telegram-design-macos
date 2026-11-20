@@ -209,6 +209,43 @@ void ChooseSendAsBox(
 	box->addButton(tr::lng_box_done(), [=] { box->closeBox(); });
 }
 
+void ShowMessageSendAsBox(
+		not_null<PeerData*> peer,
+		const style::ChooseSendAs &st,
+		std::shared_ptr<ChatHelpers::Show> show) {
+	const auto key = Main::SendAsKey{ peer, Main::SendAsType::Message };
+	const auto session = &peer->session();
+	const auto &list = session->sendAsPeers().list(key);
+	if (list.size() < 2) {
+		return;
+	}
+	const auto done = [=](not_null<PeerData*> sendAs) {
+		const auto i = ranges::find(list, sendAs, &Main::SendAsPeer::peer);
+		if (i != end(list)
+			&& i->premiumRequired
+			&& !sendAs->session().premium()) {
+			Settings::ShowPremiumPromoToast(
+				show,
+				tr::lng_send_as_premium_required(
+					tr::now,
+					lt_link,
+					tr::link(tr::bold(
+						tr::lng_send_as_premium_required_link(tr::now))),
+					tr::marked),
+				u"send_as"_q);
+			return false;
+		}
+		session->sendAsPeers().saveChosen(peer, sendAs);
+		return true;
+	};
+	show->show(Box(
+		Ui::ChooseSendAsBox,
+		st,
+		list,
+		session->sendAsPeers().resolveChosen(peer),
+		done));
+}
+
 void SetupSendAsButton(
 		not_null<SendAsButton*> button,
 		const style::ChooseSendAs &st,
@@ -219,46 +256,9 @@ void SetupSendAsButton(
 		rpl::variable<PeerData*>
 	>(std::move(active));
 	button->setClickedCallback([=, &st] {
-		const auto peer = current->current();
-		if (!peer) {
-			return;
+		if (const auto peer = current->current()) {
+			ShowMessageSendAsBox(peer, st, show);
 		}
-		const auto key = Main::SendAsKey{ peer, Main::SendAsType::Message };
-		const auto session = &peer->session();
-		const auto &list = session->sendAsPeers().list(key);
-		if (list.size() < 2) {
-			return;
-		}
-		const auto done = [=](not_null<PeerData*> sendAs) {
-			const auto i = ranges::find(
-				list,
-				sendAs,
-				&Main::SendAsPeer::peer);
-			if (i != end(list)
-				&& i->premiumRequired
-				&& !sendAs->session().premium()) {
-				Settings::ShowPremiumPromoToast(
-					show,
-					tr::lng_send_as_premium_required(
-						tr::now,
-						lt_link,
-						tr::link(
-							tr::bold(
-								tr::lng_send_as_premium_required_link(
-									tr::now))),
-						tr::marked),
-					u"send_as"_q);
-				return false;
-			}
-			session->sendAsPeers().saveChosen(peer, sendAs);
-			return true;
-		};
-		show->show(Box(
-			Ui::ChooseSendAsBox,
-			st,
-			list,
-			session->sendAsPeers().resolveChosen(peer),
-			done));
 	});
 
 	const auto size = st.button.size;

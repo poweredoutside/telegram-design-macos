@@ -62,6 +62,7 @@ private:
 
 	const not_null<History*> _history;
 	const std::unique_ptr<Ui::TranslateProvider> _provider;
+	std::unique_ptr<Ui::TranslateProvider> _googleProvider;
 	MTP::Sender _api;
 	rpl::variable<bool> _trackingLanguage = false;
 	base::flat_map<FullMsgId, ItemForRecognize> _itemsForRecognize;

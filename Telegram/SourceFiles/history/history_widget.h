@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "history/view/controls/history_view_bot_menu_button.h"
 #include "ui/effects/message_sending_history.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/widgets/fields/input_field.h"
 #include "mtproto/sender.h"
 #include "tgw/tgw_scroll.h"
@@ -781,6 +782,8 @@ private:
 	[[nodiscard]] bool isBlocked() const;
 	[[nodiscard]] bool isJoinChannel() const;
 	[[nodiscard]] bool isMuteUnmute() const;
+	[[nodiscard]] bool showMuteUnmute() const;
+	[[nodiscard]] PeerData *bottomDiscussion() const;
 	[[nodiscard]] bool isReportMessages() const;
 	bool updateCmdStartShown();
 	void updateSendButtonType();
@@ -861,6 +864,10 @@ private:
 
 	bool _preserveScrollTop = false;
 	bool _repaintFieldScheduled = false;
+	Ui::LiquidGlassBackdropCache _fieldGlass;
+	Ui::LiquidGlassBackdropCache _replyGlass;
+	Ui::LiquidGlassBackdropCache _attachmentGlass;
+	Ui::LiquidGlassBackdropCache _sendGlass;
 	bool _sentFromScheduledTip = false;
 
 	mtpRequestId _saveEditMsgRequestId = 0;

@@ -139,6 +139,7 @@ public:
 	[[nodiscard]] Ui::ChatTheme *customChatTheme() const;
 
 	int backgroundFromY() const;
+	[[nodiscard]] bool showMacSettings();
 	void showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params);

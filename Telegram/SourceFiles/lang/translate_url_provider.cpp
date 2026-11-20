@@ -177,8 +177,9 @@ void CollectJsonLines(
 
 class UrlTranslateProvider final : public TranslateProvider {
 public:
-	explicit UrlTranslateProvider(QString urlTemplate)
-	: _urlTemplate(std::move(urlTemplate)) {
+	explicit UrlTranslateProvider(QString urlTemplate, bool google = false)
+	: _urlTemplate(std::move(urlTemplate))
+	, _google(google) {
 	}
 
 	[[nodiscard]] bool supportsMessageId() const override {
@@ -196,13 +197,13 @@ public:
 			return;
 		}
 		auto url = _urlTemplate;
-		const auto from = DetectFromLanguage(request.text.text);
+		const auto from = _google ? u"auto"_q : DetectFromLanguage(request.text.text);
 		const auto toCode = to.twoLetterCode();
 		url.replace(
 			u"%q"_q,
 			QString::fromLatin1(
 				QUrl::toPercentEncoding(
-					TextUtilities::EscapeForHtml(request.text.text))));
+					_google ? request.text.text : TextUtilities::EscapeForHtml(request.text.text))));
 		url.replace(
 			u"%f"_q,
 			QString::fromLatin1(QUrl::toPercentEncoding(from)));
@@ -217,16 +218,33 @@ public:
 			return;
 		}
 		auto networkRequest = QNetworkRequest(requestUrl);
+		if (_google) {
+			networkRequest.setAttribute(
+				QNetworkRequest::RedirectPolicyAttribute,
+				QNetworkRequest::SameOriginRedirectPolicy);
+			networkRequest.setTransferTimeout(15000);
+		}
 		const auto reply = _network.get(networkRequest);
+		const auto google = _google;
 		QObject::connect(reply, &QNetworkReply::finished, [=] {
 			auto result = TranslateProviderResult();
 			if (reply->error() != QNetworkReply::NoError) {
 				result.error = TranslateProviderError::Unknown;
 			} else {
 				const auto body = reply->readAll();
-				const auto formatted = FormatJsonResponse(body).value_or(
-					QString::fromUtf8(body));
-				result.text = TextWithEntities{ formatted };
+				if (google) {
+					const auto formatted = ParseSegmentedArrayResponse(
+						QJsonDocument::fromJson(body));
+					if (formatted) {
+						result.text = TextWithEntities{ *formatted };
+					} else {
+						result.error = TranslateProviderError::Unknown;
+					}
+				} else {
+					const auto formatted = FormatJsonResponse(body).value_or(
+						QString::fromUtf8(body));
+					result.text = TextWithEntities{ formatted };
+				}
 			}
 			done(std::move(result));
 			reply->deleteLater();
@@ -235,6 +253,7 @@ public:
 
 private:
 	const QString _urlTemplate;
+	const bool _google;
 	QNetworkAccessManager _network;
 
 };
@@ -244,6 +263,12 @@ private:
 std::unique_ptr<TranslateProvider> CreateUrlTranslateProvider(
 		QString urlTemplate) {
 	return std::make_unique<UrlTranslateProvider>(std::move(urlTemplate));
+}
+
+std::unique_ptr<TranslateProvider> CreateGoogleTranslateProvider() {
+	return std::make_unique<UrlTranslateProvider>(
+		u"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=%t&dt=t&q=%q"_q,
+		true);
 }
 
 } // namespace Ui

@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/shortcuts.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/ui_integration.h"
 #include "lottie/lottie_icon.h"
 #include "info/profile/info_profile_icon.h"
@@ -62,9 +63,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QMimeData>
 #include <QtCore/QStack>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QKeyEvent>
 #include <QtGui/QTextBlock>
 #include <QtGui/QClipboard>
 #include <QtWidgets/QApplication>
+
+#include <cmath>
 
 namespace {
 
@@ -76,6 +80,129 @@ using EditLinkSelection = Ui::InputField::EditLinkSelection;
 constexpr auto kParseLinksTimeout = crl::time(1000);
 constexpr auto kTypesDuration = 4 * crl::time(1000);
 constexpr auto kCodeLanguageLimit = 32;
+constexpr auto kCalculatorLimit = 128;
+
+class ComposeCalculator final {
+public:
+	explicit ComposeCalculator(QStringView input) : _input(input) {
+	}
+
+	[[nodiscard]] std::optional<double> result() {
+		const auto number = expression(1);
+		const auto atEnd = peek().isNull() && _position == _input.size();
+		return (_hasOperator && atEnd) ? number : std::nullopt;
+	}
+
+private:
+	[[nodiscard]] QChar peek() {
+		while (_position < _input.size() && _input[_position].isSpace()) {
+			++_position;
+		}
+		return (_position < _input.size()) ? _input[_position] : QChar();
+	}
+
+	[[nodiscard]] static int precedence(QChar op) {
+		switch (op.unicode()) {
+		case u'^': return 4;
+		case u'*': case u'×': case u'/': case u'÷': case u'%': return 2;
+		case u'+': case u'-': return 1;
+		default: return 0;
+		}
+	}
+
+	[[nodiscard]] std::optional<double> atom() {
+		const auto token = peek();
+		if (token == u'+' || token == u'-') {
+			++_position;
+			const auto operand = expression(3);
+			return (operand && token == u'-') ? std::optional(-*operand) : operand;
+		} else if (token == u'(') {
+			++_position;
+			const auto number = expression(1);
+			if (peek() != u')') {
+				return std::nullopt;
+			}
+			++_position;
+			return number;
+		}
+		const auto start = _position;
+		while (_position < _input.size()) {
+			const auto ch = _input[_position];
+			if ((ch < u'0' || ch > u'9') && ch != u'.' && ch != u',') {
+				break;
+			}
+			++_position;
+		}
+		auto ok = false;
+		const auto value = _input.mid(start, _position - start).toString()
+			.replace(u',', u'.').toDouble(&ok);
+		return (ok && std::isfinite(value)) ? std::optional(value) : std::nullopt;
+	}
+
+	[[nodiscard]] std::optional<double> expression(int minimum) {
+		auto value = atom();
+		while (value) {
+			const auto op = peek();
+			const auto priority = precedence(op);
+			if (priority < minimum) {
+				break;
+			}
+			++_position;
+			const auto right = expression(priority + (op == u'^' ? 0 : 1));
+			if (!right
+				|| ((op == u'/' || op == u'÷' || op == u'%') && !*right)) {
+				return std::nullopt;
+			}
+			switch (op.unicode()) {
+			case u'+': *value += *right; break;
+			case u'-': *value -= *right; break;
+			case u'*': case u'×': *value *= *right; break;
+			case u'/': case u'÷': *value /= *right; break;
+			case u'%': *value = std::fmod(*value, *right); break;
+			case u'^': *value = std::pow(*value, *right); break;
+			}
+			if (!std::isfinite(*value)) {
+				return std::nullopt;
+			}
+			_hasOperator = true;
+		}
+		return value;
+	}
+
+	QStringView _input;
+	qsizetype _position = 0;
+	bool _hasOperator = false;
+
+};
+
+void SetupComposeCalculator(not_null<Ui::InputField*> field) {
+	base::install_event_filter(field->rawTextEdit(), [=](not_null<QEvent*> event) {
+		using Result = base::EventFilterResult;
+		if (event->type() != QEvent::KeyPress) {
+			return Result::Continue;
+		}
+		const auto key = static_cast<QKeyEvent*>(event.get());
+		if (key->key() != Qt::Key_Space || key->modifiers() != Qt::NoModifier
+			|| !Core::Telega::DisplayEnabled(Core::Telega::DisplayOption::InlineCalculator)) {
+			return Result::Continue;
+		}
+		auto cursor = field->textCursor();
+		if (cursor.hasSelection() || !cursor.atBlockEnd()
+			|| cursor.positionInBlock() > kCalculatorLimit) {
+			return Result::Continue;
+		}
+		const auto line = cursor.block().text();
+		if (!line.endsWith(u'=')) {
+			return Result::Continue;
+		}
+		const auto result = ComposeCalculator(QStringView(line).chopped(1)).result();
+		if (!result) {
+			return Result::Continue;
+		}
+		cursor.insertText(QString::number(*result, 'g', 15) + u' ');
+		return Result::Cancel;
+	});
+}
 
 constexpr auto kLinkProtocols = {
     "http://",
@@ -725,6 +852,7 @@ std::shared_ptr<Ui::ChatStyle> InitMessageField(
 		.allowPremiumEmoji = std::move(allowPremiumEmoji),
 	});
 	InitMessageFieldGeometry(field);
+	SetupComposeCalculator(field);
 	return style;
 }
 

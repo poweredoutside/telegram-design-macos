@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/ui_integration.h"
 #include "data/data_session.h"
 #include "data/data_chat_filters.h"
@@ -126,15 +127,6 @@ void FiltersMenu::setup() {
 	_menu.setIsMenuButton(true);
 	_menu.setAccessibleName(tr::lng_main_menu(tr::now));
 	_menu.setVisible(!Platform::IsWindows());
-	if (Platform::IsWindows()) {
-		const auto more = Ui::CreateChild<Ui::IconButton>(&_outer, st::macMore);
-		more->setAccessibleName(tr::lng_main_menu(tr::now));
-		more->setClickedCallback([=] { _session->widget()->showMainMenu(); });
-		_outer.sizeValue() | rpl::on_next([=](QSize size) {
-			more->move((size.width() - more->width()) / 2,
-				size.height() - more->height() - 8);
-		}, more->lifetime());
-	}
 
 	_outer.setAttribute(Qt::WA_OpaquePaintEvent);
 	_outer.show();
@@ -160,8 +152,7 @@ void FiltersMenu::setup() {
 		_menu.resizeToWidth(width);
 		_menu.move(0, 0);
 		const auto top = Platform::IsWindows() ? 8 : _menu.height();
-		const auto bottom = Platform::IsWindows() ? 48 : 0;
-		_scroll.setGeometry({ 0, top, width, std::max(0, height - top - bottom) });
+		_scroll.setGeometry({ 0, top, width, std::max(0, height - top) });
 		_container->resizeToWidth(width);
 		_container->move(0, 0);
 	}, _outer.lifetime());
@@ -171,7 +162,8 @@ void FiltersMenu::setup() {
 	const auto filters = &_session->session().data().chatsFilters();
 	rpl::combine(
 		rpl::single(rpl::empty) | rpl::then(filters->changed()),
-		std::move(premium)
+		std::move(premium),
+		Core::Telega::DisplayValue(Core::Telega::DisplayOption::HideAllChatsFolder)
 	) | rpl::on_next([=] {
 		refresh();
 	}, _outer.lifetime());
@@ -372,15 +364,22 @@ void FiltersMenu::refresh() {
 	_reorder->cancel();
 
 	_reorder->clearPinnedIntervals();
+	const auto &list = filters->list();
+	const auto all = ranges::find(list, FilterId(), &Data::ChatFilter::id);
+	_allChatsHidden = Core::Telega::DisplayEnabled(
+		Core::Telega::DisplayOption::HideAllChatsFolder)
+		&& all != end(list) && list.size() > 1;
 	const auto maxLimit = (reorderAll ? 1 : 0)
 		+ Data::PremiumLimits(&_session->session()).dialogFiltersCurrent();
 	const auto premiumFrom = (reorderAll ? 0 : 1) + maxLimit;
-	if (!reorderAll) {
+	const auto pinnedFrom = premiumFrom
+		- ((_allChatsHidden && all - begin(list) < premiumFrom) ? 1 : 0);
+	if (!reorderAll && !_allChatsHidden) {
 		_reorder->addPinnedInterval(0, 1);
 	}
 	_reorder->addPinnedInterval(
-		premiumFrom,
-		std::max(1, int(filters->list().size()) - maxLimit));
+		pinnedFrom,
+		std::max(1, int(list.size()) - (_allChatsHidden ? 1 : 0) - pinnedFrom));
 
 	// Remember which folder holds keyboard focus so the roving Tab-stop can be
 	// re-established on its replacement after the rebuild: the new buttons are
@@ -395,9 +394,12 @@ void FiltersMenu::refresh() {
 	}
 
 	auto now = base::flat_map<int, base::unique_qptr<Ui::SideBarButton>>();
-	const auto &currentFilter = _session->activeChatsFilterCurrent();
-	for (const auto &filter : filters->list()) {
-		const auto nextIsLocked = (now.size() >= premiumFrom);
+	const auto currentFilter = _session->activeChatsFilterCurrent();
+	for (const auto &filter : list) {
+		if (_allChatsHidden && !filter.id()) {
+			continue;
+		}
+		const auto nextIsLocked = (now.size() >= pinnedFrom);
 		if (nextIsLocked && (currentFilter == filter.id())) {
 			_session->setActiveChatsFilter(FilterId(0));
 		}
@@ -410,6 +412,13 @@ void FiltersMenu::refresh() {
 		now.emplace(filter.id(), std::move(button));
 	}
 	_filters = std::move(now);
+	if (_allChatsHidden && (!currentFilter || !_filters.contains(currentFilter))
+		&& pinnedFrom > 0 && !_session->openedFolder().current()) {
+		const auto first = ranges::find_if(list, [](const Data::ChatFilter &filter) {
+			return filter.id() != 0;
+		});
+		_session->setActiveChatsFilter(first->id());
+	}
 	// Re-establish the list's Tab-stop on the folder that was focused (if it
 	// survived the rebuild), else on the active one, so a refresh - rename,
 	// deletion, Premium-state change - never leaves the list without a Tab-stop.
@@ -803,7 +812,7 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 }
 
 void FiltersMenu::applyReorder(
-		not_null<Ui::RpWidget*> widget,
+		not_null<Ui::RpWidget*>,
 		int oldPosition,
 		int newPosition) {
 	if (newPosition == oldPosition) {
@@ -811,28 +820,8 @@ void FiltersMenu::applyReorder(
 	}
 
 	const auto filters = &_session->session().data().chatsFilters();
-	const auto &list = filters->list();
-	if (!premium()) {
-		if (list[0].id() != FilterId()) {
-			filters->moveAllToFront();
-		}
-	}
-	Assert(oldPosition >= 0 && oldPosition < list.size());
-	Assert(newPosition >= 0 && newPosition < list.size());
-	const auto id = list[oldPosition].id();
-	const auto i = _filters.find(id);
-	Assert(i != end(_filters));
-	Assert(i->second == widget);
-
-	auto order = ranges::views::all(
-		list
-	) | ranges::views::transform(
-		&Data::ChatFilter::id
-	) | ranges::to_vector;
-	base::reorder(order, oldPosition, newPosition);
-
 	_ignoreRefresh = true;
-	filters->saveOrder(order);
+	filters->saveReordered(oldPosition, newPosition, _allChatsHidden);
 	_ignoreRefresh = false;
 }
 

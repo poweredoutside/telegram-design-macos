@@ -19,6 +19,7 @@ namespace {
 
 constexpr auto kStringLinkIndexShift = uint16(0x8000);
 constexpr auto kMaxDiacAfterSymbol = 2;
+auto VisualNoiseFilter = std::atomic<bool>(false);
 
 [[nodiscard]] bool IsIndexedLinkData(const QString &data) {
 	const auto prefix = u"internal:index"_q;
@@ -97,6 +98,10 @@ constexpr auto kMaxDiacAfterSymbol = 2;
 }
 
 } // namespace
+
+void SetVisualNoiseFilter(bool enabled) {
+	VisualNoiseFilter.store(enabled, std::memory_order_relaxed);
+}
 
 BlockParser::StartedEntity::StartedEntity(TextBlockFlags flags)
 : _value(flags.value())
@@ -640,9 +645,14 @@ void BlockParser::parseCurrentChar() {
 			// Some sequences like 0x0E53 0xFE0F crash OS X harfbuzz text processing :(
 			return true;
 		} else if (isDiacritic) {
+			const auto code = _ch.unicode();
+			const auto limit = (code >= 0x0300 && code <= 0x036F
+				&& VisualNoiseFilter.load(std::memory_order_relaxed))
+				? 1
+				: kMaxDiacAfterSymbol;
 			if (!_allowDiacritic
 				|| _emoji
-				|| ++_diacritics > kMaxDiacAfterSymbol) {
+				|| ++_diacritics > limit) {
 				return true;
 			}
 		} else if (_ch.isHighSurrogate()) {

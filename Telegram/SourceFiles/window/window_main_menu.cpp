@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_box_controller.h"
 #include "calls/calls_instance.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/click_handler_types.h"
 #include "data/data_changes.h"
 #include "data/data_document_media.h"
@@ -42,6 +43,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_advanced.h"
 #include "settings/sections/settings_calls.h"
 #include "settings/sections/settings_information.h"
+#include "settings/sections/settings_telega.h"
+#include "window/window_telega_feed.h"
 #include "storage/localstorage.h"
 #include "storage/storage_account.h"
 #include "support/support_templates.h"
@@ -323,7 +326,12 @@ MainMenu::MainMenu(
 	this,
 	st::settingsInfoPeerBadge,
 	&controller->session(),
-	Info::Profile::BadgeContentForPeer(controller->session().user()),
+	rpl::combine(
+		Info::Profile::BadgeContentForPeer(controller->session().user()),
+		Core::Telega::DisplayValue(Core::Telega::DisplayOption::HideSidebarStatus)
+	) | rpl::map([](Info::Profile::Badge::Content content, bool hidden) {
+		return hidden ? Info::Profile::Badge::Content() : content;
+	}),
 	_emojiStatusPanel.get(),
 	[=] { return controller->isGifPausedAtLeastFor(GifPauseReason::Layer); },
 	kPlayStatusLimit,
@@ -668,81 +676,68 @@ void MainMenu::setupMenu() {
 			std::move(descriptor));
 	};
 	if (!_controller->session().supportMode()) {
-		_menu->add(
-			CreateButtonWithIcon(
-				_menu,
-				tr::lng_menu_my_profile(),
-				st::mainMenuButton,
-				{ &st::menuIconProfile })
-		)->setClickedCallback([=] {
-			controller->showSection(
-				Info::Stories::MakeMyProfile(controller->session().user()));
-		});
-
 		SetupMenuBots(_menu, controller);
-
-		_menu->add(
-			object_ptr<Ui::PlainShadow>(_menu),
-			{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
-
-		AddMyChannelsBox(addAction(
-			tr::lng_create_group_title(),
-			{ &st::menuIconGroups }
-		), controller, true)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewGroup();
-			}
-		});
-
-		AddMyChannelsBox(addAction(
-			tr::lng_create_channel_title(),
-			{ &st::menuIconChannel }
-		), controller, false)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewChannel();
-			}
-		});
-
-		addAction(
-			tr::lng_menu_contacts(),
-			{ &st::menuIconUserShow }
-		)->setClickedCallback([=] {
-			controller->show(PrepareContactsBox(controller));
-		});
-		addAction(
-			tr::lng_menu_calls(),
-			{ &st::menuIconPhone }
-		)->setClickedCallback([=] {
-			::Calls::ShowCallsBox(controller);
-		});
-		addAction(
-			tr::lng_saved_messages(),
-			{ &st::menuIconSavedMessages }
-		)->setClickedCallback([=] {
-			controller->showPeerHistory(controller->session().user());
-		});
 		const auto session = &controller->session();
-		const auto wallet = _menu->add(
-			object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
-				_menu,
-				CreateButtonWithIcon(
-					_menu,
-					tr::lng_wallet_menu(),
-					st::mainMenuButton,
-					{ &st::walletMenuIcon })));
-		Ui::NewBadge::AddAfterButtonText(
-			wallet->entity(),
-			tr::lng_wallet_menu(),
-			st::mainMenuButton);
-		wallet->toggleOn(session->appConfig().value(
-		) | rpl::map([=] {
-			return session->appConfig().walletAvailable();
-		}) | rpl::distinct_until_changed());
-		wallet->finishAnimating();
-		wallet->entity()->setClickedCallback([=] {
-			controller->window().hideSettingsAndLayer();
-			Wallet::ShowWallet(session);
-		});
+		for (const auto &item : Core::Telega::Navigation()) {
+			if (item == u"profile"_q) {
+				addAction(tr::lng_menu_my_profile(), { &st::menuIconProfile })
+					->setClickedCallback([=] {
+						controller->showSection(Info::Stories::MakeMyProfile(session->user()));
+					});
+			} else if (item == u"divider"_q) {
+				if (_menu->count()) {
+					_menu->add(object_ptr<Ui::PlainShadow>(_menu),
+						{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
+				}
+			} else if (item == u"ai"_q) {
+				addAction(rpl::single(TelegaAiChatLabel()), { &st::menuIconStar })
+					->setClickedCallback([=] { ShowTelegaAiChat(controller); });
+			} else if (item == u"feed"_q) {
+				addAction(rpl::single(TelegaFeedLabel()), { &st::menuIconChannel })
+					->setClickedCallback([=] { ShowTelegaFeed(controller); });
+			} else if (item == u"wallet"_q) {
+				const auto wallet = _menu->add(
+					object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
+						_menu,
+						CreateButtonWithIcon(_menu, tr::lng_wallet_menu(),
+							st::mainMenuButton, { &st::walletMenuIcon })));
+				Ui::NewBadge::AddAfterButtonText(wallet->entity(),
+					tr::lng_wallet_menu(), st::mainMenuButton);
+				wallet->toggleOn(session->appConfig().value() | rpl::map([=] {
+					return session->appConfig().walletAvailable();
+				}) | rpl::distinct_until_changed());
+				wallet->finishAnimating();
+				wallet->entity()->setClickedCallback([=] {
+					controller->window().hideSettingsAndLayer();
+					Wallet::ShowWallet(session);
+				});
+			} else if (item == u"group"_q || item == u"channel"_q) {
+				const auto group = (item == u"group"_q);
+				AddMyChannelsBox(addAction(
+					group ? tr::lng_create_group_title() : tr::lng_create_channel_title(),
+					{ group ? &st::menuIconGroups : &st::menuIconChannel }
+				), controller, group)->addClickHandler([=](Qt::MouseButton which) {
+					if (which == Qt::LeftButton) {
+						if (group) {
+							controller->showNewGroup();
+						} else {
+							controller->showNewChannel();
+						}
+					}
+				});
+			} else if (item == u"contacts"_q) {
+				addAction(tr::lng_menu_contacts(), { &st::menuIconUserShow })
+					->setClickedCallback([=] { controller->show(PrepareContactsBox(controller)); });
+			} else if (item == u"calls"_q) {
+				addAction(tr::lng_menu_calls(), { &st::menuIconPhone })
+					->setClickedCallback([=] { ::Calls::ShowCallsBox(controller); });
+			} else if (item == u"saved"_q) {
+				addAction(tr::lng_saved_messages(), { &st::menuIconSavedMessages })
+					->setClickedCallback([=] {
+						controller->showPeerHistory(controller->session().user());
+					});
+			}
+		}
 	} else {
 		addAction(
 			tr::lng_profile_add_contact(),
@@ -771,7 +766,7 @@ void MainMenu::setupMenu() {
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }
 	)->setClickedCallback([=] {
-		controller->showSettings();
+		controller->window().showSettings();
 	});
 
 	_nightThemeToggle = addAction(

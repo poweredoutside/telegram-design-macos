@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/premium_preview_box.h"
 #include "boxes/share_box.h"
 #include "boxes/peers/tag_info_box.h"
+#include "core/core_telega_preferences.h"
 #include "ui/chat/torn_edge.h"
 #include "ui/effects/reaction_fly_animation.h"
 #include "ui/effects/ripple_animation.h"
@@ -6048,7 +6049,9 @@ std::optional<QSize> Message::rightActionSize() const {
 bool Message::displayFastShare() const {
 	const auto item = data();
 	const auto peer = item->history()->peer;
-	if (!item->allowsForward() || IsAnchoredEphemeral(item)) {
+	if (Core::Telega::HideFastShare()
+		|| !item->allowsForward()
+		|| IsAnchoredEphemeral(item)) {
 		return false;
 	} else if (peer->isChannel()) {
 		return !peer->isMegagroup();
@@ -6593,7 +6596,9 @@ QRect Message::countGeometry() const {
 	//} else if (!Adaptive::Wide() && !out() && !fromChannel() && st::msgPhotoSkip - (hmaxwidth - hwidth) > 0) {
 	//	contentLeft += st::msgPhotoSkip - (hmaxwidth - hwidth);
 	}
-	accumulate_min(contentWidth, maxWidth());
+	if (!Core::Telega::IsWideChannelPost(item)) {
+		accumulate_min(contentWidth, maxWidth());
+	}
 	accumulate_min(contentWidth, int(_bubbleWidthLimit));
 	if (mediaWidth < contentWidth) {
 		const auto textualWidth = bubbleTextualWidth();
@@ -6651,6 +6656,7 @@ Ui::BubbleRounding Message::countMessageRounding() const {
 			&& (rich->article.edgeBlocks().bottom == Block::VisualMedia);
 	};
 	const auto skipTail = smallBottom
+		|| Core::Telega::HideBubbleTails()
 		|| (media && media->skipBubbleTail())
 		|| (rich && richMediaAtBottom())
 		|| (keyboard != nullptr)
@@ -6733,8 +6739,12 @@ int Message::resizeContentGetHeight(int newWidth) {
 			contentWidth -= size->width() + (st::msgPhotoSkip - st::historyFastShareSize);
 		}
 	}
-	accumulate_min(contentWidth, maxWidth());
-	_bubbleWidthLimit = (UnlimitedMessageWidth.value() && !mediaDisplayed)
+	const auto widePost = Core::Telega::IsWideChannelPost(item);
+	if (!widePost) {
+		accumulate_min(contentWidth, maxWidth());
+	}
+	_bubbleWidthLimit = ((UnlimitedMessageWidth.value() && !mediaDisplayed)
+		|| widePost)
 		? 0x3FFFFFF
 		: std::max({
 			st::msgMaxWidth,

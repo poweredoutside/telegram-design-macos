@@ -184,6 +184,7 @@ public:
 	void saveOrder(
 		const std::vector<FilterId> &order,
 		mtpRequestId after = 0);
+	void saveReordered(int oldPosition, int newPosition, bool hideAllChats);
 
 	[[nodiscard]] bool archiveNeeded() const;
 

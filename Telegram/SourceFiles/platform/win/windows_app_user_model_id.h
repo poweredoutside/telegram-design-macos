@@ -14,7 +14,10 @@ namespace AppUserModelId {
 
 void CleanupShortcut();
 void CheckPinned();
+void RefreshShortcutIcons();
+void SetWindowRelaunchIcon(HWND window);
 
+[[nodiscard]] bool IsInstalled();
 [[nodiscard]] const std::wstring &Id();
 bool ValidateShortcut();
 

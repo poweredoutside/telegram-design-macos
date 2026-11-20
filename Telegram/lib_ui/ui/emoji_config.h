@@ -25,6 +25,7 @@ namespace internal {
 
 } // namespace internal
 
+void SetUseSystemGlyphs(bool enabled);
 void Init();
 void Clear();
 

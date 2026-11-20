@@ -46,6 +46,11 @@ void SetupThemeSettings(
 	not_null<Ui::VerticalLayout*> container,
 	HighlightRegistry *highlights = nullptr);
 
+void SetupFontSettings(
+	not_null<Window::SessionController*> controller,
+	not_null<Ui::VerticalLayout*> container,
+	HighlightRegistry *highlights = nullptr);
+
 void SetupCloudThemes(
 	not_null<Window::SessionController*> controller,
 	not_null<Ui::VerticalLayout*> container,

@@ -562,7 +562,7 @@ void PaintRow(
 		&& !context.search
 		&& !swipeTranslation;
 	if (rounded) {
-		p.fillRect(geometry, context.currentBg);
+		p.fillRect(geometry, st::windowBg);
 		const auto inset = st::dialogsRowInset;
 		const auto area = geometry.marginsRemoved(inset);
 		const auto radius = st::dialogsRowRadius;

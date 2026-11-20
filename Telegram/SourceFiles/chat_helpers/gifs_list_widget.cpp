@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "menu/menu_send.h" // SendMenu::FillSendMenu
 #include "mtproto/mtproto_config.h"
 #include "core/click_handler_types.h"
+#include "core/core_telega_preferences.h"
 #include "ui/controls/tabbed_search.h"
 #include "ui/layers/generic_box.h"
 #include "ui/widgets/buttons.h"
@@ -879,6 +880,19 @@ void GifsListWidget::searchForGifs(const QString &query) {
 		cancelGifsSearch();
 		return;
 	}
+	const auto custom = Core::Telega::GifSearchBot();
+	const auto username = custom.isEmpty()
+		? session().serverConfig().gifSearchUsername
+		: custom;
+	if (_searchBotUsername != username) {
+		cancelGifsSearch();
+		if (_searchBotRequestId) {
+			_api.request(_searchBotRequestId).cancel();
+			_searchBotRequestId = 0;
+		}
+		_searchBot = nullptr;
+		_searchBotUsername = username;
+	}
 
 	if (_inlineQuery != query) {
 		_search->setLoading(false);
@@ -896,23 +910,41 @@ void GifsListWidget::searchForGifs(const QString &query) {
 		}
 	}
 
-	if (!_searchBot && !_searchBotRequestId) {
-		const auto username = session().serverConfig().gifSearchUsername;
-		_searchBotRequestId = _api.request(MTPcontacts_ResolveUsername(
-			MTP_flags(0),
-			MTP_string(username),
-			MTP_string()
-		)).done([=](const MTPcontacts_ResolvedPeer &result) {
-			auto &data = result.data();
-			session().data().processUsers(data.vusers());
-			session().data().processChats(data.vchats());
-			const auto peer = session().data().peerLoaded(
-				peerFromMTP(data.vpeer()));
-			if (const auto user = peer ? peer->asUser() : nullptr) {
-				_searchBot = user;
-			}
-		}).send();
+	if (!_searchBot && !_searchBotRequestId && !username.isEmpty()) {
+		resolveSearchBot(username);
 	}
+}
+
+void GifsListWidget::resolveSearchBot(const QString &username) {
+	const auto unavailable = [=] {
+		const auto fallback = session().serverConfig().gifSearchUsername;
+		if (!fallback.isEmpty() && fallback.compare(username, Qt::CaseInsensitive) != 0) {
+			resolveSearchBot(fallback);
+		} else {
+			cancelGifsSearch();
+		}
+	};
+	_searchBotRequestId = _api.request(MTPcontacts_ResolveUsername(
+		MTP_flags(0),
+		MTP_string(username),
+		MTP_string()
+	)).done([=](const MTPcontacts_ResolvedPeer &result) {
+		_searchBotRequestId = 0;
+		const auto &data = result.data();
+		session().data().processUsers(data.vusers());
+		session().data().processChats(data.vchats());
+		const auto peer = session().data().peerLoaded(peerFromMTP(data.vpeer()));
+		const auto user = peer ? peer->asUser() : nullptr;
+		if (!user || !user->isBot() || user->botInfo->inlinePlaceholder.isEmpty()) {
+			unavailable();
+			return;
+		}
+		_searchBot = user;
+		sendInlineRequest();
+	}).fail([=] {
+		_searchBotRequestId = 0;
+		unavailable();
+	}).send();
 }
 
 void GifsListWidget::cancelled() {
@@ -929,9 +961,7 @@ void GifsListWidget::sendInlineRequest() {
 	}
 
 	if (!_searchBot) {
-		// Wait for the bot being resolved.
-		_search->setLoading(true);
-		_inlineRequestTimer.start(kSearchRequestDelay);
+		_search->setLoading(_searchBotRequestId != 0);
 		return;
 	}
 	_inlineRequestTimer.stop();

@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/themes/window_theme_editor_box.h"
+#include "window/themes/window_theme_local.h"
 
 #include "window/themes/window_theme.h"
 #include "window/themes/window_theme_editor.h"
@@ -681,14 +682,18 @@ bool PaletteChanged(
 
 void StartEditor(
 		not_null<Window::Controller*> window,
-		const Data::CloudTheme &cloud) {
+		const Data::CloudTheme &cloud,
+		Fn<QString(const QByteArray&)> saveLocal) {
 	const auto path = EditingPalettePath();
 	auto object = Local::ReadThemeContent();
 
 	const auto palette = object.content.isEmpty()
 		? GenerateDefaultPalette()
 		: ParseTheme(object, true).palette;
-	if (palette.isEmpty() || !CopyColorsToPalette(path, palette, cloud)) {
+	if (palette.isEmpty()
+		|| (Background()->editingTheme() && HasLocalThemeDraft())
+		|| !SetLocalThemeDraft(bool(saveLocal))
+		|| !CopyColorsToPalette(path, palette, cloud)) {
 		window->show(Ui::MakeInformBox(tr::lng_theme_editor_error()));
 		return;
 	}
@@ -697,7 +702,7 @@ void StartEditor(
 		Core::App().saveSettingsDelayed();
 	}
 	Background()->setEditingTheme(cloud);
-	window->showRightColumn(Box<Editor>(window, cloud));
+	window->showRightColumn(Box<Editor>(window, cloud, std::move(saveLocal)));
 }
 
 void CreateBox(
@@ -824,6 +829,114 @@ struct CollectedData {
 
 QByteArray CollectForExport(const QByteArray &palette) {
 	return PackTheme(CollectData(palette).parsed);
+}
+
+LocalThemeColors CurrentLocalThemeColors() {
+	return {
+		.accent = st::windowBgActive->c,
+		.incoming = st::msgInBg->c,
+		.outgoing = st::msgOutBg->c,
+		.background = st::windowBg->c,
+		.wallpaper = Background()->colorForFill().value_or(QColor()),
+		.settings = st::boxSearchBg->c,
+		.chats = st::dialogsBg->c,
+		.sidebar = st::sideBarBg->c,
+	};
+}
+
+QColor LocalThemeTextColor(const QColor &background) {
+	const auto linear = [](double channel) {
+		return (channel <= .04045)
+			? (channel / 12.92)
+			: std::pow((channel + .055) / 1.055, 2.4);
+	};
+	const auto luminance = .2126 * linear(background.redF())
+		+ .7152 * linear(background.greenF())
+		+ .0722 * linear(background.blueF());
+	return (luminance > .179) ? QColor(Qt::black) : QColor(Qt::white);
+}
+
+QByteArray CollectLocalTheme(const LocalThemeColors &colors) {
+	const auto original = CurrentLocalThemeColors();
+	auto palette = style::palette();
+	palette = *style::main_palette::get();
+	const auto set = [&](const char *key, const QColor &color) {
+		palette.setColor(QLatin1String(key), color);
+	};
+	if (colors.background != original.background) {
+		const auto text = LocalThemeTextColor(colors.background);
+		set("windowBg", colors.background);
+		set("windowFg", text);
+		set("windowBoldFg", text);
+		set("windowFgOver", text);
+		set("windowBoldFgOver", text);
+	}
+	if (colors.settings != original.settings) {
+		set("boxSearchBg", colors.settings);
+		set("boxBg", colors.settings);
+		set("boxTextFg", LocalThemeTextColor(colors.settings));
+	}
+	if (colors.chats != original.chats) {
+		const auto text = LocalThemeTextColor(colors.chats);
+		set("dialogsBg", colors.chats);
+		set("dialogsNameFg", text);
+		set("dialogsTextFg", text);
+		set("dialogsDateFg", text);
+	}
+	if (colors.sidebar != original.sidebar) {
+		const auto text = LocalThemeTextColor(colors.sidebar);
+		set("sideBarBg", colors.sidebar);
+		set("sideBarTextFg", text);
+		set("sideBarIconFg", text);
+	}
+	if (colors.accent != original.accent) {
+		const auto foreground = LocalThemeTextColor(colors.accent);
+		const auto accentText = (LocalThemeTextColor(colors.background) == Qt::white)
+			? colors.accent.lighter(145)
+			: colors.accent.darker(145);
+		set("windowBgActive", colors.accent);
+		set("windowFgActive", foreground);
+		set("windowActiveTextFg", accentText);
+		set("lightButtonFg", accentText);
+		set("dialogsBgActive", colors.accent);
+		set("dialogsNameFgActive", foreground);
+		set("dialogsDateFgActive", foreground);
+		set("dialogsTextFgActive", foreground);
+		set("dialogsTextFgServiceActive", foreground);
+	}
+	if (colors.incoming != original.incoming) {
+		set("msgInBg", colors.incoming);
+		set("historyTextInFg", LocalThemeTextColor(colors.incoming));
+		set("historyFileNameInFg", LocalThemeTextColor(colors.incoming));
+	}
+	if (colors.outgoing != original.outgoing) {
+		set("msgOutBg", colors.outgoing);
+		set("historyTextOutFg", LocalThemeTextColor(colors.outgoing));
+		set("historyFileNameOutFg", LocalThemeTextColor(colors.outgoing));
+	}
+	auto content = QByteArray();
+	const auto rows = style::main_palette::data();
+	content.reserve(rows.size() * 32);
+	for (const auto &row : rows) {
+		const auto index = style::internal::GetPaletteIndex(row.name);
+		content.append(row.name.data(), row.name.size());
+		content.append(": ");
+		content.append(ColorHexString(palette.colorAtIndex(index)->c));
+		content.append(";\n");
+	}
+	if (colors.wallpaper.isValid() && colors.wallpaper != original.wallpaper) {
+		auto parsed = ParsedTheme();
+		parsed.palette = std::move(content);
+		parsed.isPng = true;
+		auto image = QImage(64, 64, QImage::Format_RGB32);
+		image.fill(colors.wallpaper);
+		auto buffer = QBuffer(&parsed.background);
+		if (!image.save(&buffer, "PNG")) {
+			return {};
+		}
+		return PackTheme(parsed);
+	}
+	return CollectForExport(content);
 }
 
 void SaveThemeBox(

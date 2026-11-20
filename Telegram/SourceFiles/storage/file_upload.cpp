@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/file_upload.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "api/api_editing.h"
 #include "api/api_send_progress.h"
 #include "boxes/abstract_box.h"
@@ -38,7 +40,14 @@ namespace Storage {
 namespace {
 
 // max 1mb uploaded at the same time in each session
-constexpr auto kMaxUploadPerSession = 1024 * 1024;
+bool UploadBoost() {
+	static const auto value = Core::Telega::DisplayEnabled(Core::Telega::DisplayOption::UploadBoost);
+	return value;
+}
+
+int MaxUploadPerSession() {
+	return (UploadBoost() ? 4 : 1) * 1024 * 1024;
+}
 
 constexpr auto kDocumentMaxPartsCountDefault = 4000;
 
@@ -58,7 +67,9 @@ constexpr auto kDocumentUploadPartSize3 = 256 * 1024;
 constexpr auto kDocumentUploadPartSize4 = 512 * 1024;
 
 // One part each half second, if not uploaded faster.
-constexpr auto kUploadRequestInterval = crl::time(250);
+crl::time UploadRequestInterval() {
+	return UploadBoost() ? crl::time(100) : crl::time(250);
+}
 
 // How much time without upload causes additional session kill.
 constexpr auto kKillSessionTimeout = 15 * crl::time(1000);
@@ -802,7 +813,7 @@ auto Uploader::sendDocPart(not_null<Entry*> entry, uchar dcIndex)
 	const auto itemId = entry->itemId;
 	const auto alreadySent = _sentPerDcIndex[dcIndex];
 	const auto willProbablyBeSent = entry->docPartSize;
-	if (alreadySent + willProbablyBeSent > kMaxUploadPerSession) {
+	if (alreadySent + willProbablyBeSent > MaxUploadPerSession()) {
 		return SendResult::DcIndexFull;
 	}
 
@@ -848,7 +859,7 @@ auto Uploader::sendSlicedPart(not_null<Entry*> entry, uchar dcIndex)
 	const auto itemId = entry->itemId;
 	const auto alreadySent = _sentPerDcIndex[dcIndex];
 	const auto willBeSent = entry->parts->at(entry->partsSent).size();
-	if (alreadySent + willBeSent >= kMaxUploadPerSession) {
+	if (alreadySent + willBeSent >= MaxUploadPerSession()) {
 		return SendResult::DcIndexFull;
 	}
 
@@ -909,7 +920,7 @@ void Uploader::maybeSend() {
 	if (usedDcIndices.empty()) {
 		_nextTimer.cancel();
 	} else {
-		_nextTimer.callOnce(kUploadRequestInterval);
+		_nextTimer.callOnce(UploadRequestInterval());
 	}
 }
 

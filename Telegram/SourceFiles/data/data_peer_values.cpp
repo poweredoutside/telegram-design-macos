@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_peer_values.h"
 
+#include "core/core_telega_preferences.h"
 #include "lang/lang_keys.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
@@ -26,6 +27,12 @@ namespace {
 constexpr auto kMinOnlineChangeTimeout = crl::time(1000);
 constexpr auto kMaxOnlineChangeTimeout = 86400 * crl::time(1000);
 constexpr auto kSecondsInDay = 86400;
+constexpr auto kRelativeDaysLimit = 30;
+
+bool RelativeLastSeen() {
+	return Core::Telega::DisplayEnabled(
+		Core::Telega::DisplayOption::RelativeLastSeen);
+}
 
 int OnlinePhraseChangeInSeconds(LastseenStatus status, TimeId now) {
 	const auto till = status.onlineTill();
@@ -43,8 +50,11 @@ int OnlinePhraseChangeInSeconds(LastseenStatus status, TimeId now) {
 		return (minutes + 1) * 60 - (now - till);
 	}
 	const auto hours = (now - till) / 3600;
-	if (hours < 12) {
+	const auto relative = RelativeLastSeen();
+	if (hours < (relative ? 24 : 12)) {
 		return (hours + 1) * 3600 - (now - till);
+	} else if (relative && hours < kRelativeDaysLimit * 24) {
+		return kSecondsInDay - (now - till) % kSecondsInDay;
 	}
 	const auto nowFull = base::unixtime::parse(now);
 	const auto tomorrow = nowFull.date().addDays(1).startOfDay();
@@ -498,17 +508,20 @@ QString OnlineText(Data::LastseenStatus status, TimeId now) {
 		return tr::lng_status_lastseen_minutes(tr::now, lt_count, minutes);
 	}
 	const auto hours = (now - till) / 3600;
-	if (hours < 12) {
+	const auto relative = RelativeLastSeen();
+	if (hours < (relative ? 24 : 12)) {
 		return tr::lng_status_lastseen_hours(tr::now, lt_count, hours);
+	} else if (relative && hours < kRelativeDaysLimit * 24) {
+		return tr::lng_telega_lastseen_days(tr::now, lt_count, hours / 24);
 	}
 	const auto onlineFull = base::unixtime::parse(till);
 	const auto nowFull = base::unixtime::parse(now);
 	const auto locale = QLocale();
 	if (onlineFull.date() == nowFull.date()) {
-		const auto onlineTime = locale.toString(onlineFull.time(), QLocale::ShortFormat);
+		const auto onlineTime = Core::Telega::FormatTime(onlineFull.time());
 		return tr::lng_status_lastseen_today(tr::now, lt_time, onlineTime);
 	} else if (onlineFull.date().addDays(1) == nowFull.date()) {
-		const auto onlineTime = locale.toString(onlineFull.time(), QLocale::ShortFormat);
+		const auto onlineTime = Core::Telega::FormatTime(onlineFull.time());
 		return tr::lng_status_lastseen_yesterday(tr::now, lt_time, onlineTime);
 	}
 	const auto date = locale.toString(onlineFull.date(), QLocale::ShortFormat);
@@ -523,6 +536,9 @@ QString OnlineText(not_null<UserData*> user, TimeId now) {
 }
 
 QString OnlineTextFull(not_null<UserData*> user, TimeId now) {
+	if (RelativeLastSeen()) {
+		return OnlineText(user, now);
+	}
 	if (const auto special = OnlineTextSpecial(user)) {
 		return *special;
 	} else if (const auto common = OnlineTextCommon(user->lastseen(), now)) {
@@ -533,14 +549,14 @@ QString OnlineTextFull(not_null<UserData*> user, TimeId now) {
 	const auto nowFull = base::unixtime::parse(now);
 	const auto locale = QLocale();
 	if (onlineFull.date() == nowFull.date()) {
-		const auto onlineTime = locale.toString(onlineFull.time(), QLocale::ShortFormat);
+		const auto onlineTime = Core::Telega::FormatTime(onlineFull.time());
 		return tr::lng_status_lastseen_today(tr::now, lt_time, onlineTime);
 	} else if (onlineFull.date().addDays(1) == nowFull.date()) {
-		const auto onlineTime = locale.toString(onlineFull.time(), QLocale::ShortFormat);
+		const auto onlineTime = Core::Telega::FormatTime(onlineFull.time());
 		return tr::lng_status_lastseen_yesterday(tr::now, lt_time, onlineTime);
 	}
 	const auto date = locale.toString(onlineFull.date(), QLocale::ShortFormat);
-	const auto time = locale.toString(onlineFull.time(), QLocale::ShortFormat);
+	const auto time = Core::Telega::FormatTime(onlineFull.time());
 	return tr::lng_status_lastseen_date_time(tr::now, lt_date, date, lt_time, time);
 }
 

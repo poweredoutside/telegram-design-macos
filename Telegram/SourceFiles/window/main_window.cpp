@@ -20,9 +20,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "window/window_lock_widgets.h"
 #include "window/window_controller.h"
+#include "window/themes/window_themes_embedded.h"
 #include "main/main_account.h" // Account::sessionValue.
 #include "main/main_domain.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/sandbox.h"
 #include "core/shortcuts.h"
 #include "core/update_channel.h"
@@ -57,6 +59,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #endif // Q_OS_MAC
 
 #include <QtCore/QMimeData>
+#include <QtGui/QPainterPath>
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
 #include <QtGui/QDrag>
@@ -88,6 +91,90 @@ using Core::WindowPosition;
 [[nodiscard]] QImage &OverridenIcon() {
 	static auto result = QImage();
 	return result;
+}
+
+struct FolderIconColors {
+	QRgb tileTop;
+	QRgb tileBottom;
+	QRgb tab;
+	QRgb frontTop;
+	QRgb frontBottom;
+	QRgb inset;
+};
+
+[[nodiscard]] FolderIconColors FolderIconPalette(Core::Telega::AppIconStyle style) {
+	using Style = Core::Telega::AppIconStyle;
+	switch (style) {
+	case Style::Default:
+		return { 0xff8275, 0xe94f3c, 0xffd5bb, 0xffffff, 0xffeadd, 0xf26954 };
+	case Style::Blue:
+		return { 0x5cc5eb, 0x228bc4, 0xc8efff, 0xffffff, 0xdff6ff, 0x349dcd };
+	case Style::Accent: {
+		const auto accent = Theme::SystemAccentColor().value_or(QColor(0, 120, 212));
+		const auto base = (accent.lightness() > 165) ? accent.darker(145) : accent;
+		return { base.lighter(128).rgb(), base.darker(115).rgb(), 0xd4ecff,
+			0xffffff, 0xe6f3ff, base.rgb() };
+	}
+	case Style::Dark:
+		return { 0x3c3b46, 0x23232c, 0xd75c61, 0xff9691, 0xf46066, 0x67383e };
+	case Style::Light:
+		return { 0xffffff, 0xe8eaf1, 0xda5236, 0xff9a63, 0xf0653c, 0xffdcc8 };
+	}
+	Unexpected("App icon style.");
+}
+
+[[nodiscard]] QImage DrawFolderIcon(
+		Core::Telega::AppIconAppearance appearance,
+		bool noMargin) {
+	constexpr auto side = 256;
+	auto image = QImage(side, side, QImage::Format_ARGB32_Premultiplied);
+	image.fill(Qt::transparent);
+	auto painter = QPainter(&image);
+	painter.setRenderHint(QPainter::Antialiasing);
+	painter.setPen(Qt::NoPen);
+	painter.translate(side / 2., side / 2.);
+	const auto scale = noMargin ? 2. : 1.8125;
+	painter.scale(scale, scale);
+	painter.translate(-64, -64);
+
+	const auto colors = FolderIconPalette(appearance.style);
+	auto tile = QPainterPath();
+	const auto bounds = QRectF(0, 0, 128, 128);
+	if (appearance.roundedSquare) {
+		tile.addRoundedRect(bounds, 29, 29);
+	} else {
+		tile.addEllipse(bounds);
+	}
+	auto tileGradient = QLinearGradient(28, 0, 104, 128);
+	tileGradient.setColorAt(0, QColor::fromRgb(colors.tileTop));
+	tileGradient.setColorAt(1, QColor::fromRgb(colors.tileBottom));
+	painter.fillPath(tile, tileGradient);
+
+	auto tab = QPainterPath();
+	tab.moveTo(27, 61);
+	tab.lineTo(27, 46);
+	tab.quadTo(27, 38, 35, 38);
+	tab.lineTo(54, 38);
+	tab.quadTo(58, 38, 61, 42);
+	tab.lineTo(66, 48);
+	tab.lineTo(94, 48);
+	tab.quadTo(101, 48, 101, 55);
+	tab.lineTo(101, 61);
+	tab.closeSubpath();
+	painter.fillPath(tab, QColor::fromRgb(colors.tab));
+
+	const auto front = QRectF(27, 49, 74, 42);
+	painter.setBrush(QColor(0, 0, 0, 36));
+	painter.drawRoundedRect(front.translated(0, 3), 6, 6);
+	auto frontGradient = QLinearGradient(0, front.top(), 0, front.bottom());
+	frontGradient.setColorAt(0, QColor::fromRgb(colors.frontTop));
+	frontGradient.setColorAt(1, QColor::fromRgb(colors.frontBottom));
+	painter.setBrush(frontGradient);
+	painter.drawRoundedRect(front, 6, 6);
+	painter.setBrush(QColor::fromRgb(colors.inset));
+	painter.drawRoundedRect(QRectF(44, 76, 40, 10), 3, 3);
+	painter.end();
+	return image;
 }
 
 base::options::toggle OptionNewWindowsSizeAsFirst({
@@ -209,149 +296,87 @@ QIcon CreateSupportIcon(Main::Session *session) {
 	}
 	auto overriden = OverridenIcon();
 	auto image = overriden.isNull()
-		? Platform::DefaultApplicationIcon()
+		? ApplicationLogo()
 		: overriden;
 	ConvertIconToBlack(image);
 	return QIcon(Ui::PixmapFromImage(std::move(image)));
 }
 
-QIcon CreateIcon(Main::Session *session, bool returnNullIfDefault) {
+const QImage &ApplicationLogo(bool noMargin) {
+	constexpr auto count = int(Core::Telega::AppIconStyle::Blue) + 1;
+	static auto images = std::array<QImage, count * 4>();
+	const auto appearance = Core::Telega::ActiveApplicationIconAppearance();
+	const auto index = int(appearance.style) * 4
+		+ int(appearance.roundedSquare) * 2
+		+ int(noMargin);
+	auto &image = images[index];
+	if (image.isNull()) {
+		image = DrawFolderIcon(appearance, noMargin);
+	}
+	return image;
+}
+
+QIcon CreateApplicationIconPreview(Core::Telega::AppIconAppearance appearance) {
+	return QIcon(Ui::PixmapFromImage(DrawFolderIcon(appearance, true)));
+}
+
+QIcon CreateIcon(Main::Session *session) {
 	const auto supportIcon = CreateSupportIcon(session);
-	if (!supportIcon.isNull() || returnNullIfDefault) {
+	if (!supportIcon.isNull()) {
 		return supportIcon;
 	}
-
-	const auto officialIcon = QIcon(
-		Ui::PixmapFromImage(base::duplicate(Logo())));
-
-	if constexpr (!Platform::IsLinux()) {
-		return officialIcon;
-	}
-
-	const auto iconFromTheme = QIcon::fromTheme(
-		Platform::ApplicationIconName(),
-		officialIcon);
-
-	if (!Platform::IsX11()) {
-		return iconFromTheme;
-	}
-
-	QIcon result;
-
-	static const auto iconSizes = {
-		16,
-		22,
-		32,
-		48,
-		64,
-		128,
-		256,
-	};
-
-	// Qt's standard QIconLoaderEngine sets availableSizes
-	// to XDG directories sizes, since svg icons are scalable,
-	// they could be only in one XDG folder (like 48x48)
-	// and Qt will set only a 48px icon to the window
-	// even though the icon could be scaled to other sizes.
-	// Thus, scale it manually to the most widespread sizes.
-	for (const auto iconSize : iconSizes) {
-		// We can't use QIcon::actualSize here
-		// since it works incorrectly with svg icon themes
-		const auto iconPixmap = iconFromTheme.pixmap(iconSize);
-
-		const auto iconPixmapSize = iconPixmap.size()
-			/ iconPixmap.devicePixelRatio();
-
-		// Not a svg icon, don't scale it
-		if (iconPixmapSize.width() != iconSize) {
-			return iconFromTheme;
+	const auto &overriden = OverridenIcon();
+	const auto &image = overriden.isNull() ? ApplicationLogo() : overriden;
+	auto result = QIcon(Ui::PixmapFromImage(base::duplicate(image)));
+	if (Platform::IsX11()) {
+		for (const auto size : { 16, 22, 32, 48, 64, 128 }) {
+			result.addPixmap(Ui::PixmapFromImage(image.scaledToWidth(
+				size,
+				Qt::SmoothTransformation)));
 		}
-
-		result.addPixmap(iconPixmap);
 	}
-
 	return result;
 }
 
 QImage GenerateCounterLayer(CounterLayerArgs &&args) {
-	const auto text = FormatUnreadCounterShort(args.count.value());
-	const auto textSize = text.size();
-
-	struct Dimensions {
-		int size = 0;
-		int font = 0;
-		int delta = 0;
-		int radius = 0;
-	};
-	const auto d = [&]() -> Dimensions {
-		switch (args.size.value()) {
-		case 16:
-			return {
-				.size = 16,
-				.font = ((textSize < 2) ? 11 : (textSize < 3) ? 11 : 8),
-				.delta = ((textSize < 2) ? 5 : (textSize < 3) ? 2 : 1),
-				.radius = ((textSize < 2) ? 8 : (textSize < 3) ? 7 : 3),
-			};
-		case 20:
-			return {
-				.size = 20,
-				.font = ((textSize < 2) ? 14 : (textSize < 3) ? 13 : 10),
-				.delta = ((textSize < 2) ? 6 : (textSize < 3) ? 2 : 1),
-				.radius = ((textSize < 2) ? 10 : (textSize < 3) ? 9 : 5),
-			};
-		case 24:
-			return {
-				.size = 24,
-				.font = ((textSize < 2) ? 17 : (textSize < 3) ? 16 : 12),
-				.delta = ((textSize < 2) ? 7 : (textSize < 3) ? 3 : 1),
-				.radius = ((textSize < 2) ? 12 : (textSize < 3) ? 11 : 6),
-			};
-		default:
-			return {
-				.size = 32,
-				.font = ((textSize < 2) ? 22 : (textSize < 3) ? 20 : 16),
-				.delta = ((textSize < 2) ? 9 : (textSize < 3) ? 4 : 2),
-				.radius = ((textSize < 2) ? 16 : (textSize < 3) ? 14 : 8),
-			};
-		}
-	}();
-
+	const auto size = args.size.value();
+	const auto count = args.count.value();
 	auto result = QImage(
-		QSize(d.size, d.size) * args.devicePixelRatio,
+		QSize(size, size) * args.devicePixelRatio,
 		QImage::Format_ARGB32);
 	result.setDevicePixelRatio(args.devicePixelRatio);
 	result.fill(Qt::transparent);
-
-	auto p = QPainter(&result);
-	auto hq = PainterHighQualityEnabler(p);
-	auto font = d.font;
-	auto f = style::font{ font, 0, 0 };
-	const auto height = f->height;
-	const auto skip = std::max(d.delta - 1, 1);
-	while (font > 1 && f->width(text) + d.delta + skip > d.size) {
-		f = style::font{ --font, 0, 0 };
+	if (count <= 0) {
+		return result;
 	}
-	const auto w = f->width(text);
-	const auto left = std::max(d.size - w - d.delta * 2, 0);
-	const auto radius = std::min(
-		d.radius * f->height / float64(height),
-		f->height / 2.);
 
-	p.setBrush(args.bg.value());
-	p.setPen(Qt::NoPen);
-	p.drawRoundedRect(
-		QRect(
-			left,
-			d.size - f->height,
-			d.size - left,
-			f->height),
-		radius,
-		radius);
-
-	p.setFont(f);
-	p.setPen(args.fg.value());
-	p.drawText(d.size - w - d.delta, d.size - f->height + f->ascent, text);
-	p.end();
+	const auto padding = std::max(size / 8, 1);
+	const auto height = std::min(size, (size * 7 + 7) / 8);
+	auto text = FormatUnreadCounterCompact(count);
+	const auto minimum = style::font{
+		std::max(size / 2, 1), style::FontFlag::Bold, 0 };
+	if (minimum->width(text) + 2 * padding > size) {
+		text = FormatUnreadCounterShort(count);
+	}
+	auto fontSize = std::max(size * 3 / 4, 1);
+	auto font = style::font{ fontSize, style::FontFlag::Bold, 0 };
+	while (fontSize > 1
+		&& (font->height > height || font->width(text) + 2 * padding > size)) {
+		font = style::font{ --fontSize, style::FontFlag::Bold, 0 };
+	}
+	const auto width = std::clamp(font->width(text) + 2 * padding,
+		height, size);
+	const auto rect = QRectF(size - width, size - height, width, height);
+	const auto radius = height / 4.;
+	auto painter = QPainter(&result);
+	auto quality = PainterHighQualityEnabler(painter);
+	painter.setBrush(args.bg.value());
+	painter.setPen(Qt::NoPen);
+	painter.drawRoundedRect(rect, radius, radius);
+	painter.setFont(font);
+	painter.setPen(args.fg.value());
+	painter.drawText(rect, Qt::AlignCenter, text);
+	painter.end();
 
 	return result;
 }

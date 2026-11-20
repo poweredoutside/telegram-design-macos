@@ -19,4 +19,7 @@ Uninstall preserves that folder and its contents.
 This installer has a separate AppId from the official app. An upgrade from
 Telegram macOS Design keeps the previous installation folder and account data,
 and creates Telega Desktop shortcuts. Setup closes only the copy being upgraded.
-The installer does not register Telegram URL protocols and is unsigned.
+The installer registers Telega Desktop as an option for `tg:`, `ton:` and
+`tonsite:` links for the current Windows user. It does not change the selected
+default app. After upgrading, unpin any old Telegram entry pointing to Telega
+and pin the new Telega Desktop shortcut instead. The installer is unsigned.

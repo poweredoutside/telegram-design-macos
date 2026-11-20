@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_saved_sublist.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "mainwidget.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -350,13 +351,16 @@ DateText ResolveDateText(
 		LastNow = now;
 		LastTodaySerial = int(QDate::currentDate().toJulianDay());
 	}
+	const auto withSeconds = Core::Telega::DisplayEnabled(
+		Core::Telega::DisplayOption::TimeWithSeconds);
+	const auto formatKey = LastTodaySerial * 2 + int(withSeconds);
 	if (cache.messageTimeId != date
-		|| cache.todaySerial != LastTodaySerial) {
+		|| cache.dateFormatKey != formatKey) {
 		const auto qdt = base::unixtime::parse(date);
 		cache.text = Ui::FormatDialogsDate(qdt);
 		cache.width = st::dialogsDateFont->width(cache.text);
 		cache.messageTimeId = date;
-		cache.todaySerial = LastTodaySerial;
+		cache.dateFormatKey = formatKey;
 	}
 	return { cache.text, cache.width };
 }

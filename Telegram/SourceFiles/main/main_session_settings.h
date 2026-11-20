@@ -34,6 +34,13 @@ public:
 	[[nodiscard]] QByteArray serialize() const;
 	void addFromSerialized(const QByteArray &serialized, int writerVersion);
 
+	[[nodiscard]] const QByteArray &telegaFeed() const {
+		return _telegaFeed;
+	}
+	void setTelegaFeed(QByteArray value) {
+		_telegaFeed = std::move(value);
+	}
+
 	void setSupportSwitch(Support::SwitchSettings value) {
 		_supportSwitch = value;
 	}
@@ -256,6 +263,7 @@ private:
 	rpl::variable<bool> _phoneNumberHidden = false;
 
 	std::vector<Data::ReactionId> _extraFavoriteReactions;
+	QByteArray _telegaFeed;
 
 };
 

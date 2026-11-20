@@ -46,6 +46,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_text_drop.h"
 #include "window/window_history_hider.h"
 #include "window/window_controller.h"
+#include "info/info_section_widget.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller_link_info.h"
 #include "window/themes/window_theme.h"
@@ -1878,6 +1879,10 @@ bool MainWidget::saveSectionInStack(
 	return true;
 }
 
+bool MainWidget::showMacSettings() {
+	return _dialogs && _dialogs->showMacSettings();
+}
+
 void MainWidget::showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
@@ -1890,6 +1895,7 @@ void MainWidget::showSection(
 		if (const auto entry = _mainSection->activeChat(); entry.key) {
 			_controller->setActiveChatEntry(entry);
 		}
+		updateMainSectionShown();
 		return;
 	//
 	// Now third section handles only its own showSection() requests.
@@ -2165,7 +2171,7 @@ void MainWidget::showNewSection(
 }
 
 void MainWidget::checkMainSectionToLayer() {
-	if (!_mainSection) {
+	if (!_mainSection || (_dialogs && _dialogs->macSettingsShown())) {
 		return;
 	}
 	Ui::FocusPersister persister(this);
@@ -2684,6 +2690,12 @@ void MainWidget::resizeEvent(QResizeEvent *e) {
 
 void MainWidget::updateMainSectionShown() {
 	_controller->setMainSectionShown(_mainSection || _history->peer());
+	if (_dialogs && _dialogs->macSettingsShown()) {
+		const auto info = dynamic_cast<Info::SectionWidget*>(_mainSection.get());
+		if (!info || !info->isSettings()) {
+			_dialogs->hideMacSettings();
+		}
+	}
 }
 
 void MainWidget::updateControlsGeometry() {
@@ -3149,6 +3161,7 @@ void MainWidget::handleAdaptiveLayoutUpdate() {
 
 void MainWidget::handleHistoryBack() {
 	if (_mainSection && _mainSection->showBackInternal()) {
+		updateMainSectionShown();
 		return;
 	}
 	const auto openedFolder = _controller->openedFolder().current();

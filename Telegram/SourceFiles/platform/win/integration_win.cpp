@@ -167,6 +167,8 @@ void WindowsIntegration::setupTaskbarButtons(HWND window) {
 			window);
 	}
 	_taskbarButtons->buttonsCreated();
+	const auto widget = controller->widget();
+	InvokeQueued(widget, [=] { widget->updateWindowIcon(); });
 }
 
 bool WindowsIntegration::processEvent(

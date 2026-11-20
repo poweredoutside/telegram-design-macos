@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/update_checker.h"
 
+#include <QtCore/QSaveFile>
+
 #include "platform/platform_specific.h"
 #include "base/platform/base_platform_info.h"
 #include "base/platform/base_platform_file_utilities.h"
@@ -2089,8 +2091,31 @@ bool UpdateChecker::percent() const {
 //	return QString::fromWCharArray(errMsg);
 //}
 
+QString UpdateReleaseNotesUrl() {
+	return Updates::UsesMacosDesignFeed()
+		? QString::fromLatin1(kGithubReleasesPage)
+		: QString();
+}
+
 QString UpdateStagingPath() {
 	return UpdatesFolder() + u"/temp"_q;
+}
+
+bool InstallUpdatesOnRestart() {
+	return !Updates::UsesMacosDesignFeed()
+		|| !QFile::exists(cWorkingDir() + u"tdata/telega-update-manual"_q);
+}
+
+bool SetInstallUpdatesOnRestart(bool enabled) {
+	if (!Updates::UsesMacosDesignFeed()) {
+		return enabled;
+	}
+	const auto path = cWorkingDir() + u"tdata/telega-update-manual"_q;
+	if (enabled) {
+		return !QFile::exists(path) || QFile::remove(path);
+	}
+	auto file = QSaveFile(path);
+	return file.open(QIODevice::WriteOnly) && file.commit();
 }
 
 bool checkReadyUpdate() {

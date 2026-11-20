@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_inner_widget.h"
+#include "core/core_telega_preferences.h"
 
 #include "dialogs/dialogs_three_state_icon.h"
 #include "dialogs/ui/chat_search_empty.h"
@@ -325,6 +326,10 @@ InnerWidget::InnerWidget(
 	setAccessibleName(tr::lng_recent_chats(tr::now));
 
 	_communityViewable.setRepaint([=] { update(); });
+
+	Core::Telega::DisplayValue(
+		Core::Telega::DisplayOption::TimeWithSeconds
+	) | rpl::skip(1) | rpl::on_next([=] { update(); }, lifetime());
 
 	style::PaletteChanged(
 	) | rpl::on_next([=] {

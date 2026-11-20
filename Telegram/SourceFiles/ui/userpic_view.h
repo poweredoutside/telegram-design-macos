@@ -18,6 +18,8 @@ namespace Ui {
 
 class EmptyUserpic;
 
+void InitUserpicRounding(float64 radius, bool uniform);
+
 [[nodiscard]] float64 ForumUserpicRadiusMultiplier();
 
 struct CommunityUserpicEffect {

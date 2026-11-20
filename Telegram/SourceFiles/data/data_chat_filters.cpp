@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_chat_filters.h"
 
+#include "base/algorithm.h"
+
 #include "api/api_text_entities.h"
 #include "history/history.h"
 #include "data/data_peer.h"
@@ -886,6 +888,35 @@ void ChatFilters::saveOrder(
 	_saveOrderRequestId = api->request(MTPmessages_UpdateDialogFiltersOrder(
 		wrapped
 	)).afterRequest(_saveOrderAfterId).send();
+}
+
+void ChatFilters::saveReordered(
+		int oldPosition,
+		int newPosition,
+		bool hideAllChats) {
+	if (!_owner->session().user()->isPremium()) {
+		moveAllToFront();
+	}
+	auto order = std::vector<FilterId>();
+	order.reserve(_list.size());
+	auto allPosition = -1;
+	for (const auto &filter : _list) {
+		if (hideAllChats && !filter.id()) {
+			allPosition = int(order.size());
+		} else {
+			order.push_back(filter.id());
+		}
+	}
+	if (oldPosition < 0 || oldPosition >= order.size()
+		|| newPosition < 0 || newPosition >= order.size()
+		|| oldPosition == newPosition) {
+		return;
+	}
+	base::reorder(order, oldPosition, newPosition);
+	if (allPosition >= 0) {
+		order.insert(begin(order) + allPosition, FilterId());
+	}
+	saveOrder(order);
 }
 
 bool ChatFilters::archiveNeeded() const {

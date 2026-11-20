@@ -6,12 +6,17 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "platform/win/windows_app_user_model_id.h"
+#include "platform/win/windows_telega_resources.h"
 
 #include "platform/win/windows_dlls.h"
 #include "platform/win/windows_toast_activator.h"
+#include "platform/win/tray_win.h"
+#include "base/platform/win/base_windows_shlobj_h.h"
 #include "base/platform/win/base_windows_winrt.h"
 #include "core/launcher.h"
 
+#include <QtCore/QSettings>
+#include <QtCore/QStandardPaths>
 #include <propvarutil.h>
 #include <propkey.h>
 
@@ -20,15 +25,17 @@ namespace AppUserModelId {
 namespace {
 
 constexpr auto kMaxFileLen = MAX_PATH * 2;
+const auto kUninstallKey = u"HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\"
+	u"CurrentVersion\\Uninstall\\{AE8B9692-D9D9-43B0-B1C9-8923E9C75E2B}_is1"_q;
 
 const PROPERTYKEY pkey_AppUserModel_ID = { { 0x9F4C2855, 0x9F79, 0x4B39, { 0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3 } }, 5 };
 const PROPERTYKEY pkey_AppUserModel_StartPinOption = { { 0x9F4C2855, 0x9F79, 0x4B39, { 0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3 } }, 12 };
 const PROPERTYKEY pkey_AppUserModel_ToastActivator = { { 0x9F4C2855, 0x9F79, 0x4B39, { 0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3 } }, 26 };
 
 #ifdef OS_WIN_STORE
-const WCHAR AppUserModelIdBase[] = L"Telegram.TelegramDesktop.Store";
+const WCHAR AppUserModelIdBase[] = L"PoweredOutside.TelegaDesktop.Store";
 #else // OS_WIN_STORE
-const WCHAR AppUserModelIdBase[] = L"Telegram.TelegramDesktop";
+const WCHAR AppUserModelIdBase[] = L"PoweredOutside.TelegaDesktop";
 #endif // OS_WIN_STORE
 
 [[nodiscard]] QString PinnedIconsPath() {
@@ -207,13 +214,120 @@ QString systemShortcutPath() {
 	return QString();
 }
 
+bool IsInstalled() {
+	static const auto Installed = [] {
+		const auto dir = QSettings(kUninstallKey, QSettings::Registry64Format)
+			.value(u"InstallLocation"_q).toString();
+		const auto myid = MyExecutablePathId();
+		return !dir.isEmpty() && myid && (myid == GetUniqueFileId(
+			QDir(dir).filePath(u"Telegram.exe"_q).toStdWString().c_str()));
+	}();
+	return Installed;
+}
+
+QString fallbackShortcutName() {
+	return IsInstalled()
+		? u"Telega Desktop.lnk"_q
+		: u"Telega Desktop (Portable).lnk"_q;
+}
+
+void SetWindowRelaunchIcon(HWND window) {
+	const auto icon = Tray::ApplicationShortcutIconPath();
+	const auto executable = MyExecutablePath().c_str();
+	auto store = winrt::com_ptr<IPropertyStore>();
+	if (icon.isEmpty() || !*executable
+		|| FAILED(SHGetPropertyStoreForWindow(
+			window,
+			__uuidof(IPropertyStore),
+			store.put_void()))) {
+		return;
+	}
+	const auto command = L"\"" + std::wstring(executable) + L"\"";
+	const auto name = L"@" + std::wstring(executable) + L",-"
+		+ std::to_wstring(IDS_TELEGA_DESKTOP);
+	const auto resource = icon.toStdWString() + L",0";
+	const auto set = [&](const PROPERTYKEY &key, const std::wstring &value) {
+		auto property = PROPVARIANT();
+		if (FAILED(InitPropVariantFromString(value.c_str(), &property))) {
+			return false;
+		}
+		const auto result = SUCCEEDED(store->SetValue(key, property));
+		PropVariantClear(&property);
+		return result;
+	};
+	if (set(PKEY_AppUserModel_RelaunchCommand, command)
+		&& set(PKEY_AppUserModel_RelaunchDisplayNameResource, name)
+		&& set(PKEY_AppUserModel_RelaunchIconResource, resource)) {
+		set(Key(), Id());
+	}
+}
+
+void RefreshShortcutIcons() {
+	const auto myid = MyExecutablePathId();
+	if (!myid || !SUCCEEDED(CoInitialize(nullptr))) {
+		return;
+	}
+	const auto coGuard = gsl::finally([] { CoUninitialize(); });
+	const auto iconPath = Tray::ApplicationShortcutIconPath().toStdWString();
+	if (iconPath.empty()) {
+		return;
+	}
+	const auto update = [&](const QString &path) {
+		if (!QFile::exists(path)) {
+			return;
+		}
+		const auto link = base::WinRT::TryCreateInstance<IShellLink>(CLSID_ShellLink);
+		if (!link) {
+			return;
+		}
+		const auto file = link.try_as<IPersistFile>();
+		const auto native = QDir::toNativeSeparators(path).toStdWString();
+		auto target = std::array<WCHAR, kMaxFileLen>();
+		if (!file
+			|| !SUCCEEDED(file->Load(native.c_str(), STGM_READWRITE))
+			|| !SUCCEEDED(link->GetPath(target.data(), kMaxFileLen, nullptr, 0))
+			|| GetUniqueFileId(target.data()) != myid) {
+			return;
+		}
+		auto currentIcon = std::array<WCHAR, kMaxFileLen>();
+		auto index = int();
+		if (SUCCEEDED(link->GetIconLocation(currentIcon.data(), kMaxFileLen, &index))
+			&& !index && iconPath == currentIcon.data()) {
+			return;
+		}
+		if (SUCCEEDED(link->SetIconLocation(iconPath.c_str(), 0))
+			&& SUCCEEDED(file->Save(native.c_str(), TRUE))) {
+			SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, native.c_str(), nullptr);
+		}
+	};
+	if (const auto programs = systemShortcutPath(); !programs.isEmpty()) {
+		update(programs + fallbackShortcutName());
+		if (IsInstalled()) {
+			const auto group = QSettings(kUninstallKey, QSettings::Registry64Format)
+				.value(u"Inno Setup: Icon Group"_q, u"Telega Desktop"_q).toString();
+			update(QDir(programs + group).filePath(u"Telega Desktop.lnk"_q));
+		}
+	}
+	if (IsInstalled()) {
+		const auto desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+		if (!desktop.isEmpty()) {
+			update(QDir(desktop).filePath(u"Telega Desktop.lnk"_q));
+		}
+	}
+	if (const auto pinned = PinnedIconsPath(); !pinned.isEmpty()) {
+		for (const auto &link : QDir(pinned).entryInfoList({ u"*.lnk"_q }, QDir::Files)) {
+			update(link.absoluteFilePath());
+		}
+	}
+}
+
 void CleanupShortcut() {
 	const auto myid = MyExecutablePathId();
 	if (!myid) {
 		return;
 	}
 
-	QString path = systemShortcutPath() + u"Telegram.lnk"_q;
+	QString path = systemShortcutPath() + fallbackShortcutName();
 	std::wstring p = QDir::toNativeSeparators(path).toStdWString();
 
 	DWORD attributes = GetFileAttributes(p.c_str());
@@ -337,40 +451,19 @@ bool validateShortcutAt(const QString &path) {
 	return true;
 }
 
-bool checkInstalled(QString path = {}) {
-	if (path.isEmpty()) {
-		path = systemShortcutPath();
-		if (path.isEmpty()) {
-			return false;
-		}
-	}
-
-	const auto installed = u"Telegram Desktop/Telegram.lnk"_q;
-	const auto old = u"Telegram Win (Unofficial)/Telegram.lnk"_q;
-	return validateShortcutAt(path + installed)
-		|| validateShortcutAt(path + old);
-}
-
 bool ValidateShortcut() {
 	QString path = systemShortcutPath();
 	if (path.isEmpty() || cExeName().isEmpty()) {
 		return false;
 	}
 
-	if (cAlphaVersion()) {
-		path += u"TelegramAlpha.lnk"_q;
-		if (validateShortcutAt(path)) {
-			return true;
-		}
-	} else {
-		if (checkInstalled(path)) {
-			return true;
-		}
-
-		path += u"Telegram.lnk"_q;
-		if (validateShortcutAt(path)) {
-			return true;
-		}
+	if (IsInstalled()
+		&& validateShortcutAt(path + u"Telega Desktop/Telega Desktop.lnk"_q)) {
+		return true;
+	}
+	path += fallbackShortcutName();
+	if (validateShortcutAt(path)) {
+		return true;
 	}
 
 	auto shellLink = base::WinRT::TryCreateInstance<IShellLink>(
@@ -382,6 +475,9 @@ bool ValidateShortcut() {
 	auto hr = shellLink->SetPath(MyExecutablePath().c_str());
 	if (!SUCCEEDED(hr)) {
 		return false;
+	}
+	if (const auto icon = Tray::ApplicationShortcutIconPath(); !icon.isEmpty()) {
+		shellLink->SetIconLocation(icon.toStdWString().c_str(), 0);
 	}
 
 	hr = shellLink->SetArguments(L"");
@@ -468,28 +564,10 @@ bool ValidateShortcut() {
 
 const std::wstring &Id() {
 	static const auto BaseId = std::wstring(AppUserModelIdBase);
-	static auto CheckingInstalled = false;
-	if (CheckingInstalled) {
-		return BaseId;
-	}
-	static const auto Installed = [] {
 #ifdef OS_WIN_STORE
-		return true;
+	return BaseId;
 #else // OS_WIN_STORE
-		CheckingInstalled = true;
-		const auto guard = gsl::finally([] {
-			CheckingInstalled = false;
-		});
-		if (!SUCCEEDED(CoInitialize(nullptr))) {
-			return false;
-		}
-		const auto coGuard = gsl::finally([] {
-			CoUninitialize();
-		});
-		return checkInstalled();
-#endif
-	}();
-	if (Installed) {
+	if (IsInstalled()) {
 		return BaseId;
 	}
 	static const auto PortableId = [] {
@@ -497,6 +575,7 @@ const std::wstring &Id() {
 		return BaseId + L'.' + std::wstring(h.begin(), h.end());
 	}();
 	return PortableId;
+#endif // OS_WIN_STORE
 }
 
 const PROPERTYKEY &Key() {

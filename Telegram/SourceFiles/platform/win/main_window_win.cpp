@@ -10,6 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/platform_specific.h"
 #include "platform/platform_notifications_manager.h"
 #include "platform/win/tray_win.h"
+#include "platform/win/windows_app_user_model_id.h"
+#include "platform/win/windows_title_controls.h"
 #include "platform/win/windows_dlls.h"
 #include "platform/win/integration_win.h"
 #include "window/notifications_manager.h"
@@ -26,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/localstorage.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/ui_utility.h"
+#include "ui/platform/win/ui_window_title_win.h"
 #include "window/themes/window_theme.h"
 #include "window/window_controller.h"
 #include "history/history.h"
@@ -64,6 +67,7 @@ namespace {
 // if the application was deactivated less than 0.5s ago, then the tray
 // icon click (both left or right button) was made from the active app.
 constexpr auto kKeepActiveForTrayIcon = crl::time(500);
+constexpr auto kTitleControlsOnRight = "telega.appearance.title-controls-right";
 
 using namespace Microsoft::WRL;
 
@@ -143,7 +147,7 @@ struct RealSize {
 	auto result = QImage(size, QImage::Format_RGB32);
 	result.fill(st::windowBg->c);
 
-	const auto logo = Window::Logo();
+	const auto &logo = Window::ApplicationLogo();
 	const auto width = size.width();
 	const auto height = size.height();
 	const auto side = logo.width();
@@ -390,6 +394,7 @@ MainWindow::MainWindow(not_null<Window::Controller*> controller)
 
 	setupNativeWindowFrame();
 	setTitleStyle(st::macDesktopTitle);
+	Ui::Platform::SetTitleControlsOnRight(TitleControlsOnRight());
 
 	SetWindowPriority(this, controller->isPrimary() ? 2 : 1);
 
@@ -401,6 +406,15 @@ MainWindow::MainWindow(not_null<Window::Controller*> controller)
 	}, lifetime());
 
 	setupPreviewPasscodeLock();
+}
+
+bool TitleControlsOnRight() {
+	return Core::App().settings().readPref<bool>(kTitleControlsOnRight);
+}
+
+void SetTitleControlsOnRight(bool right) {
+	Core::App().settings().writePref<bool>(kTitleControlsOnRight, right);
+	Ui::Platform::SetTitleControlsOnRight(right);
 }
 
 void MainWindow::setupPreviewPasscodeLock() {
@@ -613,30 +627,29 @@ void MainWindow::updateTaskbarAndIconCounters() {
 		GetSystemMetrics(SM_CXICON),
 		GetSystemMetrics(SM_CYICON));
 	const auto supportMode = session && session->supportMode();
+	const auto taskbarList = WindowsIntegration::Instance().taskbarList();
+	const auto iconCounter = taskbarList ? 0 : counter;
 
 	auto iconSmallPixmap16 = Tray::IconWithCounter(
-		Tray::CounterLayerArgs(16, counter, muted),
+		Tray::CounterLayerArgs(16, iconCounter, muted),
 		true,
 		false,
 		supportMode);
 	auto iconSmallPixmap32 = Tray::IconWithCounter(
-		Tray::CounterLayerArgs(32, counter, muted),
+		Tray::CounterLayerArgs(32, iconCounter, muted),
 		true,
 		false,
 		supportMode);
 	QIcon iconSmall, iconBig;
 	iconSmall.addPixmap(iconSmallPixmap16);
 	iconSmall.addPixmap(iconSmallPixmap32);
-	const auto integration = &Platform::WindowsIntegration::Instance();
-	const auto taskbarList = integration->taskbarList();
-	const auto bigCounter = taskbarList ? 0 : counter;
 	iconBig.addPixmap(Tray::IconWithCounter(
-		Tray::CounterLayerArgs(32, bigCounter, muted),
+		Tray::CounterLayerArgs(32, iconCounter, muted),
 		false,
 		false,
 		supportMode));
 	iconBig.addPixmap(Tray::IconWithCounter(
-		Tray::CounterLayerArgs(64, bigCounter, muted),
+		Tray::CounterLayerArgs(64, iconCounter, muted),
 		false,
 		false,
 		supportMode));
@@ -648,14 +661,9 @@ void MainWindow::updateTaskbarAndIconCounters() {
 	SendMessage(_hWnd, WM_SETICON, ICON_BIG, (LPARAM)(_iconBig ? _iconBig : _iconSmall));
 	if (taskbarList) {
 		if (counter > 0) {
-			const auto pixmap = [&](int size) {
-				return Ui::PixmapFromImage(Window::GenerateCounterLayer(
-					Tray::CounterLayerArgs(size, counter, muted)));
-			};
-			QIcon iconOverlay;
-			iconOverlay.addPixmap(pixmap(16));
-			iconOverlay.addPixmap(pixmap(32));
-			_iconOverlay = NativeIcon(iconOverlay, iconSizeSmall);
+			const auto pixmap = Ui::PixmapFromImage(Window::GenerateCounterLayer(
+				Tray::CounterLayerArgs(iconSizeSmall.width(), counter, muted)));
+			_iconOverlay = qt_pixmapToWinHICON(pixmap);
 		}
 		const auto description = (counter > 0)
 			? tr::lng_unread_bar(tr::now, lt_count, counter).toStdWString()
@@ -671,6 +679,7 @@ void MainWindow::initHook() {
 		return;
 	}
 
+	AppUserModelId::SetWindowRelaunchIcon(_hWnd);
 	WTSRegisterSessionNotification(_hWnd, NOTIFY_FOR_THIS_SESSION);
 
 	using namespace base::Platform;

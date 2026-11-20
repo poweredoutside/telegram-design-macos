@@ -57,7 +57,7 @@ extern const char kOptionDialogsUnreadOnTop[];
 struct DateTextCache {
 	QString text;
 	TimeId messageTimeId = 0;
-	int todaySerial = 0;
+	int dateFormatKey = 0;
 	int width = 0;
 };
 

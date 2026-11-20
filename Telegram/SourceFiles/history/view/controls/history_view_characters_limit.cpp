@@ -51,7 +51,8 @@ CharactersLimitLabel::CharactersLimitLabel(
 }
 
 void CharactersLimitLabel::setLeft(int value) {
-	const auto orderChanged = (CountDigits(value) != CountDigits(_lastValue));
+	const auto orderChanged = ((value > 0) != (_lastValue > 0))
+		|| (CountDigits(value) != CountDigits(_lastValue));
 	_lastValue = value;
 
 	if (value > 0) {

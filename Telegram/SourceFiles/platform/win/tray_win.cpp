@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <private/qhighdpiscaling_p.h>
 #include <QSvgRenderer>
 #include <QBuffer>
+#include <QtCore/QCryptographicHash>
 
 namespace Platform {
 
@@ -128,10 +129,9 @@ bool DarkTasbarValueValid/* = false*/;
 		}
 		return scaled.emplace(
 			args.size,
-			(smallIcon
-				? Window::LogoNoMargin()
-				: Window::Logo()
-			).scaledToWidth(args.size, Qt::SmoothTransformation)
+			Window::ApplicationLogo(smallIcon).scaledToWidth(
+				args.size,
+				Qt::SmoothTransformation)
 		).first->second;
 	}();
 	if ((!monochrome || !darkMode) && supportMode) {
@@ -139,19 +139,16 @@ bool DarkTasbarValueValid/* = false*/;
 	}
 	if (!args.count) {
 		return result;
-	} else if (smallIcon) {
-		if (monochrome && darkMode) {
-			return MonochromeWithDot(std::move(result), args.bg);
-		}
-		return Window::WithSmallCounter(std::move(result), std::move(args));
+	} else if (smallIcon && monochrome && darkMode) {
+		return MonochromeWithDot(std::move(result), args.bg);
 	}
-	QPainter p(&result);
-	const auto half = args.size / 2;
-	args.size = half;
-	p.drawPixmap(
-		half,
-		half,
-		Ui::PixmapFromImage(Window::GenerateCounterLayer(std::move(args))));
+	const auto size = args.size.value();
+	const auto badge = smallIcon ? size : (size * 3 / 4);
+	args.size = badge;
+	auto painter = QPainter(&result);
+	painter.drawImage(size - badge, size - badge,
+		Window::GenerateCounterLayer(std::move(args)));
+	painter.end();
 	return result;
 }
 
@@ -400,6 +397,29 @@ void WriteIco(const QString &path, std::vector<QImage> images) {
 	if (f.open(QIODevice::WriteOnly)) {
 		f.write(buffer);
 	}
+}
+
+QString Tray::ApplicationShortcutIconPath() {
+	static const auto Path = [] {
+		const auto &image = Window::ApplicationLogo();
+		const auto pixels = QByteArrayView(
+			reinterpret_cast<const char*>(image.constBits()),
+			image.sizeInBytes());
+		const auto hash = QCryptographicHash::hash(
+			pixels,
+			QCryptographicHash::Sha256).toHex().left(16);
+		const auto path = cWorkingDir() + u"tdata/telega-icons/%1.ico"_q
+			.arg(QString::fromLatin1(hash));
+		if (!QFile::exists(path)) {
+			auto images = std::vector<QImage>();
+			for (const auto size : { 16, 24, 32, 48, 64, 128, 256 }) {
+				images.push_back(image.scaledToWidth(size, Qt::SmoothTransformation));
+			}
+			WriteIco(path, std::move(images));
+		}
+		return QFile::exists(path) ? QDir::toNativeSeparators(path) : QString();
+	}();
+	return Path;
 }
 
 QString Tray::QuitJumpListIconPath() {

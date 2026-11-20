@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_inner_widget_accessibility.h"
+#include "core/core_telega_preferences.h"
 
 #include "base/unixtime.h"
 #include "data/data_document.h"
@@ -290,7 +291,7 @@ QString MessageAccessibilityName(
 	statusParts.push_back(
 		tr::lng_schedule_at(tr::now)
 		+ u" "_q
-		+ QLocale().toString(dateTime.time(), QLocale::ShortFormat));
+		+ Core::Telega::FormatTime(dateTime.time()));
 	if (const auto views = item->Get<HistoryMessageViews>()) {
 		if (views->views.count >= 0) {
 			statusParts.push_back(
@@ -695,7 +696,7 @@ QString MessageSubItemValue(
 		const auto dateTime = view->dateTime();
 		return tr::lng_schedule_at(tr::now)
 			+ u" "_q
-			+ QLocale().toString(dateTime.time(), QLocale::ShortFormat);
+			+ Core::Telega::FormatTime(dateTime.time());
 	}
 	case MessageSubItem::Reactions: {
 		const auto &reactions = data->reactions();
@@ -1065,7 +1066,7 @@ QString MessageSubItemValue(
 		}
 		if (fwd->originalDate) {
 			const auto dt = base::unixtime::parse(fwd->originalDate);
-			return QLocale().toString(dt, QLocale::ShortFormat);
+			return Ui::FormatDateTimeSavedFrom(dt);
 		}
 		return {};
 	}

@@ -97,6 +97,7 @@ QByteArray SessionSettings::serialize() const {
 		size += sizeof(quint64) + Serialize::stringSize(id.emoji());
 	}
 	size += sizeof(qint32); // _stashHintShowsCount
+	size += Serialize::bytearraySize(_telegaFeed);
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -190,6 +191,7 @@ QByteArray SessionSettings::serialize() const {
 			stream << quint64(id.custom()) << id.emoji();
 		}
 		stream << qint32(_stashHintShowsCount);
+		stream << _telegaFeed;
 	}
 
 	Ensures(result.size() == size);
@@ -270,6 +272,7 @@ void SessionSettings::addFromSerialized(
 	qint32 phoneNumberHidden = 0;
 	std::vector<Data::ReactionId> extraFavoriteReactions;
 	qint32 stashHintShowsCount = 0;
+	auto telegaFeed = QByteArray();
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -755,6 +758,9 @@ void SessionSettings::addFromSerialized(
 	if (!stream.atEnd()) {
 		stream >> stashHintShowsCount;
 	}
+	if (!stream.atEnd()) {
+		stream >> telegaFeed;
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -822,6 +828,7 @@ void SessionSettings::addFromSerialized(
 	_phoneNumberHidden = (phoneNumberHidden == 1);
 	_extraFavoriteReactions = std::move(extraFavoriteReactions);
 	_stashHintShowsCount = stashHintShowsCount;
+	_telegaFeed = std::move(telegaFeed);
 
 	if (version < 2) {
 		app.setLastSeenWarningSeen(appLastSeenWarningSeen == 1);

@@ -13,10 +13,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/abstract_button.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
+#include "ui/unread_counter_format.h"
 #include "window/themes/window_theme_glass.h"
 
 #include <rpl/combine.h>
-#include <QtCore/QLocale>
 #include <QtCore/QVariant>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QMouseEvent>
@@ -67,27 +67,6 @@ namespace {
 		bar.y() + inset,
 		width + (nextWidth - width) * progress,
 		std::max(0, bar.height() - 2 * inset));
-}
-
-[[nodiscard]] QString UnreadCountText(int count) {
-	if (count <= 0) {
-		return {};
-	}
-	for (const auto &[divider, suffix] : {
-		std::pair(1'000'000'000, QChar('B')),
-		std::pair(1'000'000, QChar('M')),
-		std::pair(1'000, QChar('K')),
-	}) {
-		if (count >= divider) {
-			const auto tenths = count / (divider / 10);
-			return QString::number(tenths / 10)
-				+ (tenths % 10
-					? QLocale().decimalPoint() + QString::number(tenths % 10)
-					: QString())
-				+ suffix;
-		}
-	}
-	return QString::number(count);
 }
 
 class NavigationButton final : public Ui::AbstractButton {
@@ -158,7 +137,7 @@ NavigationButton::NavigationButton(
 	setFocusPolicy(Qt::StrongFocus);
 	setIsPageTab(true);
 	std::move(unreadCount) | rpl::on_next([=](int count) {
-		_badge = UnreadCountText(count);
+		_badge = FormatUnreadCounterCompact(count);
 		update();
 	}, lifetime());
 	std::move(label) | rpl::on_next([=](const QString &text) {
@@ -302,11 +281,14 @@ NavigationBar::NavigationBar(
 		u":/animations/macos/tab_chats.tgs"_q);
 	add(NavigationAction::Settings, tr::lng_menu_settings(), st::macSettingsIcon,
 		u":/animations/macos/tab_settings.tgs"_q);
-	paintRequest() | rpl::on_next([=] {
+	paintRequest() | rpl::on_next([=](QRect clip) {
+		const auto bar = BarGeometry(size());
+		if (!clip.intersects(bar)) {
+			return;
+		}
 		auto p = QPainter(this);
 		const auto glass = Window::Theme::GlassStyle();
-		const auto bar = BarGeometry(size());
-		const auto background = (glass.enabled && backdrop && !bar.isEmpty())
+		const auto background = (glass.enabled && glass.opacity < 100 && backdrop)
 			? backdrop(bar)
 			: QImage();
 		Ui::PaintLiquidGlass(

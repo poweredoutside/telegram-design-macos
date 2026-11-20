@@ -38,6 +38,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/click_handler_types.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/shortcuts.h"
 #include "core/ui_integration.h"
 #include "data/components/ephemeral_messages.h"
@@ -219,7 +220,8 @@ public:
 	FieldHeader(
 		QWidget *parent,
 		std::shared_ptr<ChatHelpers::Show> show,
-		Fn<bool()> hasSendText);
+		Fn<bool()> hasSendText,
+		Fn<bool(QPainter&)> paintGlass);
 
 	void setHistory(const SetHistoryArgs &args);
 	void updateTopicRootId(MsgId topicRootId);
@@ -312,6 +314,7 @@ private:
 
 	const std::shared_ptr<ChatHelpers::Show> _show;
 	const Fn<bool()> _hasSendText;
+	const Fn<bool(QPainter&)> _paintGlass;
 
 	History *_history = nullptr;
 	MsgId _topicRootId = 0;
@@ -362,12 +365,14 @@ private:
 };
 
 FieldHeader::FieldHeader(
-	QWidget *parent,
-	std::shared_ptr<ChatHelpers::Show> show,
-	Fn<bool()> hasSendText)
+		QWidget *parent,
+		std::shared_ptr<ChatHelpers::Show> show,
+		Fn<bool()> hasSendText,
+		Fn<bool(QPainter&)> paintGlass)
 : RpWidget(parent)
 , _show(std::move(show))
 , _hasSendText(std::move(hasSendText))
+, _paintGlass(std::move(paintGlass))
 , _forwardPanel(
 	std::make_unique<ForwardPanel>([=] { customEmojiRepaint(); }))
 , _data(&_show->session().data())
@@ -414,7 +419,9 @@ void FieldHeader::init() {
 	) | rpl::on_next([=] {
 		Painter p(this);
 		p.setInactive(_show->paused(Window::GifPauseReason::Any));
-		p.fillRect(rect(), st::historyComposeAreaBg);
+		if (!_paintGlass(p)) {
+			p.fillRect(rect(), st::historyComposeAreaBg);
+		}
 
 		const auto position = st::historyReplyIconPosition;
 		if (_suggestOptions) {
@@ -1295,7 +1302,8 @@ ComposeControls::ComposeControls(
 , _header(std::make_unique<FieldHeader>(
 	_wrap.get(),
 	_show,
-	[=] { return _field->isVisible() && HasSendText(_field); }))
+	[=] { return _field->isVisible() && HasSendText(_field); },
+	[=](QPainter &painter) { return paintFloatingHeader(painter); }))
 , _voiceRecordBar(std::make_unique<VoiceRecordBar>(
 	_wrap.get(),
 	Controls::VoiceRecordBarDescriptor{
@@ -2940,7 +2948,7 @@ void ComposeControls::init() {
 	) | rpl::on_next([=](QRect clip) {
 		auto p = QPainter(_wrap.get());
 		if (usesFloatingInput() && !_recording.current()) {
-			paintFloatingInput(p);
+			paintFloatingInput(p, clip);
 		} else {
 			paintBackground(p, _wrap->rect(), clip);
 		}
@@ -3307,6 +3315,8 @@ void ComposeControls::initField() {
 		updateExpandButtonVisibility();
 		updateSendLockBadge();
 	}, _wrap->lifetime());
+	Core::Telega::DisplayValue(Core::Telega::DisplayOption::CountCharacters)
+	| rpl::skip(1) | rpl::on_next([=] { checkCharsLimitation(); }, _wrap->lifetime());
 #ifdef Q_OS_MAC
 	// Removed an ability to insert text from the menu bar
 	// when the field is hidden.
@@ -4192,6 +4202,7 @@ void ComposeControls::initSendButton() {
 	if (usesFloatingInput()) {
 		Window::Theme::GlassStyleValue() | rpl::on_next([=] {
 			_wrap->update();
+			_header->update();
 		}, _wrap->lifetime());
 	}
 }
@@ -4253,7 +4264,9 @@ void ComposeControls::initSendAsButton(
 		),
 		(videoStream
 			? rpl::single(true)
-			: Data::CanSendAnythingValue(key.peer, false))
+			: Data::CanSendAnythingValue(key.peer, false)),
+		(videoStream ? rpl::single(false) : Core::Telega::DisplayValue(
+			Core::Telega::DisplayOption::HideSendAs))
 	) | rpl::skip(1) | rpl::on_next([=] {
 		if (updateSendAsButton(videoStream)) {
 			updateControlsVisibility();
@@ -5782,6 +5795,8 @@ bool ComposeControls::updateSendAsButton(
 	if (!_features.sendAs
 		|| !peer
 		|| isEditingMessage()
+		|| (!videoStream && Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::HideSendAs))
 		|| !session().sendAsPeers().shouldChoose({ peer, type })) {
 		if (!_sendAs) {
 			return false;
@@ -5855,7 +5870,39 @@ bool ComposeControls::sendButtonInField() const {
 			|| _send->type() == Type::Schedule);
 }
 
-void ComposeControls::paintFloatingInput(QPainter &p) {
+bool ComposeControls::paintFloatingHeader(QPainter &painter) {
+	const auto glass = Window::Theme::GlassStyle();
+	if (!usesFloatingInput() || !glass.enabled || !_regularWindow || !_header) {
+		return false;
+	}
+	const auto edge = st::historyComposeMacInset;
+	const auto area = _header->rect().marginsRemoved({ edge, 0, edge, 0 });
+	if (area.isEmpty()) {
+		return false;
+	}
+	auto background = QImage();
+	if (glass.opacity < 100) {
+		const auto ratio = (glass.blur > 0) ? 1. : _wrap->devicePixelRatioF();
+		background = QImage(area.size() * ratio, QImage::Format_ARGB32_Premultiplied);
+		background.setDevicePixelRatio(ratio);
+		background.fill(Qt::transparent);
+		auto sample = QPainter(&background);
+		const auto content = _regularWindow->content();
+		const auto from = content->backgroundFromY() - _wrap->y() - _header->y();
+		sample.translate(-area.x(), from - area.y());
+		Window::SectionWidget::PaintBackground(
+			sample,
+			_regularWindow->currentChatTheme(),
+			QSize(_wrap->width(), content->height()),
+			area.translated(0, -from),
+			_regularWindow->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+	}
+	Ui::PaintLiquidGlass(painter, area, background, _st.bg->c, glass,
+		st::historyComposeMacRadius, &_replyGlass);
+	return true;
+}
+
+void ComposeControls::paintFloatingInput(QPainter &p, QRect clip) {
 	const auto glass = Window::Theme::GlassStyle();
 	const auto outside = _starsReaction
 		? _starsReaction->width() + _st.starsSkip : 0;
@@ -5869,10 +5916,10 @@ void ComposeControls::paintFloatingInput(QPainter &p) {
 		std::max(0, _wrap->width() - logicalLeft - right),
 		composeFieldHeight());
 	const auto backdropFor = [&](QRect area) {
-		if (!glass.enabled || !_regularWindow || area.isEmpty()) {
+		if (!glass.enabled || glass.opacity >= 100 || !_regularWindow || area.isEmpty()) {
 			return QImage();
 		}
-		const auto ratio = _wrap->devicePixelRatioF();
+		const auto ratio = (glass.blur > 0) ? 1. : _wrap->devicePixelRatioF();
 		auto image = QImage(
 			area.size() * ratio,
 			QImage::Format_ARGB32_Premultiplied);
@@ -5890,27 +5937,31 @@ void ComposeControls::paintFloatingInput(QPainter &p) {
 			_regularWindow->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 		return image;
 	};
-	const auto paint = [&](QRect area) {
+	const auto paint = [&](QRect area, Ui::LiquidGlassBackdropCache &cache) {
+		if (!clip.intersects(area)) {
+			return;
+		}
 		Ui::PaintLiquidGlass(
 			p,
 			area,
 			backdropFor(area),
 			_st.bg->c,
 			glass,
-			st::historyComposeMacRadius);
+			st::historyComposeMacRadius,
+			&cache);
 	};
-	paint(fieldRect);
+	paint(fieldRect, _fieldGlass);
 	if (_attachToggle) {
-		paint(_attachToggle->geometry());
+		paint(_attachToggle->geometry(), _attachmentGlass);
 	}
 	if (!sendButtonInField() && !_send->isHidden()) {
-		paint(_send->geometry());
+		paint(_send->geometry(), _sendGlass);
 	}
 	if (_botMenu && !_botMenu->isHidden()) {
-		paint(_botMenu->geometry());
+		paint(_botMenu->geometry(), _botMenuGlass);
 	}
 	if (_commentsShown && !_commentsShown->isHidden()) {
-		paint(_commentsShown->geometry());
+		paint(_commentsShown->geometry(), _commentsGlass);
 	}
 }
 
@@ -6212,6 +6263,15 @@ void ComposeControls::replyToMessage(FullReplyTo id) {
 	if (!id) {
 		cancelReplyMessage();
 		return;
+	}
+	if (id.quote.empty() && Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::QuoteReplies)) {
+		const auto item = session().data().message(id.messageId);
+		const auto limit = session().appConfig().quoteLengthMax();
+		if (item && item->allowsForward() && limit > 0) {
+			id.quote = Ui::Text::Mid(item->originalText(), 0, limit);
+			id.quoteOffset = 0;
+		}
 	}
 	if (isEditingMessage()) {
 		const auto key = draftKey(DraftType::Normal);
@@ -6777,24 +6837,29 @@ TextWithEntities ComposeControls::prepareTextForEditMsg() const {
 }
 
 void ComposeControls::checkCharsLimitation() {
-	if (!_history || !isEditingMessage()) {
+	const auto showCount = Core::Telega::DisplayEnabled(
+		Core::Telega::DisplayOption::CountCharacters);
+	const auto editing = isEditingMessage();
+	if (!_history || (!editing && !showCount)) {
 		_charsLimitation = nullptr;
 		return;
 	}
-	const auto item = _history->owner().message(_header->editMsgId());
-	if (!item) {
+	const auto item = editing
+		? _history->owner().message(_header->editMsgId())
+		: nullptr;
+	if (editing && !item) {
 		_charsLimitation = nullptr;
 		return;
 	}
-	const auto hasMediaWithCaption = item->media()
+	const auto hasMediaWithCaption = item && item->media()
 		&& item->media()->allowsEditCaption();
 	const auto limits = Data::PremiumLimits(&session());
 	const auto maxTextSize = hasMediaWithCaption
 		? limits.captionLengthCurrent()
 		: limits.messageLengthCurrent();
-	const auto remove = Ui::ComputeFieldCharacterCount(_field)
-		- maxTextSize;
-	if (remove > 0) {
+	const auto count = Ui::ComputeFieldCharacterCount(_field);
+	const auto remove = count - maxTextSize;
+	if (remove > 0 || (showCount && count > 0)) {
 		if (!_charsLimitation) {
 			using namespace Controls;
 			_charsLimitation = base::make_unique_q<CharactersLimitLabel>(
@@ -6803,7 +6868,7 @@ void ComposeControls::checkCharsLimitation() {
 				style::al_bottom);
 			_charsLimitation->show();
 		}
-		_charsLimitation->setLeft(remove);
+		_charsLimitation->setLeft(remove > 0 ? remove : -count);
 	} else {
 		_charsLimitation = nullptr;
 	}

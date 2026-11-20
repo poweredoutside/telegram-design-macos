@@ -122,6 +122,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer_values.h"
 #include "dialogs/dialogs_key.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
+#include "main/session/send_as_peers.h"
+#include "ui/chat/choose_send_as.h"
 #include "core/ui_integration.h"
 #include "export/export_manager.h"
 #include "boxes/peers/edit_participants_box.h"
@@ -328,6 +331,7 @@ private:
 	void addBlockUser();
 	void addBanFromChannel();
 	void addViewDiscussion();
+	void addMessageSendAs();
 	void addDirectMessages();
 	void addToggleTopicClosed();
 	void addExportChat();
@@ -1042,6 +1046,19 @@ void Filler::addViewDiscussion() {
 			chat,
 			Window::SectionShow::Way::Forward);
 	}, &st::menuIconDiscussion);
+}
+
+void Filler::addMessageSendAs() {
+	if (_peer
+		&& Core::Telega::DisplayEnabled(Core::Telega::DisplayOption::HideSendAs)
+		&& _peer->session().sendAsPeers().shouldChoose({ _peer, Main::SendAsType::Message })) {
+		_addAction(tr::lng_send_as_title(tr::now), [peer = _peer, controller = _controller] {
+			Ui::ShowMessageSendAsBox(
+				peer,
+				st::defaultComposeControls.chooseSendAs,
+				controller->uiShow());
+		}, &st::menuIconUsername);
+	}
 }
 
 void Filler::addDirectMessages() {
@@ -1937,6 +1954,7 @@ void Filler::fillContextMenuActions() {
 
 void Filler::fillHistoryActions() {
 	addToggleMuteSubmenu(true);
+	addMessageSendAs();
 	addCreateTopic();
 	addInfo();
 	addViewAsTopics();
@@ -1989,6 +2007,7 @@ void Filler::fillProfileActions() {
 }
 
 void Filler::fillRepliesActions() {
+	addMessageSendAs();
 	if (_topic) {
 		addInfo();
 		addManageTopic();

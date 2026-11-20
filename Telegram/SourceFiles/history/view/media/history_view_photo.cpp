@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_photo.h"
+#include "core/core_telega_preferences.h"
 
 #include "boxes/send_credits_box.h"
 #include "history/history_item_components.h"
@@ -375,8 +376,9 @@ QSize Photo::countCurrentSize(int newWidth) {
 		; !forced.isEmpty()) {
 		return forced;
 	}
-	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
-	const auto thumbMaxWidth = hostedInstantView
+	const auto widePost = Core::Telega::IsWideChannelPost(_parent->data());
+	const auto fullWidth = IsHostedInstantViewMedia(_parent) || widePost;
+	const auto thumbMaxWidth = fullWidth
 		? std::max(newWidth, 1)
 		: std::min(newWidth, st::maxMediaSize);
 	const auto minWidth = std::clamp(
@@ -386,7 +388,7 @@ QSize Photo::countCurrentSize(int newWidth) {
 			: st::minPhotoSize),
 		thumbMaxWidth);
 	const auto dimensions = photoSize();
-	const auto desired = PhotoDesiredMediaSize(dimensions, hostedInstantView);
+	const auto desired = PhotoDesiredMediaSize(dimensions, fullWidth);
 	auto pix = _data->extendedMediaVideoDuration()
 		? CountMediaSize(
 			desired,
@@ -394,7 +396,7 @@ QSize Photo::countCurrentSize(int newWidth) {
 		: CountPhotoMediaSize(
 			desired,
 			newWidth,
-			hostedInstantView ? newWidth : maxWidth());
+			fullWidth ? newWidth : maxWidth());
 	newWidth = std::max(pix.width(), minWidth);
 	auto newHeight = std::max(pix.height(), st::minPhotoSize);
 	if (_parent->hasBubble()) {
@@ -415,7 +417,7 @@ QSize Photo::countCurrentSize(int newWidth) {
 				{ newWidth, newHeight });
 		}
 	}
-	if (newWidth >= maxWidth()) {
+	if (!widePost && newWidth >= maxWidth()) {
 		newHeight = std::min(newHeight, minHeight());
 	}
 	_enlarge = Enlarge::Create(this, newWidth, newHeight);

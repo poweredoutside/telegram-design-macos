@@ -59,6 +59,7 @@ public:
 		bool smallIcon,
 		bool monochrome,
 		bool supportMode);
+	[[nodiscard]] static QString ApplicationShortcutIconPath();
 	[[nodiscard]] static QString QuitJumpListIconPath();
 
 private:

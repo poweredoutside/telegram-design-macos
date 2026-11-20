@@ -36,6 +36,11 @@ namespace Ui {
 
 class SendAsButton;
 
+void ShowMessageSendAsBox(
+	not_null<PeerData*> peer,
+	const style::ChooseSendAs &st,
+	std::shared_ptr<ChatHelpers::Show> show);
+
 void ChooseSendAsBox(
 	not_null<GenericBox*> box,
 	const style::ChooseSendAs &st,

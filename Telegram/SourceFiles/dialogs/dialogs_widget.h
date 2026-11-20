@@ -118,6 +118,9 @@ public:
 		not_null<Data::Forum*> forum,
 		const Window::SectionShow &params);
 	void setInnerFocus(bool unfocusSearch = false);
+	[[nodiscard]] bool showMacSettings();
+	[[nodiscard]] bool macSettingsShown() const;
+	void hideMacSettings();
 	[[nodiscard]] bool searchHasFocus() const;
 
 	[[nodiscard]] Data::Forum *openedForum() const;

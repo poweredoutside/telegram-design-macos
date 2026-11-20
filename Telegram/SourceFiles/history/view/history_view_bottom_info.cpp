@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_bottom_info.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "ui/chat/message_bubble.h"
 #include "ui/chat/chat_style.h"
 #include "ui/effects/reaction_fly_animation.h"
@@ -38,6 +40,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace HistoryView {
 namespace {
+
+using DisplayOption = Core::Telega::DisplayOption;
 
 [[nodiscard]] QString SchedulePeriodText(TimeId period) {
 	struct Entry {
@@ -71,7 +75,7 @@ namespace {
 
 [[nodiscard]] QString FormatEditedDate(QDateTime sent, QDateTime edited) {
 	const auto today = QDateTime::currentDateTime().date();
-	const auto time = QLocale().toString(edited.time(), QLocale::ShortFormat);
+	const auto time = Core::Telega::FormatTime(edited.time());
 	if (sent.date() == today && edited.date() == today) {
 		return tr::lng_edited_at(tr::now, lt_time, time);
 	}
@@ -497,7 +501,9 @@ void BottomInfo::layoutDateText() {
 		: updated
 		? (tr::lng_ephemeral_updated(tr::now) + ' ')
 		: (_data.flags & Data::Flag::Edited)
-		? (tr::lng_edited(tr::now) + ' ')
+		? ((Core::Telega::DisplayEnabled(DisplayOption::EditedIcon)
+			? u"✎"_q
+			: tr::lng_edited(tr::now)) + ' ')
 		: (_data.flags & Data::Flag::EstimateDate)
 		? (tr::lng_approximate(tr::now) + ' ')
 		: _data.scheduleRepeatPeriod
@@ -510,7 +516,7 @@ void BottomInfo::layoutDateText() {
 		: edited + ((_data.flags
 			& (Data::Flag::ForwardedDate | Data::Flag::FullDate))
 		? Ui::FormatDateTimeSavedFrom(_data.date)
-		: QLocale().toString(_data.date.time(), QLocale::ShortFormat));
+		: Core::Telega::FormatTime(_data.date.time()));
 	const auto afterAuthor = prefix + date;
 	const auto afterAuthorWidth = st::msgDateFont->width(afterAuthor);
 	const auto authorWidth = st::msgDateFont->width(author);
@@ -561,9 +567,20 @@ void BottomInfo::layoutViewsText() {
 		_views.clear();
 		return;
 	}
+	const auto exact = Core::Telega::DisplayEnabled(DisplayOption::ExactViewCounts);
+	const auto format = [=](int count) {
+		return exact
+			? Lang::FormatCountDecimal(count)
+			: Lang::FormatCountToShort(count).string;
+	};
+	auto text = format(std::max(*_data.views, 1));
+	if (_data.forwardsCount
+		&& Core::Telega::DisplayEnabled(DisplayOption::ForwardCount)) {
+		text += u"  ↪ "_q + format(*_data.forwardsCount);
+	}
 	_views.setText(
 		st::msgDateTextStyle,
-		Lang::FormatCountToShort(std::max(*_data.views, 1)).string,
+		text,
 		Ui::NameTextOptions());
 }
 

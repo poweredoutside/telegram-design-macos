@@ -37,6 +37,7 @@ public:
 	~MusicButton();
 
 	void updateData(MusicButtonData data);
+	void setCover(QImage cover);
 	void setOverrideBg(std::optional<QColor> color);
 	void setOpacity(float64 opacity);
 	[[nodiscard]] bool actionable() const;
@@ -60,6 +61,7 @@ private:
 	std::optional<QColor> _overrideBg;
 	PillColors _colors;
 	QImage _cache;
+	QImage _cover;
 
 	const QString _noteSymbol;
 	float64 _opacity = 0.;

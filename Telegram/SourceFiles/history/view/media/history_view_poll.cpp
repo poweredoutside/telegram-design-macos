@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_poll.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "core/click_handler_types.h"
 #include "core/ui_integration.h" // TextContext
 #include "data/data_cloud_file.h"
@@ -1951,7 +1953,7 @@ void Poll::Options::draw(
 			animation->percent.update(progress, anim::linear);
 			animation->filling.update(
 				progress,
-				_owner->showVotes()
+				_owner->paintVotes()
 					? anim::easeOutCirc
 					: anim::linear);
 			animation->opacity.update(progress, anim::linear);
@@ -2195,6 +2197,8 @@ Poll::Poll(
 	const TextWithEntities &consumed)
 : Media(parent)
 , _poll(poll)
+, _previewResults(Core::Telega::DisplayEnabled(
+	Core::Telega::DisplayOption::PreviewPollResults))
 {
 	_headerPart = std::make_unique<Header>(this);
 	_optionsPart = std::make_unique<Options>(this);
@@ -2233,6 +2237,17 @@ QSize Poll::countOptimalSize() {
 		+ _addOptionPart->countHeight(innerWidth)
 		+ _footerPart->countHeight(innerWidth);
 	return { maxWidth, minHeight };
+}
+
+bool Poll::paintVotes() const {
+	return showVotes()
+		|| (_previewResults
+			&& !(_flags & (PollData::Flag::HideResultsUntilClose
+				| PollData::Flag::Quiz | PollData::Flag::MultiChoice))
+			&& _poll->totalVoters > 0
+			&& ranges::any_of(_poll->answers, [](const PollAnswer &answer) {
+				return answer.votes > 0;
+			}));
 }
 
 bool Poll::showVotes() const {
@@ -2444,10 +2459,10 @@ auto Poll::Options::countAnswerGeometry(
 	const auto textHeight = answer.text.countHeight(textWidth);
 	const auto multiline = (textHeight
 		> st::historyPollPercentFont->height);
-	const auto votesExtra = _owner->showVotes()
+	const auto votesExtra = _owner->paintVotes()
 		? countVotesExtraHeight(answer, textWidth)
 		: 0;
-	const auto fillingWithChoice = (_owner->showVotes()
+	const auto fillingWithChoice = (_owner->paintVotes()
 		&& (media || multiline || votesExtra))
 		? (std::max(textHeight, st::historyPollPercentFont->height)
 			+ votesExtra
@@ -2477,7 +2492,7 @@ auto Poll::Options::countAnswerGeometry(
 		.height = height,
 		.textTop = textTop,
 		.mediaTop = mediaTop,
-		.fillingOverflow = _owner->showVotes()
+		.fillingOverflow = _owner->paintVotes()
 			? std::max(0, fillingBottom - height)
 			: 0,
 	};
@@ -3349,7 +3364,7 @@ void Poll::Options::updateAnswerVotesFromOriginal(
 		int percent,
 		int maxVotes,
 		bool showPercent) {
-	if (!_owner->showVotes() || !showPercent) {
+	if (!_owner->paintVotes() || !showPercent) {
 		answer.votesPercent = 0;
 		answer.votesPercentString.clear();
 		answer.votesPercentWidth = 0;
@@ -3363,7 +3378,7 @@ void Poll::Options::updateAnswerVotesFromOriginal(
 	answer.chosen = original.chosen;
 	answer.votes = original.votes;
 	answer.filling = percent / 100.;
-	if (_owner->showVotes() && answer.votes) {
+	if (_owner->paintVotes() && answer.votes) {
 		answer.votesCountString = Lang::FormatCountDecimal(answer.votes);
 		answer.votesCountWidth = st::normalFont->width(
 			answer.votesCountString);
@@ -3862,7 +3877,7 @@ void Poll::Options::paintAnswer(
 				context);
 			p.setOpacity(1.);
 		}
-	} else if (!_owner->showVotes()) {
+	} else if (!_owner->paintVotes()) {
 		paintRadio(p, answer, left, top, textPadding, context);
 	} else {
 		paintPercent(
@@ -4234,7 +4249,7 @@ void Poll::Options::saveStateInAnimation() const {
 	if (_answersAnimation) {
 		return;
 	}
-	const auto show = _owner->showVotes();
+	const auto show = _owner->paintVotes();
 	_answersAnimation = std::make_unique<AnswersAnimation>();
 	_answersAnimation->data.reserve(_answers.size());
 	const auto convert = [&](const Answer &answer) {
@@ -4271,7 +4286,7 @@ void Poll::Options::startAnswersAnimation() const {
 		return;
 	}
 
-	const auto show = _owner->showVotes();
+	const auto show = _owner->paintVotes();
 	auto &&both = ranges::views::zip(_answers, _answersAnimation->data);
 	for (auto &&[answer, data] : both) {
 		data.percent.start(show ? float64(answer.votesPercent) : 0.);

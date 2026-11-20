@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/round_rect.h"
 #include "ui/rp_widget.h"
 #include "ui/effects/animations.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/widgets/fields/input_field.h"
 
 class History;
@@ -419,7 +420,8 @@ private:
 	void startMediaReplace();
 	void updateOuterGeometry(QRect rect);
 	void paintBackground(QPainter &p, QRect full, QRect clip);
-	void paintFloatingInput(QPainter &p);
+	void paintFloatingInput(QPainter &p, QRect clip);
+	[[nodiscard]] bool paintFloatingHeader(QPainter &painter);
 	[[nodiscard]] bool usesFloatingInput() const;
 	[[nodiscard]] bool sendButtonInField() const;
 
@@ -561,6 +563,12 @@ private:
 	Mode _mode = Mode::Normal;
 
 	const std::unique_ptr<Ui::RpWidget> _wrap;
+	Ui::LiquidGlassBackdropCache _fieldGlass;
+	Ui::LiquidGlassBackdropCache _replyGlass;
+	Ui::LiquidGlassBackdropCache _attachmentGlass;
+	Ui::LiquidGlassBackdropCache _sendGlass;
+	Ui::LiquidGlassBackdropCache _botMenuGlass;
+	Ui::LiquidGlassBackdropCache _commentsGlass;
 	std::unique_ptr<Ui::RpWidget> _writeRestricted;
 	rpl::event_stream<FullReplyTo> _jumpToItemRequests;
 

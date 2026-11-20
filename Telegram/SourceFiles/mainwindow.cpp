@@ -24,6 +24,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_instance.h"
 #include "core/sandbox.h"
 #include "core/application.h"
+#include "core/core_screenshot_protection.h"
+#include "core/core_telega_preferences.h"
+#include "platform/platform_specific.h"
 #include "export/export_manager.h"
 #include "inline_bots/bot_attach_web_view.h" // AttachWebView::cancel.
 #include "intro/intro_widget.h"
@@ -110,6 +113,12 @@ MainWindow::MainWindow(not_null<Window::Controller*> controller)
 
 void MainWindow::initHook() {
 	Platform::MainWindow::initHook();
+	if (Platform::ScreenshotProtectionSupported()) {
+		Core::App().screenshotProtection().addContentReason(
+			this,
+			Core::Telega::ProtectMainWindowValue(),
+			lifetime());
+	}
 	QCoreApplication::instance()->installEventFilter(this);
 }
 
@@ -368,7 +377,9 @@ void MainWindow::showSettings() {
 	}
 
 	if (const auto session = sessionController()) {
-		session->showSettings();
+		if (!session->content()->showMacSettings()) {
+			session->showSettings();
+		}
 	} else {
 		controller().hideLayer(anim::type::instant);
 		showSpecialLayer(

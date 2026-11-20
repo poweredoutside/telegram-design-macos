@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_inner_widget_accessibility.h"
 #include "history/view/history_view_cursor_state.h"
 #include "history/view/history_view_keyboard_text_selection.h"
+#include "history/view/history_view_quick_action.h"
 #include "history/view/history_view_top_bar_widget.h"
 #include "history/view/history_view_touch_scroll.h"
 
@@ -191,7 +192,7 @@ public:
 	[[nodiscard]] auto getSelectionState() const
 		-> HistoryView::TopBarWidget::SelectedState;
 	void clearSelected(bool onlyTextSelection = false);
-	[[nodiscard]] MessageIdsList getSelectedItems() const;
+	[[nodiscard]] MessageIdsList getSelectedItems(bool forDeletion = false) const;
 	[[nodiscard]] MessageIdsList getSelectedForwardItems() const;
 	[[nodiscard]] auto getSelectedEphemeral() const
 		-> std::vector<not_null<HistoryItem*>>;
@@ -454,6 +455,7 @@ private:
 		not_null<HistoryItem*> item) const;
 
 	void showContextMenu(QContextMenuEvent *e, bool showFromTouch = false);
+	HistoryView::RightClickQuickAction _rightClickQuickAction;
 	void cancelContextDownload(not_null<DocumentData*> document);
 	void openContextGif(FullMsgId itemId);
 	void saveContextGif(FullMsgId itemId);
@@ -568,6 +570,9 @@ private:
 		const HistoryView::TextState &replyState) const
 	-> HistoryView::ReplyButton::ButtonParameters;
 	void toggleFavoriteReaction(not_null<Element*> view) const;
+	bool activateMessageQuickAction(
+		not_null<Element*> view,
+		HistoryView::DoubleClickQuickAction action);
 	void reactionChosen(const ChosenReaction &reaction);
 
 	void setupSharingDisallowed();

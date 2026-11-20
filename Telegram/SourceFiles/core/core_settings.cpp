@@ -2024,6 +2024,11 @@ rpl::producer<bool> Settings::translateChatEnabledValue() const {
 	return list.empty() ? DefaultSkipLanguages() : list;
 }
 
+[[nodiscard]] LanguageId DefaultTranslationTarget() {
+	const auto language = LanguageId::FromName(Lang::LanguageIdOrDefault(Lang::Id()));
+	return language ? language : DefaultSkipLanguages().front();
+}
+
 void Settings::setTranslateTo(LanguageId id) {
 	_translateToRaw = int(id.value);
 }
@@ -2032,14 +2037,17 @@ LanguageId Settings::translateTo() const {
 	if (const auto raw = _translateToRaw.current()) {
 		return { QLocale::Language(raw) };
 	}
-	return DefaultSkipLanguages().front();
+	return DefaultTranslationTarget();
 }
 
 rpl::producer<LanguageId> Settings::translateToValue() const {
-	return _translateToRaw.value() | rpl::map([=](int raw) {
+	return rpl::combine(
+		_translateToRaw.value(),
+		rpl::single(rpl::empty) | rpl::then(Lang::Updated())
+	) | rpl::map([](int raw, const auto &) {
 		return raw
 			? LanguageId{ QLocale::Language(raw) }
-			: DefaultSkipLanguages().front();
+			: DefaultTranslationTarget();
 	}) | rpl::distinct_until_changed();
 }
 

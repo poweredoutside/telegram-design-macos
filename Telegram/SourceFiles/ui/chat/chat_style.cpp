@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/chat_style.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "ui/chat/chat_theme.h"
 #include "ui/chat/chat_theme_readability.h"
 #include "ui/image/image_prepare.h" // ImageRoundRadius
@@ -1509,6 +1511,10 @@ QColor FromNameFg(
 		bool selected,
 		uint8 colorIndex,
 		const std::shared_ptr<Ui::ColorCollectible> &colorCollectible) {
+	if (Core::Telega::DisplayEnabled(
+			Core::Telega::DisplayOption::AccentSenderNames)) {
+		return ::st::windowActiveTextFg->c;
+	}
 	return !colorCollectible
 		? st->coloredValues(selected, colorIndex).name
 		: st->collectibleNameColor(colorCollectible, selected);

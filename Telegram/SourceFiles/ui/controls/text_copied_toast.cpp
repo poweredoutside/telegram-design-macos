@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/text_copied_toast.h"
 
 #include "base/timer.h"
+#include "core/core_telega_preferences.h"
 #include "lang/lang_keys.h"
 #include "ui/effects/animations.h"
 #include "ui/effects/radial_animation.h"
@@ -108,6 +109,9 @@ void TextCopiedToastPending::State::expandTo(float64 progress) {
 }
 
 void ShowTextCopiedToast(const std::shared_ptr<Show> &show) {
+	if (Core::Telega::HideCopyToast()) {
+		return;
+	}
 	auto icon = MakeIconSlot();
 	AddCopyIcon(icon.data());
 	show->showToast({
@@ -118,6 +122,9 @@ void ShowTextCopiedToast(const std::shared_ptr<Show> &show) {
 
 TextCopiedToastPending::TextCopiedToastPending(std::shared_ptr<Show> show)
 : _show(std::move(show)) {
+	if (Core::Telega::HideCopyToast()) {
+		return;
+	}
 	auto label = MakeTextLabel(st::defaultMultilineToast);
 	auto slot = MakeIconSlot();
 	const auto raw = slot.data();
@@ -167,6 +174,12 @@ TextCopiedToastPending::~TextCopiedToastPending() {
 
 void TextCopiedToastPending::finished() {
 	_finished = true;
+	if (Core::Telega::HideCopyToast()) {
+		if (const auto toast = _toast.get()) {
+			toast->hide();
+		}
+		return;
+	}
 	const auto slot = _slot.data();
 	const auto state = _state.get();
 	if (!slot || !state) {

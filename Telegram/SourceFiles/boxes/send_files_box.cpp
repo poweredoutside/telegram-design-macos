@@ -74,6 +74,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
@@ -1514,6 +1515,9 @@ void SendFilesBox::addMenuButton() {
 void SendFilesBox::initSendWay() {
 	_sendWay = [&] {
 		auto result = Core::App().settings().sendFilesWay();
+		if (Core::Telega::DefaultPhotoHd()) {
+			result.setSendLargePhotos(true);
+		}
 		result.setHasCompressedStickers(_list.hasSticker());
 		if ((_limits & SendFilesAllow::OnlyOne)
 			&& (_list.files.size() > 1)) {

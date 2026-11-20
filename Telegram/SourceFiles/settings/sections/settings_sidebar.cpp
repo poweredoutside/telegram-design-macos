@@ -31,6 +31,7 @@
 #include "settings/sections/settings_notifications.h"
 #include "settings/sections/settings_premium.h"
 #include "settings/sections/settings_privacy_security.h"
+#include "settings/sections/settings_telega.h"
 #include "ui/boxes/peer_qr_box.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/style/style_core_scale.h"
@@ -145,7 +146,8 @@ public:
 		QColor color,
 		QString asset,
 		rpl::producer<bool> selected,
-		rpl::producer<QString> label);
+		rpl::producer<QString> label,
+		bool labelBadge);
 
 protected:
 	void paintEvent(QPaintEvent *e) override;
@@ -159,6 +161,7 @@ private:
 	QString _label;
 	bool _premium = false;
 	bool _keepIcon = false;
+	bool _labelBadge = false;
 	bool _selected = false;
 
 };
@@ -267,14 +270,16 @@ SidebarRow::SidebarRow(
 	QColor color,
 	QString asset,
 	rpl::producer<bool> selected,
-	rpl::producer<QString> label)
+	rpl::producer<QString> label,
+	bool labelBadge)
 : AbstractButton(parent)
 , _icon(icon)
 , _color(color)
 , _image(u":/gui/icons/macos/native-"_q + asset + u".png"_q)
 , _premium(asset == u"Icon_Premium_Settings"_q)
 , _keepIcon(asset == u"Icon_Settings_Stars"_q
-	|| asset == u"Icon_Settings_GiftPremium"_q) {
+	|| asset == u"Icon_Settings_GiftPremium"_q)
+, _labelBadge(labelBadge) {
 	resize(0, st::macSettingsRowHeight);
 	setFocusPolicy(Qt::StrongFocus);
 	_activeImage = _image;
@@ -352,6 +357,34 @@ void SidebarRow::paintEvent(QPaintEvent *e) {
 	const auto right = width() - st::macSettingsInset - s(14)
 		- (chevronWidth ? chevronWidth + s(6) : 0);
 	const auto available = std::max(0, right - st::macSettingsTextLeft);
+	if (_labelBadge && !_label.isEmpty()) {
+		const auto badgeFont = st::macSettingsVersionFont;
+		const auto badgeWidth = badgeFont->width(_label) + s(12);
+		const auto badgeHeight = badgeFont->height + s(4);
+		const auto gap = s(6);
+		const auto hasRoom = available > badgeWidth + gap + s(12);
+		const auto textWidth = hasRoom ? available - badgeWidth - gap : available;
+		const auto title = st::macSettingsFont->elided(_text, textWidth);
+		p.setPen(st::windowFg);
+		p.drawText(QRect(st::macSettingsTextLeft, 0, textWidth, height()),
+			Qt::AlignVCenter | Qt::AlignLeft, title);
+		if (hasRoom) {
+			const auto badge = QRect(
+				st::macSettingsTextLeft + st::macSettingsFont->width(title) + gap,
+				(height() - badgeHeight) / 2,
+				badgeWidth,
+				badgeHeight);
+			auto color = st::windowActiveTextFg->c;
+			color.setAlphaF(.15);
+			p.setPen(Qt::NoPen);
+			p.setBrush(color);
+			p.drawRoundedRect(badge, s(5), s(5));
+			p.setFont(badgeFont);
+			p.setPen(st::windowActiveTextFg);
+			p.drawText(badge, Qt::AlignCenter, _label);
+		}
+		return;
+	}
 	const auto label = st::macSettingsFont->elided(_label, available / 2);
 	const auto labelWidth = st::macSettingsFont->width(label);
 	if (!label.isEmpty()) {
@@ -439,15 +472,19 @@ Sidebar::Sidebar(
 	const auto add = [&](Type type, rpl::producer<QString> title,
 			const style::icon &icon, QColor color, QString asset,
 			Fn<void()> action = nullptr,
-			rpl::producer<QString> label = rpl::single(QString())) {
+			rpl::producer<QString> label = rpl::single(QString()),
+			bool labelBadge = false) {
 		const auto wrap = content->add(object_ptr<Ui::SlideWrap<SidebarRow>>(
 			content, object_ptr<SidebarRow>(content,
 				rpl::duplicate(title), icon, color, std::move(asset),
 				_selected.value() | rpl::map([=](Type selected) {
 					return type && type == selected;
-				}), std::move(label))));
+				}), std::move(label), labelBadge)));
 		wrap->toggleOn(rpl::combine(std::move(title), query->value())
 			| rpl::map([](const QString &title, const QString &query) {
+				if (query.isEmpty()) {
+					return true;
+				}
 				const auto words = query.split(QChar(' '), Qt::SkipEmptyParts);
 				return ranges::all_of(words, [&](const QString &word) {
 					return title.contains(word, Qt::CaseInsensitive);
@@ -468,14 +505,23 @@ Sidebar::Sidebar(
 				Info::Stories::MakeMyProfile(controller->session().user()));
 		});
 	skip(20);
-	const auto localized = [](QString english, QString russian) {
+	const auto languageUpdates = [] {
 		return rpl::single(rpl::empty) | rpl::then(
-			Lang::GetInstance().updated()
-		) | rpl::map([=] {
+			Lang::GetInstance().updated());
+	};
+	const auto localized = [=](QString english, QString russian) {
+		return languageUpdates() | rpl::map([=] {
 			return Lang::GetInstance().id().startsWith(u"ru"_q)
 				? russian : english;
 		});
 	};
+	add(TelegaId(), languageUpdates() | rpl::map(TelegaSettingsLabel),
+		st::macSettingsIcon, QColor(0, 122, 255), u"Icon_SettingsGeneral"_q);
+	add(nullptr, languageUpdates() | rpl::map(TelegaAiChatLabel),
+		st::menuIconChatBubble, QColor(175, 82, 222), QString(), [=] {
+			ShowTelegaAiChat(controller);
+		});
+	skip(20);
 	add(MacGeneralId(), localized(u"General"_q, u"Основные"_q), st::macSettingsIcon,
 		QColor(142, 142, 147), u"Icon_SettingsGeneral"_q);
 	add(NotificationsId(), tr::lng_settings_section_notify(), st::menuIconNotifications,
@@ -584,7 +630,7 @@ Sidebar::Sidebar(
 	paintRequest() | rpl::on_next([=] {
 		auto p = QPainter(this);
 		const auto inset = style::ConvertScale(50);
-		p.fillRect(rect(), st::dialogsBg);
+		p.fillRect(rect(), st::boxSearchBg);
 		p.setFont(st::dialogsNameFont);
 		p.setPen(st::windowFg);
 		p.drawText(QRect(inset, 0, std::max(0, width() - 2 * inset),

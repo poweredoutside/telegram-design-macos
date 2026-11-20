@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "boxes/premium_preview_box.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_peer.h"
 #include "data/data_user.h"
 #include "data/data_document.h"
@@ -36,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_slide_animation.h"
 #include "window/window_session_controller.h"
 #include "window/themes/window_theme.h"
+#include "window/themes/window_theme_local.h"
 
 #include "styles/style_polls.h"
 
@@ -394,9 +396,18 @@ void SectionWidget::PaintBackground(
 		QSize fill,
 		QRect clip,
 		bool paused) {
+	const auto brightness = Theme::ChatBackgroundBrightness();
+	const auto finish = [&] {
+		if (brightness != 100) {
+			const auto alpha = std::abs(brightness - 100) * 255 / 100;
+			const auto channel = (brightness < 100) ? 0 : 255;
+			p.fillRect(clip, QColor(channel, channel, channel, alpha));
+		}
+	};
 	const auto &background = theme->background();
 	if (background.colorForFill) {
 		p.fillRect(clip, *background.colorForFill);
+		finish();
 		return;
 	}
 	const auto &gradient = background.gradientForFill;
@@ -476,6 +487,7 @@ void SectionWidget::PaintBackground(
 		if (fade) {
 			p.setOpacity(1.);
 		}
+		finish();
 		return;
 	}
 	const auto &prepared = background.prepared;
@@ -516,6 +528,7 @@ void SectionWidget::PaintBackground(
 			prepared.size());
 		p.drawImage(rects.to, prepared, rects.from);
 	}
+	finish();
 }
 
 void SectionWidget::paintEvent(QPaintEvent *e) {
@@ -579,8 +592,13 @@ auto ChatThemeValueFromPeer(
 	not_null<SessionController*> controller,
 	not_null<PeerData*> peer)
 -> rpl::producer<std::shared_ptr<Ui::ChatTheme>> {
-	auto cloud = MaybeCloudThemeValueFromPeer(
-		peer
+	auto cloud = Core::Telega::DisplayValue(
+		Core::Telega::DisplayOption::IgnorePeerThemes
+	) | rpl::map([=](bool ignore) {
+		return ignore
+			? rpl::single(ResolvedTheme())
+			: MaybeCloudThemeValueFromPeer(peer);
+	}) | rpl::flatten_latest(
 	) | rpl::map([=](ResolvedTheme resolved)
 	-> rpl::producer<std::shared_ptr<Ui::ChatTheme>> {
 		if (!resolved.theme && !resolved.paper) {

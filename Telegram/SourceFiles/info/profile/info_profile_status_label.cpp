@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_status_label.h"
+#include "core/core_telega_preferences.h"
 
 #include "data/data_changes.h"
 #include "data/data_channel.h"
@@ -106,6 +107,11 @@ StatusLabel::StatusLabel(
 : _label(label)
 , _peer(peer)
 , _refreshTimer([=] { refresh(); }) {
+	if (_peer->isUser()) {
+		Core::Telega::DisplayValue(
+			Core::Telega::DisplayOption::RelativeLastSeen
+		) | rpl::skip(1) | rpl::on_next([=] { refresh(); }, _lifetime);
+	}
 	if (const auto communityId = Data::PeerLinkedCommunityId(_peer)) {
 		const auto community = _peer->owner().channel(communityId);
 		community->session().changes().peerFlagsValue(
@@ -145,7 +151,8 @@ void StatusLabel::refresh() {
 			const auto updateIn = Data::OnlineChangeTimeout(
 				user,
 				currentTime);
-			if (showOnline) {
+			if (showOnline || Core::Telega::DisplayEnabled(
+				Core::Telega::DisplayOption::RelativeLastSeen)) {
 				_refreshTimer.callOnce(updateIn);
 			}
 			return MaybeHiddenPrefixed(

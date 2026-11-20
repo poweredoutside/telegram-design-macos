@@ -68,7 +68,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/peer_qr_box.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/layers/generic_box.h"
-#include "ui/new_badges.h"
 #include "ui/power_saving.h"
 #include "ui/rect.h"
 #include "ui/text/format_values.h"
@@ -93,6 +92,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "settings/sections/settings_telega.h"
 #include "styles/style_settings.h"
 
 namespace Settings {
@@ -361,10 +361,38 @@ void Cover::refreshQrButtonGeometry(int newWidth) {
 	_qrButton->moveToRight(buttonRight - inset, buttonTop, newWidth);
 }
 
+void BuildTelegaButtons(SectionBuilder &builder) {
+	builder.addSectionButton({
+		.title = rpl::single(TelegaSettingsLabel()),
+		.targetSection = TelegaId(),
+		.icon = { &st::menuIconReorder },
+		.keywords = { u"gemini"_q, u"themes"_q, u"brightness"_q },
+	});
+	const auto aiTitle = TelegaAiChatLabel();
+	const auto controller = builder.controller();
+	builder.addButton({
+		.id = u"main/telega-ai-chat"_q,
+		.title = rpl::single(aiTitle),
+		.icon = { &st::menuIconCraftTraits },
+		.onClick = [=] {
+			if (controller) {
+				ShowTelegaAiChat(controller);
+			}
+		},
+		.keywords = { u"gemini"_q, u"ai"_q, u"chat"_q },
+	});
+}
+
 void BuildSectionButtons(SectionBuilder &builder) {
 	const auto session = builder.session();
 	const auto controller = builder.controller();
 	const auto showOther = builder.showOther();
+	builder.add([](const BuildContext &context) {
+		auto scoped = SectionBuilder(context);
+		scoped.enableGroupedLayout();
+		scoped.group([&] { BuildTelegaButtons(scoped); });
+	});
+	builder.addSkip();
 
 	if (!session->supportMode()) {
 		builder.addButton({

@@ -71,6 +71,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_history_messages.h"
 #include "core/core_cloud_password.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "base/unixtime.h"
 #include "base/random.h"
 #include "base/call_delayed.h"
@@ -3877,20 +3878,22 @@ void ApiWrap::sendAction(const SendAction &action) {
 	if (!action.options.scheduled
 		&& !action.options.shortcutId
 		&& !action.replaceMediaOf) {
-		const auto topicRootId = action.replyTo.topicRootId;
-		const auto topic = topicRootId
-			? action.history->peer->forumTopicFor(topicRootId)
-			: nullptr;
-		const auto monoforumPeerId = action.replyTo.monoforumPeerId;
-		const auto sublist = monoforumPeerId
-			? action.history->peer->monoforumSublistFor(monoforumPeerId)
-			: nullptr;
-		if (topic) {
-			topic->readTillEnd();
-		} else if (sublist && sublist->parentChat()) {
-			sublist->readTillEnd();
-		} else {
-			_session->data().histories().readInbox(action.history);
+		if (!Core::Telega::SkipSendReadReceipt()) {
+			const auto topicRootId = action.replyTo.topicRootId;
+			const auto topic = topicRootId
+				? action.history->peer->forumTopicFor(topicRootId)
+				: nullptr;
+			const auto monoforumPeerId = action.replyTo.monoforumPeerId;
+			const auto sublist = monoforumPeerId
+				? action.history->peer->monoforumSublistFor(monoforumPeerId)
+				: nullptr;
+			if (topic) {
+				topic->readTillEnd();
+			} else if (sublist && sublist->parentChat()) {
+				sublist->readTillEnd();
+			} else {
+				_session->data().histories().readInbox(action.history);
+			}
 		}
 		action.history->getReadyFor(ShowAtTheEndMsgId);
 	}
@@ -3988,7 +3991,8 @@ FullMsgId ApiWrap::forwardMessages(
 	const auto history = action.history;
 	const auto peer = history->peer;
 
-	if (!action.options.scheduled && !action.options.shortcutId) {
+	if (!action.options.scheduled && !action.options.shortcutId
+		&& !Core::Telega::SkipSendReadReceipt()) {
 		histories.readInbox(history);
 	}
 	const auto sendAs = action.options.sendAs;

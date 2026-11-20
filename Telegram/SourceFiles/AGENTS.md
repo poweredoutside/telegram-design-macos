@@ -89,6 +89,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### api — Telegram API requests
 - Paths: `SourceFiles/api/`, `SourceFiles/apiwrap*`
 - The updates stream, sending and editing, and the per-feature request managers hung off `ApiWrap` that turn MTP answers into `Data::` changes. It must not own boxes, list controllers or click handlers.
+- `api_gemini_chat` is Telega's user-initiated Gemini transport and local conversation store. It must not read Telegram messages or credentials directly. Voice transcription accepts only a caller-provided recording after explicit confirmation and does not add it to the chat store.
 
 ### mtproto — MTProto transport
 - Paths: `SourceFiles/mtproto/`, `SourceFiles/tde2e/`
@@ -175,6 +176,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### window — window shell and navigation
 - Paths: `SourceFiles/window/`, `SourceFiles/mainwidget*`, `SourceFiles/mainwindow*`, `SourceFiles/boxes/abstract_box*`, `SourceFiles/dialogs/ui/restore_windows_offer*`, `SourceFiles/ui/controls/window_*`, `SourceFiles/ui/controls/title_sub_widget*`
 - OS windows and their controllers, each controller's own `Columns` with `Core::Settings` as the main role window's persisted copy, `SessionController` showing chats, sections, layers and boxes, section mementos and slide animations, the main menu, folders sidebar, saved windows, chat switching and previews, the connecting widget and lock screens. It must not own chat action menus or notifications.
+- `window_telega_feed` is the aggregate channel preview section. Its local category and channel selection are account settings; opening a post hands off to the normal chat screen.
 
 ### notifications — notification system
 - Paths: `SourceFiles/window/notifications_*`
@@ -319,6 +321,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### settings/sections — Settings pages
 - Paths: `SourceFiles/settings/sections/`, `SourceFiles/settings/cloud_password/`, `SourceFiles/settings/settings_privacy_controllers*`, `SourceFiles/settings/settings_experimental*`, `SourceFiles/settings/settings_power_saving*`, `SourceFiles/settings/settings_scale_preview*`, `SourceFiles/settings/settings_notifications_common.h`, `SourceFiles/settings/settings_intro*`, `SourceFiles/settings/settings_codes*`, `SourceFiles/ui/boxes/choose_font_box*`
 - Main, account info, privacy and security with per-rule pages, two-step verification steps, notifications, chat settings, folders, advanced, data and storage, local passcode, sessions, websites, passkeys, calls, shortcuts, experimental options and the Stars page. It must not own the framework or Business pages.
+- `settings_telega` owns the Telega macOS hub, local theme library actions, and the Gemini settings and chat UI. Existing Telegram settings stay owned by their original sections.
 
 ### settings/business — Telegram Business pages
 - Paths: `SourceFiles/settings/business/`, `SourceFiles/settings/sections/settings_business*`
