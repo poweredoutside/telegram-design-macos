@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "base/call_delayed.h"
 #include "base/platform/base_platform_info.h"
+#include "core/core_telega_preferences.h"
 #include "boxes/language_box.h"
 #include "boxes/keys_legend.h"
 #include "boxes/star_gift_box.h"
@@ -117,7 +118,6 @@ public:
 private:
 	void setupChildGeometry();
 	void initViewers();
-	void updatePhoneText();
 	void refreshNameGeometry(int newWidth);
 	void refreshPhoneGeometry(int newWidth);
 	void refreshUsernameGeometry(int newWidth);
@@ -131,7 +131,6 @@ private:
 	object_ptr<Ui::UserpicButton> _userpic;
 	object_ptr<Ui::FlatLabel> _name = { nullptr };
 	object_ptr<Ui::FlatLabel> _phone = { nullptr };
-	QString _phoneText;
 	object_ptr<Ui::FlatLabel> _username = { nullptr };
 	object_ptr<Ui::IconButton> _qrButton = { nullptr };
 
@@ -181,7 +180,8 @@ Cover::Cover(
 		if (request.selection.empty()) {
 			const auto callback = [=] {
 				Info::Profile::CopyPhoneToClipboard(
-					Info::Profile::PhoneValue(_user));
+					Info::Profile::VisiblePhoneValue(
+						_user, Info::Profile::PhoneValue(_user)));
 			};
 			request.menu->addAction(
 				tr::lng_profile_copy_phone(tr::now),
@@ -190,7 +190,7 @@ Cover::Cover(
 		} else {
 			_phone->fillContextMenu(request);
 		}
-		Info::Profile::AddPhoneSpoilerMenu(request.menu, _user);
+		Info::Profile::AddHidePhoneMenu(request.menu, _user);
 	};
 	_phone->setContextMenuHook(hook);
 
@@ -261,16 +261,13 @@ void Cover::initViewers() {
 		refreshNameGeometry(width());
 	}, lifetime());
 
-	Info::Profile::PhoneValue(
-		_user
+	Info::Profile::VisiblePhoneValue(
+		_user, Info::Profile::PhoneValue(_user)
 	) | rpl::on_next([=](const TextWithEntities &value) {
-		_phoneText = value.text;
-		updatePhoneText();
-	}, lifetime());
-
-	_user->session().settings().phoneNumberHiddenValue(
-	) | rpl::on_next([=] {
-		updatePhoneText();
+		_phone->setMarkedText(value);
+		_phone->setVisible(!value.text.isEmpty());
+		refreshPhoneGeometry(width());
+		refreshUsernameGeometry(width());
 	}, lifetime());
 
 	Info::Profile::UsernameValue(
@@ -322,16 +319,6 @@ void Cover::refreshNameGeometry(int newWidth) {
 	_badge.move(badgeLeft, badgeTop, badgeBottom);
 }
 
-void Cover::updatePhoneText() {
-	if (_user->session().settings().phoneNumberHidden()) {
-		_phone->setMarkedText(
-			Ui::Text::Wrapped({ _phoneText }, EntityType::Spoiler));
-	} else {
-		_phone->setText(_phoneText);
-	}
-	refreshPhoneGeometry(width());
-}
-
 void Cover::refreshPhoneGeometry(int newWidth) {
 	const auto phoneLeft = st::settingsPhoneLeft;
 	const auto phoneTop = st::settingsPhoneTop;
@@ -344,7 +331,9 @@ void Cover::refreshPhoneGeometry(int newWidth) {
 
 void Cover::refreshUsernameGeometry(int newWidth) {
 	const auto usernameLeft = st::settingsUsernameLeft;
-	const auto usernameTop = st::settingsUsernameTop;
+	const auto usernameTop = _phone->isHidden()
+		? st::settingsPhoneTop
+		: st::settingsUsernameTop;
 	const auto usernameRight = st::infoProfileCover.rightSkip;
 	const auto usernameWidth = newWidth - usernameLeft - usernameRight;
 	_username->resizeToWidth(usernameWidth);
@@ -363,11 +352,17 @@ void Cover::refreshQrButtonGeometry(int newWidth) {
 
 void BuildTelegaButtons(SectionBuilder &builder) {
 	const auto controller = builder.controller();
+	const auto showOther = builder.showOther();
 	builder.addButton({
 		.title = rpl::single(TelegaSettingsLabel()),
 		.icon = { &st::menuIconReorder },
 		.onClick = [=] {
-			if (controller) {
+			if (!controller) {
+				return;
+			}
+			if (Platform::IsWindows() && !Core::Telega::UseMacOSStyle()) {
+				showOther(TelegaId());
+			} else {
 				auto params = Window::SectionShow();
 				params.forbidLayer = true;
 				controller->showSettings(TelegaId(), params);
@@ -393,119 +388,126 @@ void BuildSectionButtons(SectionBuilder &builder) {
 	const auto session = builder.session();
 	const auto controller = builder.controller();
 	const auto showOther = builder.showOther();
-	builder.add([](const BuildContext &context) {
-		auto scoped = SectionBuilder(context);
-		scoped.enableGroupedLayout();
-		scoped.group([&] { BuildTelegaButtons(scoped); });
-	});
+	if (builder.groupedLayout()) {
+		builder.group([&] { BuildTelegaButtons(builder); });
+	} else {
+		builder.add([](const BuildContext &context) {
+			auto scoped = SectionBuilder(context);
+			scoped.enableGroupedLayout();
+			scoped.group([&] { BuildTelegaButtons(scoped); });
+		});
+	}
 	builder.addSkip();
 
-	if (!session->supportMode()) {
-		builder.addButton({
-			.title = tr::lng_settings_my_account(),
-			.icon = { &st::menuIconProfile },
-			.onClick = [=] {
-				controller->showSection(
-					Info::Stories::MakeMyProfile(session->user()));
-			},
-			.keywords = { u"profile"_q, u"edit"_q, u"information"_q },
-		});
-	}
-
-	builder.addSectionButton({
-		.title = tr::lng_settings_section_notify(),
-		.targetSection = NotificationsId(),
-		.icon = { &st::menuIconNotifications },
-		.keywords = { u"alerts"_q, u"sounds"_q, u"badge"_q },
-	});
-
-	builder.addSectionButton({
-		.title = tr::lng_settings_section_privacy(),
-		.targetSection = PrivacySecurityId(),
-		.icon = { &st::menuIconLock },
-		.keywords = { u"security"_q, u"passcode"_q, u"password"_q, u"2fa"_q },
-	});
-
-	builder.addSectionButton({
-		.title = tr::lng_settings_section_chat_settings(),
-		.targetSection = ChatId(),
-		.icon = { &st::menuIconChatBubble },
-		.keywords = { u"themes"_q, u"appearance"_q, u"stickers"_q },
-	});
-
-	{ // Folders
-		const auto preload = [=] {
-			session->data().chatsFilters().requestSuggested();
-		};
-		const auto hasFilters = session->data().chatsFilters().has()
-			|| session->settings().dialogsFiltersEnabled();
-
-		auto shownProducer = hasFilters
-			? rpl::single(true) | rpl::type_erased
-			: (rpl::single(rpl::empty) | rpl::then(
-				session->appConfig().refreshed()
-			) | rpl::map([=] {
-			const auto enabled = session->appConfig().get<bool>(
-				u"dialog_filters_enabled"_q,
-				false);
-			if (enabled) {
-				preload();
-			}
-			return enabled;
-		}));
-
-		if (hasFilters) {
-			preload();
+	builder.group([&] {
+		if (!session->supportMode()) {
+			builder.addButton({
+				.title = tr::lng_settings_my_account(),
+				.icon = { &st::menuIconProfile },
+				.onClick = [=] {
+					controller->showSection(
+						Info::Stories::MakeMyProfile(session->user()));
+				},
+				.keywords = { u"profile"_q, u"edit"_q, u"information"_q },
+			});
 		}
 
-		builder.addButton({
-			.title = tr::lng_settings_section_filters(),
-			.icon = { &st::menuIconShowInFolder },
-			.onClick = [=] { showOther(FoldersId()); },
-			.keywords = { u"filters"_q, u"tabs"_q },
-			.shown = std::move(shownProducer),
+		builder.addSectionButton({
+			.title = tr::lng_settings_section_notify(),
+			.targetSection = NotificationsId(),
+			.icon = { &st::menuIconNotifications },
+			.keywords = { u"alerts"_q, u"sounds"_q, u"badge"_q },
 		});
-	}
 
-	builder.addSectionButton({
-		.title = tr::lng_settings_advanced(),
-		.targetSection = AdvancedId(),
-		.icon = { &st::menuIconManage },
-		.keywords = { u"performance"_q, u"proxy"_q, u"experimental"_q },
+		builder.addSectionButton({
+			.title = tr::lng_settings_section_privacy(),
+			.targetSection = PrivacySecurityId(),
+			.icon = { &st::menuIconLock },
+			.keywords = { u"security"_q, u"passcode"_q, u"password"_q, u"2fa"_q },
+		});
+
+		builder.addSectionButton({
+			.title = tr::lng_settings_section_chat_settings(),
+			.targetSection = ChatId(),
+			.icon = { &st::menuIconChatBubble },
+			.keywords = { u"themes"_q, u"appearance"_q, u"stickers"_q },
+		});
+
+		{ // Folders
+			const auto preload = [=] {
+				session->data().chatsFilters().requestSuggested();
+			};
+			const auto hasFilters = session->data().chatsFilters().has()
+				|| session->settings().dialogsFiltersEnabled();
+
+			auto shownProducer = hasFilters
+				? rpl::single(true) | rpl::type_erased
+				: (rpl::single(rpl::empty) | rpl::then(
+					session->appConfig().refreshed()
+				) | rpl::map([=] {
+				const auto enabled = session->appConfig().get<bool>(
+					u"dialog_filters_enabled"_q,
+					false);
+				if (enabled) {
+					preload();
+				}
+				return enabled;
+			}));
+
+			if (hasFilters) {
+				preload();
+			}
+
+			builder.addButton({
+				.title = tr::lng_settings_section_filters(),
+				.icon = { &st::menuIconShowInFolder },
+				.onClick = [=] { showOther(FoldersId()); },
+				.keywords = { u"filters"_q, u"tabs"_q },
+				.shown = std::move(shownProducer),
+			});
+		}
+
+		builder.addSectionButton({
+			.title = tr::lng_settings_advanced(),
+			.targetSection = AdvancedId(),
+			.icon = { &st::menuIconManage },
+			.keywords = { u"performance"_q, u"proxy"_q, u"experimental"_q },
+		});
+
+		builder.addSectionButton({
+			.title = tr::lng_settings_section_devices(),
+			.targetSection = CallsId(),
+			.icon = { &st::menuIconUnmute },
+			.keywords = { u"sessions"_q, u"calls"_q },
+		});
+
+		builder.addButton({
+			.id = u"main/power"_q,
+			.title = tr::lng_settings_power_menu(),
+			.icon = { &st::menuIconPowerUsage },
+			.onClick = [=] {
+				controller->show(Box(PowerSavingBox, PowerSaving::Flags()));
+			},
+			.keywords = { u"battery"_q, u"animations"_q, u"power"_q, u"saving"_q },
+		});
+
+		builder.addButton({
+			.id = u"main/language"_q,
+			.title = tr::lng_settings_language(),
+			.icon = { &st::menuIconTranslate },
+			.label = rpl::single(
+				Lang::GetInstance().id()
+			) | rpl::then(
+				Lang::GetInstance().idChanges()
+			) | rpl::map([] { return Lang::GetInstance().nativeName(); }),
+			.onClick = [=] {
+				static auto Guard = base::binary_guard();
+				Guard = LanguageBox::Show(controller);
+			},
+			.keywords = { u"translate"_q, u"localization"_q, u"language"_q },
+		});
 	});
 
-	builder.addSectionButton({
-		.title = tr::lng_settings_section_devices(),
-		.targetSection = CallsId(),
-		.icon = { &st::menuIconUnmute },
-		.keywords = { u"sessions"_q, u"calls"_q },
-	});
-
-	builder.addButton({
-		.id = u"main/power"_q,
-		.title = tr::lng_settings_power_menu(),
-		.icon = { &st::menuIconPowerUsage },
-		.onClick = [=] {
-			controller->show(Box(PowerSavingBox, PowerSaving::Flags()));
-		},
-		.keywords = { u"battery"_q, u"animations"_q, u"power"_q, u"saving"_q },
-	});
-
-	builder.addButton({
-		.id = u"main/language"_q,
-		.title = tr::lng_settings_language(),
-		.icon = { &st::menuIconTranslate },
-		.label = rpl::single(
-			Lang::GetInstance().id()
-		) | rpl::then(
-			Lang::GetInstance().idChanges()
-		) | rpl::map([] { return Lang::GetInstance().nativeName(); }),
-		.onClick = [=] {
-			static auto Guard = base::binary_guard();
-			Guard = LanguageBox::Show(controller);
-		},
-		.keywords = { u"translate"_q, u"localization"_q, u"language"_q },
-	});
 }
 
 void BuildInterfaceScale(SectionBuilder &builder) {
@@ -516,17 +518,19 @@ void BuildInterfaceScale(SectionBuilder &builder) {
 	builder.addDivider();
 	builder.addSkip();
 
-	builder.add([](const WidgetContext &ctx) {
-		const auto window = &ctx.controller->window();
-		auto wrap = object_ptr<Ui::VerticalLayout>(ctx.container);
-		SetupInterfaceScale(window, wrap.data());
-		return SectionBuilder::WidgetToAdd{ .widget = std::move(wrap) };
-	}, [] {
-		return SearchEntry{
-			.id = u"main/scale"_q,
-			.title = tr::lng_settings_default_scale(tr::now),
-			.keywords = { u"zoom"_q, u"size"_q, u"interface"_q, u"ui"_q },
-		};
+	builder.group([&] {
+		builder.add([](const WidgetContext &ctx) {
+			const auto window = &ctx.controller->window();
+			auto wrap = object_ptr<Ui::VerticalLayout>(ctx.container);
+			SetupInterfaceScale(window, wrap.data());
+			return SectionBuilder::WidgetToAdd{ .widget = std::move(wrap) };
+		}, [] {
+			return SearchEntry{
+				.id = u"main/scale"_q,
+				.title = tr::lng_settings_default_scale(tr::now),
+				.keywords = { u"zoom"_q, u"size"_q, u"interface"_q, u"ui"_q },
+			};
+		});
 	});
 
 	builder.addSkip();
@@ -544,69 +548,71 @@ void BuildPremiumSection(SectionBuilder &builder) {
 	builder.addDivider();
 	builder.addSkip();
 
-	builder.addPremiumButton({
-		.id = u"main/premium"_q,
-		.title = tr::lng_premium_summary_title(),
-		.onClick = [=] {
-			controller->setPremiumRef("settings");
-			showOther(PremiumId());
-		},
-		.keywords = { u"subscription"_q },
-	});
-
-	session->credits().load();
-	builder.addPremiumButton({
-		.id = u"main/credits"_q,
-		.title = tr::lng_settings_credits(),
-		.label = session->credits().balanceValue(
-		) | rpl::map([](CreditsAmount c) {
-			return c
-				? Lang::FormatCreditsAmountToShort(c).string
-				: QString();
-		}),
-		.credits = true,
-		.onClick = [=] {
-			controller->setPremiumRef("settings");
-			showOther(CreditsId());
-		},
-		.keywords = { u"stars"_q, u"balance"_q },
-	});
-
-	session->credits().tonLoad();
-	builder.addButton({
-		.id = u"main/currency"_q,
-		.title = tr::lng_settings_currency(),
-		.icon = { &st::menuIconTon },
-		.label = session->credits().tonBalanceValue(
-		) | rpl::map([](CreditsAmount c) {
-			return c ? Lang::FormatCreditsAmountToShort(c).string : u""_q;
-		}),
-		.onClick = [=] {
-			controller->setPremiumRef("settings");
-			showOther(CurrencyId());
-		},
-		.keywords = { u"ton"_q, u"crypto"_q, u"wallet"_q },
-		.shown = session->credits().tonBalanceValue(
-		) | rpl::map([](CreditsAmount c) { return !c.empty(); }),
-	});
-
-	builder.addButton({
-		.id = u"main/business"_q,
-		.title = tr::lng_business_title(),
-		.icon = { .icon = &st::menuIconShop },
-		.onClick = [=] { showOther(BusinessId()); },
-		.keywords = { u"work"_q, u"company"_q },
-	});
-
-	if (session->premiumCanBuy()) {
-		builder.addButton({
-			.id = u"main/send-gift"_q,
-			.title = tr::lng_settings_gift_premium(),
-			.icon = { .icon = &st::menuIconGiftPremium, .newBadge = true },
-			.onClick = [=] { Ui::ChooseStarGiftRecipient(controller); },
-			.keywords = { u"present"_q, u"send"_q },
+	builder.group([&] {
+		builder.addPremiumButton({
+			.id = u"main/premium"_q,
+			.title = tr::lng_premium_summary_title(),
+			.onClick = [=] {
+				controller->setPremiumRef("settings");
+				showOther(PremiumId());
+			},
+			.keywords = { u"subscription"_q },
 		});
-	}
+
+		session->credits().load();
+		builder.addPremiumButton({
+			.id = u"main/credits"_q,
+			.title = tr::lng_settings_credits(),
+			.label = session->credits().balanceValue(
+			) | rpl::map([](CreditsAmount c) {
+				return c
+					? Lang::FormatCreditsAmountToShort(c).string
+					: QString();
+			}),
+			.credits = true,
+			.onClick = [=] {
+				controller->setPremiumRef("settings");
+				showOther(CreditsId());
+			},
+			.keywords = { u"stars"_q, u"balance"_q },
+		});
+
+		session->credits().tonLoad();
+		builder.addButton({
+			.id = u"main/currency"_q,
+			.title = tr::lng_settings_currency(),
+			.icon = { &st::menuIconTon },
+			.label = session->credits().tonBalanceValue(
+			) | rpl::map([](CreditsAmount c) {
+				return c ? Lang::FormatCreditsAmountToShort(c).string : u""_q;
+			}),
+			.onClick = [=] {
+				controller->setPremiumRef("settings");
+				showOther(CurrencyId());
+			},
+			.keywords = { u"ton"_q, u"crypto"_q, u"wallet"_q },
+			.shown = session->credits().tonBalanceValue(
+			) | rpl::map([](CreditsAmount c) { return !c.empty(); }),
+		});
+
+		builder.addButton({
+			.id = u"main/business"_q,
+			.title = tr::lng_business_title(),
+			.icon = { .icon = &st::menuIconShop },
+			.onClick = [=] { showOther(BusinessId()); },
+			.keywords = { u"work"_q, u"company"_q },
+		});
+
+		if (session->premiumCanBuy()) {
+			builder.addButton({
+				.id = u"main/send-gift"_q,
+				.title = tr::lng_settings_gift_premium(),
+				.icon = { .icon = &st::menuIconGiftPremium, .newBadge = true },
+				.onClick = [=] { Ui::ChooseStarGiftRecipient(controller); },
+				.keywords = { u"present"_q, u"send"_q },
+			});
+		}
+	});
 
 	builder.addSkip();
 }
@@ -625,55 +631,57 @@ void BuildHelpSection(SectionBuilder &builder) {
 	builder.addDivider();
 	builder.addSkip();
 
-	const auto controller = builder.controller();
-	const auto faq = builder.addButton({
-		.id = u"main/faq"_q,
-		.title = tr::lng_settings_faq(),
-		.icon = { &st::menuIconFaq },
-		.onClick = [=] { OpenFaq(controller); },
-		.keywords = {
-			u"help"_q,
-			u"support"_q,
-			u"questions"_q,
-			u"shortcuts"_q,
-			u"keyboard"_q,
-			u"hotkeys"_q,
-			u"legend"_q,
-			u"gestures"_q,
-		},
-	});
-	if (faq) {
-		const auto legend = Ui::CreateChild<CircleRippleIconButton>(
-			faq,
-			st::settingsFaqKeysLegend);
-		legend->setAccessibleName(tr::lng_keys_legend_title(tr::now));
-		faq->sizeValue(
-		) | rpl::on_next([=](const QSize &size) {
-			const auto right = st::settingsButtonRightSkip
-				- st::settingsFaqKeysLegend.iconPosition.x();
-			legend->moveToRight(
-				right,
-				(size.height() - legend->height()) / 2);
-		}, legend->lifetime());
-		legend->setClickedCallback([=] {
-			ShowKeysLegend(&controller->window());
+	builder.group([&] {
+		const auto controller = builder.controller();
+		const auto faq = builder.addButton({
+			.id = u"main/faq"_q,
+			.title = tr::lng_settings_faq(),
+			.icon = { &st::menuIconFaq },
+			.onClick = [=] { OpenFaq(controller); },
+			.keywords = {
+				u"help"_q,
+				u"support"_q,
+				u"questions"_q,
+				u"shortcuts"_q,
+				u"keyboard"_q,
+				u"hotkeys"_q,
+				u"legend"_q,
+				u"gestures"_q,
+			},
 		});
-	}
+		if (faq) {
+			const auto legend = Ui::CreateChild<CircleRippleIconButton>(
+				faq,
+				st::settingsFaqKeysLegend);
+			legend->setAccessibleName(tr::lng_keys_legend_title(tr::now));
+			faq->sizeValue(
+			) | rpl::on_next([=](const QSize &size) {
+				const auto right = st::settingsButtonRightSkip
+					- st::settingsFaqKeysLegend.iconPosition.x();
+				legend->moveToRight(
+					right,
+					(size.height() - legend->height()) / 2);
+			}, legend->lifetime());
+			legend->setClickedCallback([=] {
+				ShowKeysLegend(&controller->window());
+			});
+		}
 
-	builder.addButton({
-		.id = u"main/features"_q,
-		.title = tr::lng_settings_features(),
-		.icon = { &st::menuIconEmojiObjects },
-		.onClick = [=] { OpenFeatures(controller); },
-		.keywords = { u"tips"_q, u"tutorial"_q },
-	});
+		builder.addButton({
+			.id = u"main/features"_q,
+			.title = tr::lng_settings_features(),
+			.icon = { &st::menuIconEmojiObjects },
+			.onClick = [=] { OpenFeatures(controller); },
+			.keywords = { u"tips"_q, u"tutorial"_q },
+		});
 
-	builder.addButton({
-		.id = u"main/ask-question"_q,
-		.title = tr::lng_settings_ask_question(),
-		.icon = { &st::menuIconDiscussion },
-		.onClick = [=] { OpenAskQuestionConfirm(controller); },
-		.keywords = { u"contact"_q, u"feedback"_q },
+		builder.addButton({
+			.id = u"main/ask-question"_q,
+			.title = tr::lng_settings_ask_question(),
+			.icon = { &st::menuIconDiscussion },
+			.onClick = [=] { OpenAskQuestionConfirm(controller); },
+			.keywords = { u"contact"_q, u"feedback"_q },
+		});
 	});
 
 	builder.addSkip();
@@ -786,6 +794,9 @@ void Main::setupContent() {
 			.isPaused = isPaused,
 			.highlights = highlights,
 		});
+		if (Core::Telega::UseMaterial3Style() || Core::Telega::UseWindows11Style()) {
+			builder.enableGroupedLayout();
+		}
 		builder.addDivider();
 		builder.addSkip();
 		BuildValidationSuggestions(builder);
@@ -910,12 +921,24 @@ void SetupValidatePhoneNumberSuggestion(
 			container,
 			object_ptr<Ui::VerticalLayout>(container)));
 	const auto content = mainWrap->entity();
+	const auto user = controller->session().user();
+	auto phone = Info::Profile::VisiblePhoneValue(
+		user,
+		Info::Profile::PhoneValue(user));
+	const auto dismissed = mainWrap->lifetime().make_state<rpl::variable<bool>>(false);
+	mainWrap->toggleOn(rpl::combine(
+		rpl::duplicate(phone),
+		dismissed->value()
+	) | rpl::map([](const TextWithEntities &text, bool dismissed) {
+		return !dismissed && !text.text.isEmpty();
+	}), anim::type::instant);
 	Ui::AddSubsectionTitle(
 		content,
 		tr::lng_settings_suggestion_phone_number_title(
 			lt_phone,
-			rpl::single(
-				Ui::FormatPhone(controller->session().user()->phone()))),
+			std::move(phone) | rpl::map([](const TextWithEntities &text) {
+				return text.text;
+			})),
 		QMargins(
 			st::boxRowPadding.left()
 				- st::defaultSubsectionTitlePadding.left(),
@@ -959,7 +982,7 @@ void SetupValidatePhoneNumberSuggestion(
 	yes->setClickedCallback([=] {
 		controller->session().promoSuggestions().dismiss(
 			kSugValidatePhone.utf8());
-		mainWrap->toggle(false, anim::type::normal);
+		*dismissed = true;
 	});
 	const auto no = Ui::CreateChild<Ui::RoundButton>(
 		wrap,

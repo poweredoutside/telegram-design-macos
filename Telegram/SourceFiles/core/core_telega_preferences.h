@@ -58,6 +58,7 @@ enum class ChannelBottomAction { Mute, Discussion, Hidden };
 enum class StickerTimestamp { Automatic, Always, Hidden };
 enum class DownloadMode { Standard, Fast, Ultra };
 enum class AppIconStyle { Default, Accent, Dark, Light, Blue };
+enum class InterfaceStyle { MacOS = 0, Windows = 2, Material3 = 3, Windows11 = 4 };
 
 struct AppIconAppearance {
 	AppIconStyle style = AppIconStyle::Default;
@@ -86,6 +87,12 @@ void SetStickerScale(int percent);
 void SetNavigation(const QStringList &items);
 [[nodiscard]] DownloadMode TransferDownloadMode();
 void SetTransferDownloadMode(DownloadMode mode);
+[[nodiscard]] InterfaceStyle PreferredInterfaceStyle();
+void SetPreferredInterfaceStyle(InterfaceStyle style);
+void InitInterfaceStyle();
+[[nodiscard]] bool UseMacOSStyle();
+[[nodiscard]] bool UseMaterial3Style();
+[[nodiscard]] bool UseWindows11Style();
 [[nodiscard]] AppIconAppearance ApplicationIconAppearance();
 [[nodiscard]] AppIconAppearance ActiveApplicationIconAppearance();
 void SetApplicationIconAppearance(AppIconAppearance appearance);

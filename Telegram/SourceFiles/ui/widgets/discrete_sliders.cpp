@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/widgets/discrete_sliders.h"
+#include "ui/painter.h"
+#include "ui/style/style_material.h"
 
 #include "ui/effects/ripple_animation.h"
 #include "styles/style_widgets.h"
@@ -430,6 +432,8 @@ QImage SettingsSlider::prepareRippleMask(
 
 void SettingsSlider::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
+	const auto &options = style::MaterialDesign();
+	const auto material = options.enabled && options.sliders;
 
 	const auto clip = e->rect();
 	const auto range = DiscreteSlider::getCurrentActiveRange();
@@ -438,6 +442,12 @@ void SettingsSlider::paintEvent(QPaintEvent *e) {
 		const auto &bar = active ? _barActive : _bar;
 		if (bar) {
 			bar->paint(p, rect);
+		} else if (material) {
+			auto hq = PainterHighQualityEnabler(p);
+			const auto radius = rect.height() / 2.;
+			p.setPen(Qt::NoPen);
+			p.setBrush(active ? _st.barFgActive : _st.barFg);
+			p.drawRoundedRect(rect, radius, radius);
 		} else {
 			p.fillRect(rect, active ? _st.barFgActive : _st.barFg);
 		}

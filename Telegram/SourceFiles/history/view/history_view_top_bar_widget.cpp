@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/shortcuts.h"
 #include "core/application.h"
 #include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 #include "core/core_settings.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/wrap/fade_wrap.h"
@@ -78,6 +79,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_info.h"
 
+#include <QtGui/QPainterPath>
 #include <QtGui/QWindow>
 
 namespace HistoryView {
@@ -92,6 +94,18 @@ constexpr auto kHeaderAvatar = 32;
 constexpr auto kHeaderAvatarGap = 8;
 constexpr auto kHeaderTitlePadding = 14;
 
+int TopBarHeight() {
+	return Core::Telega::UseMaterial3Style()
+		? style::ConvertScale(54)
+		: st::topBarHeight;
+}
+
+int MaterialTitleTop() {
+	return (TopBarHeight()
+		- st::semiboldFont->height
+		- st::dialogsTextFont->height) / 2;
+}
+
 [[nodiscard]] style::IconButton CenteredHeaderButton(
 		const style::IconButton &source) {
 	auto result = source;
@@ -104,7 +118,7 @@ constexpr auto kHeaderTitlePadding = 14;
 [[nodiscard]] const style::IconButton &HeaderButton(
 		const style::IconButton &original,
 		const style::IconButton &windows) {
-	return Platform::IsWindows() ? windows : original;
+	return Core::Telega::UseMacOSStyle() ? windows : original;
 }
 
 struct HeaderButtons {
@@ -181,7 +195,7 @@ TopBarWidget::TopBarWidget(
 : RpWidget(parent)
 , _controller(controller)
 , _primaryWindow(controller->isPrimary())
-, _floatingHeader(Platform::IsWindows()
+, _floatingHeader(Core::Telega::UseMacOSStyle()
 	? std::make_unique<FloatingHeader>()
 	: nullptr)
 , _clear(this, tr::lng_selected_clear(), st::topBarClearButton)
@@ -593,7 +607,7 @@ bool TopBarWidget::eventFilter(QObject *obj, QEvent *e) {
 }
 
 int TopBarWidget::resizeGetHeight(int newWidth) {
-	return st::topBarHeight;
+	return TopBarHeight();
 }
 
 bool TopBarWidget::usesFloatingChatHeader() const {
@@ -633,7 +647,6 @@ void TopBarWidget::paintFloatingHeader(
 		QRect title,
 		int slide) {
 	Window::Theme::ObserveLiveWallpaper(this);
-	const auto glass = Window::Theme::GlassStyle();
 	const auto tint = st::topBarBg->c;
 	const auto content = _controller->content();
 	const auto origin = pos() - QPoint(0, content->backgroundFromY());
@@ -648,6 +661,23 @@ void TopBarWidget::paintFloatingHeader(
 			_controller->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 		target.restore();
 	};
+	if (Core::Telega::UseMaterial3Style() || Core::Telega::UseWindows11Style()) {
+		p.fillRect(clip, tint);
+		paintBackground(p, clip);
+		const auto x = style::ConvertScale(8);
+		const auto y = style::ConvertScale(4);
+		const auto area = QRect(0, slide, width(), TopBarHeight())
+			.marginsRemoved({ x, y, x, y });
+		const auto radius = Core::Telega::UseWindows11Style()
+			? area.height() / 2.
+			: style::ConvertScale(18);
+		auto panel = QPainterPath();
+		panel.addRoundedRect(area, radius, radius);
+		auto hq = PainterHighQualityEnabler(p);
+		p.fillPath(panel, st::topBarBg);
+		return;
+	}
+	const auto glass = Window::Theme::GlassStyle();
 	auto backdrop = QImage();
 	const auto ratio = devicePixelRatioF();
 	if (glass.enabled && glass.opacity < 100) {
@@ -698,20 +728,26 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		_selectedShown.value(showSelectedActions() ? 1. : 0.));
 	const auto searchFieldTop = _searchField
 		? countSelectedButtonsTop(_searchShown.value(_searchMode ? 1. : 0.))
-		: -st::topBarHeight;
+		: -TopBarHeight();
 	const auto slidingTop = std::max(selectedButtonsTop, searchFieldTop);
 
 	const auto floating = usesFloatingChatHeader()
 		&& !_chooseForReportReason
 		&& slidingTop < 0;
+	const auto roundedPanel = (Core::Telega::UseMaterial3Style()
+		|| Core::Telega::UseWindows11Style())
+		&& _activeChat.section == Section::History
+		&& _activeChat.key.peer()
+		&& !_chooseForReportReason
+		&& slidingTop < 0;
 	const auto title = floating ? floatingTitleRect() : QRect();
-	if (floating) {
-		paintFloatingHeader(p, e->rect(), title, slidingTop + st::topBarHeight);
+	if (floating || roundedPanel) {
+		paintFloatingHeader(p, e->rect(), title, slidingTop + TopBarHeight());
 	} else {
-		p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+		p.fillRect(QRect(0, 0, width(), TopBarHeight()), st::topBarBg);
 	}
 	if (slidingTop < 0) {
-		p.translate(0, slidingTop + st::topBarHeight);
+		p.translate(0, slidingTop + TopBarHeight());
 		paintTopBar(p, title);
 	}
 }
@@ -723,7 +759,14 @@ void TopBarWidget::paintTopBar(Painter &p, QRect floatingTitle) {
 	auto nameleft = _leftTaken;
 	auto statusleft = nameleft;
 	auto nametop = st::topBarArrowPadding.top();
-	auto statustop = st::topBarHeight - st::topBarArrowPadding.bottom() - st::dialogsTextFont->height;
+	auto statustop = TopBarHeight() - st::topBarArrowPadding.bottom() - st::dialogsTextFont->height;
+	if (Core::Telega::UseMaterial3Style()
+		&& _activeChat.section == Section::History
+		&& _activeChat.key.peer()
+		&& !_chooseForReportReason) {
+		nametop = MaterialTitleTop();
+		statustop = nametop + st::semiboldFont->height;
+	}
 	auto namewidth = width()
 		- _rightTaken
 		- nameleft
@@ -1020,16 +1063,19 @@ QRect TopBarWidget::getMembersShowAreaGeometry() const {
 			st::dialogsTextFont->height);
 	}
 	int membersTextLeft = _leftTaken;
-	int membersTextTop = st::topBarHeight - st::topBarArrowPadding.bottom() - st::dialogsTextFont->height;
+	const auto membersTextTop = (Core::Telega::UseMaterial3Style()
+		&& _activeChat.section == Section::History)
+		? MaterialTitleTop() + st::semiboldFont->height
+		: TopBarHeight() - st::topBarArrowPadding.bottom() - st::dialogsTextFont->height;
 	int membersTextWidth = _titlePeerText.maxWidth();
-	int membersTextHeight = st::topBarHeight - membersTextTop;
+	int membersTextHeight = TopBarHeight() - membersTextTop;
 
 	return myrtlrect(membersTextLeft, membersTextTop, membersTextWidth, membersTextHeight);
 }
 
 void TopBarWidget::mousePressEvent(QMouseEvent *e) {
 	const auto handleClick = (e->button() == Qt::LeftButton)
-		&& (e->pos().y() < st::topBarHeight)
+		&& (e->pos().y() < TopBarHeight())
 		&& !showSelectedState()
 		&& !_chooseForReportReason
 		&& (!usesFloatingChatHeader()
@@ -1201,7 +1247,7 @@ void TopBarWidget::handleEmojiInteractionSeen(const QString &emoticon) {
 				const auto skip = st::topBarArrowPadding.bottom();
 				update(
 					_leftTaken,
-					st::topBarHeight - skip - st::dialogsTextFont->height,
+					TopBarHeight() - skip - st::dialogsTextFont->height,
 					seen->animation.width(),
 					st::dialogsTextFont->height);
 			}
@@ -1314,7 +1360,7 @@ void TopBarWidget::resizeEvent(QResizeEvent *e) {
 }
 
 int TopBarWidget::countSelectedButtonsTop(float64 selectedShown) {
-	return (1. - selectedShown) * (-st::topBarHeight);
+	return (1. - selectedShown) * (-TopBarHeight());
 }
 
 void TopBarWidget::updateSearchVisibility() {
@@ -1337,6 +1383,8 @@ void TopBarWidget::updateInfoButtonVisibility() {
 	const auto shown = (communityChatsListBar() && !rootChatsListBar())
 		? communityUserpicShown()
 		: (usesFloatingChatHeader()
+			|| (Core::Telega::UseWindows11Style()
+				&& _activeChat.section == Section::History)
 			|| _controller->adaptive().isOneColumn()
 			|| !_primaryWindow);
 	_info->setVisible(!_chooseForReportReason && shown);
@@ -1357,10 +1405,12 @@ void TopBarWidget::updateControlsGeometry() {
 	}
 	auto searchFieldTop = _searchField
 		? countSelectedButtonsTop(_searchShown.value(_searchMode ? 1. : 0.))
-		: -st::topBarHeight;
+		: -TopBarHeight();
 	const auto otherButtonsTop = std::max(selectedButtonsTop, searchFieldTop)
-		+ st::topBarHeight;
-	const auto backButtonTop = selectedButtonsTop + st::topBarHeight;
+		+ TopBarHeight();
+	const auto actionTop = otherButtonsTop + (TopBarHeight() - st::topBarHeight) / 2;
+	const auto backButtonTop = selectedButtonsTop + TopBarHeight()
+		+ (TopBarHeight() - st::topBarHeight) / 2;
 	const auto floating = usesFloatingChatHeader() && !_chooseForReportReason;
 	const auto edge = style::ConvertScale(kHeaderInset);
 	const auto bubble = style::ConvertScale(kHeaderBubbleSize);
@@ -1442,7 +1492,7 @@ void TopBarWidget::updateControlsGeometry() {
 		}
 	} else if (!_cancelChoose->isHidden()) {
 		_leftTaken = 0;
-		_cancelChoose->moveToLeft(_leftTaken, otherButtonsTop);
+		_cancelChoose->moveToLeft(_leftTaken, actionTop);
 		_leftTaken += _cancelChoose->width();
 	} else if (_back->isHidden()) {
 		_leftTaken = st::topBarArrowPadding.right();
@@ -1463,7 +1513,7 @@ void TopBarWidget::updateControlsGeometry() {
 				middle - infoSt.photoPosition.x(),
 				_narrowRatio);
 		}
-		_info->moveToLeft(_leftTaken, otherButtonsTop);
+		_info->moveToLeft(_leftTaken, actionTop);
 		_leftTaken += _info->width();
 	} else if (!floating
 		&& (_activeChat.key.topic() || _activeChat.section == Section::ChatsList)) {
@@ -1516,7 +1566,13 @@ void TopBarWidget::updateControlsGeometry() {
 			button->resize(button->st().width, button->st().height);
 		}
 	}
-	_rightTaken = 0;
+	_rightTaken = ((Core::Telega::UseMaterial3Style()
+		|| Core::Telega::UseWindows11Style())
+		&& _activeChat.section == Section::History
+		&& _activeChat.key.peer()
+		&& !_chooseForReportReason)
+		? style::ConvertScale(8)
+		: 0;
 	if (rootChatsListBar() && _activeChat.key.folder()) {
 		const auto &toggle = st::topBarMenuToggle;
 		const auto narrowLeft = (_narrowWidth - toggle.icon.width()) / 2
@@ -1526,26 +1582,26 @@ void TopBarWidget::updateControlsGeometry() {
 				width() - _menuToggle->width(),
 				narrowLeft,
 				_narrowRatio),
-			otherButtonsTop);
+			actionTop);
 	} else {
-		_menuToggle->moveToRight(_rightTaken, otherButtonsTop);
+		_menuToggle->moveToRight(_rightTaken, actionTop);
 	}
 	if (_menuToggle->isHidden()) {
 		_rightTaken += (_menuToggle->width() - _search->width());
 	} else {
 		_rightTaken += _menuToggle->width() + st::topBarSkip;
 	}
-	_infoToggle->moveToRight(_rightTaken, otherButtonsTop);
+	_infoToggle->moveToRight(_rightTaken, actionTop);
 	if (!_infoToggle->isHidden()) {
-		_infoToggle->moveToRight(_rightTaken, otherButtonsTop);
+		_infoToggle->moveToRight(_rightTaken, actionTop);
 		_rightTaken += _infoToggle->width();
 	}
 	if (!_call->isHidden() || !_groupCall->isHidden()) {
-		_call->moveToRight(_rightTaken, otherButtonsTop);
-		_groupCall->moveToRight(_rightTaken, otherButtonsTop);
+		_call->moveToRight(_rightTaken, actionTop);
+		_groupCall->moveToRight(_rightTaken, actionTop);
 		_rightTaken += _call->width();
 	}
-	_search->moveToRight(_rightTaken, otherButtonsTop);
+	_search->moveToRight(_rightTaken, actionTop);
 	if (!_search->isHidden()) {
 		_rightTaken += _search->width() + st::topBarCallSkip;
 	}

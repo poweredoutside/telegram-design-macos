@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_unread_value.h"
 #include "lang/lang_keys.h"
 #include "ui/filter_icons.h"
+#include "ui/painter.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/wrap/vertical_layout_reorder.h"
 #include "ui/wrap/slide_wrap.h"
@@ -50,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_window.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_dialogs.h"
+#include "styles/style_info.h"
 #include "ui/widgets/buttons.h"
 
 #include <QtGui/QtEvents>
@@ -126,7 +128,7 @@ void FiltersMenu::setup() {
 	setupMainMenuIcon();
 	_menu.setIsMenuButton(true);
 	_menu.setAccessibleName(tr::lng_main_menu(tr::now));
-	_menu.setVisible(!Platform::IsWindows());
+	_menu.setVisible(!Core::Telega::UseMacOSStyle());
 
 	_outer.setAttribute(Qt::WA_OpaquePaintEvent);
 	_outer.show();
@@ -151,7 +153,7 @@ void FiltersMenu::setup() {
 		_outer.setGeometry({ 0, 0, width, height });
 		_menu.resizeToWidth(width);
 		_menu.move(0, 0);
-		const auto top = Platform::IsWindows() ? 8 : _menu.height();
+		const auto top = Core::Telega::UseMacOSStyle() ? 8 : _menu.height();
 		_scroll.setGeometry({ 0, top, width, std::max(0, height - top) });
 		_container->resizeToWidth(width);
 		_container->move(0, 0);
@@ -188,6 +190,7 @@ void FiltersMenu::setup() {
 			scrollToButton(j->second);
 		}
 		_reorder->finishReordering();
+		animateActiveIndicator();
 	}, _outer.lifetime());
 
 	_menu.setClickedCallback([=] {
@@ -240,6 +243,10 @@ void FiltersMenu::setupMainMenuIcon() {
 	OtherAccountsUnreadState(
 		&_session->session().account()
 	) | rpl::on_next([=](const OthersUnreadState &state) {
+		if (Core::Telega::UseWindows11Style()) {
+			_menu.setIconOverride(&st::topBarMenuMac.icon, &st::topBarMenuMac.iconOver);
+			return;
+		}
 		const auto icon = !state.count
 			? nullptr
 			: !state.allMuted
@@ -275,6 +282,42 @@ void FiltersMenu::scrollToButton(not_null<Ui::RpWidget*> widget) {
 		scrollTo,
 		st::slideDuration,
 		anim::sineInOut);
+}
+
+void FiltersMenu::animateActiveIndicator() {
+	if (!_activeIndicator) {
+		return;
+	}
+	_activeIndicatorAnimation.stop();
+	if (_activeIndicator->isVisible() && !anim::Disabled()) {
+		_activeIndicatorFrom = _activeIndicator->y();
+		_activeIndicatorAnimation.start([=] {
+			updateActiveIndicator();
+		}, 0., 1., crl::time(260), anim::sineInOut);
+	}
+	updateActiveIndicator();
+}
+
+void FiltersMenu::updateActiveIndicator() {
+	if (!_activeIndicator) {
+		return;
+	}
+	const auto active = _filters.find(_session->activeChatsFilterCurrent());
+	if (active == end(_filters) || active->second->isHidden()) {
+		_activeIndicator->hide();
+		return;
+	}
+	const auto rect = active->second->geometry();
+	const auto inset = style::ConvertScale(4);
+	const auto width = style::ConvertScale(3);
+	const auto height = std::min(style::ConvertScale(24), rect.height());
+	const auto top = rect.y() + (rect.height() - height) / 2;
+	const auto y = anim::interpolate(
+		_activeIndicatorFrom, top, _activeIndicatorAnimation.value(1.));
+	_activeIndicator->setGeometry(style::rtlrect(inset, y, width, height,
+		rect.width()).translated(rect.x(), 0));
+	_activeIndicator->raise();
+	_activeIndicator->show();
 }
 
 void FiltersMenu::applyFilterAt(int start, int delta) {
@@ -361,6 +404,7 @@ void FiltersMenu::refresh() {
 	if (!_list) {
 		setupList();
 	}
+	_activeIndicatorAnimation.stop();
 	_reorder->cancel();
 
 	_reorder->clearPinnedIntervals();
@@ -448,6 +492,7 @@ void FiltersMenu::refresh() {
 	// After the filters are refreshed, the scroll is reset,
 	// so we have to restore it.
 	_scroll.scrollToY(oldTop);
+	updateActiveIndicator();
 
 	if (refocus) {
 		refocus->setFocus();
@@ -458,6 +503,22 @@ void FiltersMenu::refresh() {
 void FiltersMenu::setupList() {
 	_list = _container->add(object_ptr<TabListLayout>(_container));
 	_list->setAccessibleName(tr::lng_filters_title(tr::now));
+	if (Core::Telega::UseWindows11Style()) {
+		const auto indicator = _activeIndicator = Ui::CreateChild<Ui::RpWidget>(_list);
+		indicator->setAttribute(Qt::WA_TransparentForMouseEvents);
+		indicator->hide();
+		indicator->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(indicator);
+			auto quality = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(buttonStyle().textFgActive);
+			const auto radius = indicator->width() / 2.;
+			p.drawRoundedRect(indicator->rect(), radius, radius);
+		}, indicator->lifetime());
+		style::PaletteChanged() | rpl::on_next([=] {
+			indicator->update();
+		}, indicator->lifetime());
+	}
 	_setup = prepareButton(
 		_container,
 		-1,
@@ -600,6 +661,13 @@ base::unique_qptr<Ui::SideBarButton> FiltersMenu::prepareButton(
 		: container->add(std::move(prepared));
 	auto button = base::unique_qptr<Ui::SideBarButton>(std::move(added));
 	const auto raw = button.get();
+	if (listItem && _activeIndicator) {
+		raw->geometryValue() | rpl::skip(1) | rpl::on_next([=] {
+			if (id == _session->activeChatsFilterCurrent()) {
+				updateActiveIndicator();
+			}
+		}, raw->lifetime());
+	}
 	const auto nameText = id
 		? title.text.text
 		: tr::lng_filters_all(tr::now);

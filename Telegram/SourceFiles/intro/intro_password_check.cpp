@@ -9,10 +9,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "intro/intro_widget.h"
 #include "core/core_cloud_password.h"
+#include "core/core_telega_preferences.h"
 #include "ui/boxes/confirm_box.h"
 #include "boxes/abstract_box.h"
 #include "boxes/passcode_box.h"
 #include "lang/lang_keys.h"
+#include "lottie/lottie_icon.h"
 #include "intro/intro_signup.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
@@ -25,19 +27,54 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Intro {
 namespace details {
+namespace {
+
+const style::InputField &PasswordFieldStyle() {
+	if (!Core::Telega::UseWindows11Style()) {
+		return st::introPassword;
+	}
+	static const auto result = [] {
+		auto result = st::introPassword;
+		const auto s = [](int size) { return style::ConvertScale(size); };
+		result.heightMin = s(34);
+		result.borderRadius = s(4);
+		result.textAlign = style::al_left;
+		result.textMargins = QMargins(s(10), 0, s(10), 0);
+		result.textBg = result.textBgActive = st::boxSearchBg;
+		return result;
+	}();
+	return result;
+}
+
+} // namespace
 
 PasswordCheckWidget::PasswordCheckWidget(
 	QWidget *parent,
 	not_null<Main::Account*> account,
 	not_null<Data*> data)
-: Step(parent, account, data)
+: Step(parent, account, data, false, Core::Telega::UseWindows11Style())
 , _passwordState(getData()->pwdState)
-, _pwdField(this, st::introPassword, tr::lng_signin_password())
+, _pwdField(this, PasswordFieldStyle(), tr::lng_signin_password())
 , _pwdHint(this, st::introPasswordHint)
-, _codeField(this, st::introPassword, tr::lng_signin_code())
+, _codeField(this, PasswordFieldStyle(), tr::lng_signin_code())
 , _toRecover(this, tr::lng_signin_recover(tr::now))
 , _toPassword(this, tr::lng_signin_try_password(tr::now)) {
 	Expects(_passwordState.hasPassword);
+	if (Core::Telega::UseWindows11Style()) {
+		setErrorCentered(true);
+		_illustration.create(this);
+		const auto size = style::ConvertScale(94);
+		_illustration->resize(size, size);
+		const auto icon = Lottie::MakeIcon({
+			.name = u"cloud_password/password_input"_q,
+			.sizeOverride = QSize(size, size),
+		});
+		const auto image = icon ? icon->frame() : QImage();
+		_illustration->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(_illustration.data());
+			p.drawImage(_illustration->rect(), image);
+		}, _illustration->lifetime());
+	}
 
 	Lang::Updated(
 	) | rpl::on_next([=] {
@@ -91,6 +128,9 @@ void PasswordCheckWidget::refreshLang() {
 }
 
 int PasswordCheckWidget::errorTop() const {
+	if (_illustration) {
+		return _toRecover->y() + _toRecover->height() + style::ConvertScale(8);
+	}
 	return contentTop() + st::introErrorBelowLinkTop;
 }
 
@@ -100,6 +140,18 @@ void PasswordCheckWidget::resizeEvent(QResizeEvent *e) {
 }
 
 void PasswordCheckWidget::updateControlsGeometry() {
+	if (_illustration) {
+		const auto s = [](int size) { return style::ConvertScale(size); };
+		const auto top = contentTop();
+		_illustration->moveToLeft((width() - _illustration->width()) / 2, top);
+		_pwdField->moveToLeft(contentLeft(), top + s(200));
+		_codeField->moveToLeft(contentLeft(), _pwdField->y());
+		_pwdHint->moveToLeft(contentLeft(), _pwdField->y() + _pwdField->height());
+		const auto linkTop = nextButtonTop() + st::introNextButton.height + s(12);
+		_toRecover->moveToLeft((width() - _toRecover->width()) / 2, linkTop);
+		_toPassword->moveToLeft((width() - _toPassword->width()) / 2, linkTop);
+		return;
+	}
 	_pwdField->moveToLeft(contentLeft(), contentTop() + st::introPasswordTop);
 	_pwdHint->moveToLeft(contentLeft() + st::buttonRadius, contentTop() + st::introPasswordHintTop);
 	_codeField->moveToLeft(contentLeft(), contentTop() + st::introStepFieldTop);
@@ -411,7 +463,13 @@ void PasswordCheckWidget::submit() {
 }
 
 rpl::producer<QString> PasswordCheckWidget::nextButtonText() const {
-	return tr::lng_intro_submit();
+	return _illustration ? tr::lng_box_ok() : tr::lng_intro_submit();
+}
+
+int PasswordCheckWidget::nextButtonTop() const {
+	return _illustration
+		? contentTop() + style::ConvertScale(_passwordState.hint.isEmpty() ? 245 : 265)
+		: Step::nextButtonTop();
 }
 
 } // namespace details

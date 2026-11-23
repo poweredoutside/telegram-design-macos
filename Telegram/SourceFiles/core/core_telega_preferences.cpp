@@ -1,10 +1,15 @@
 #include "core/core_telega_preferences.h"
 
+#include "core/core_telega_material.h"
+
+#include "base/platform/base_platform_info.h"
+
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "ui/userpic_rounding.h"
+#include "ui/style/style_material.h"
 
 #include <QtCore/QLocale>
 #include <QtCore/QRegularExpression>
@@ -33,6 +38,21 @@ constexpr auto kNavigation = "telega.appearance.navigation";
 constexpr auto kDownloadMode = "telega.transfer.download-mode";
 constexpr auto kAppIcon = "telega.appearance.app-icon";
 constexpr auto kAppIconSquare = "telega.appearance.app-icon-square";
+constexpr auto kInterfaceStyle = "telega.appearance.interface-style";
+
+auto InterfaceStyleAtStartup = InterfaceStyle::MacOS;
+
+constexpr auto kMaterialKeys = std::array{
+	"telega.material.google-sans",
+	"telega.material.grouped",
+	"telega.material.rounded-selection",
+	"telega.material.floating-field",
+	"telega.material.rounded-menu",
+	"telega.material.expressive",
+	"telega.material.switches",
+	"telega.material.muted-switches",
+	"telega.material.sliders",
+};
 
 AppIconAppearance &AppIconAtStartup() {
 	static auto appearance = AppIconAppearance();
@@ -421,6 +441,65 @@ void InitAvatarAppearance() {
 	Ui::InitUserpicRounding(AvatarCornerPercent() / 100.,
 		DisplayEnabled(DisplayOption::UniformAvatarRadius),
 		DisplayEnabled(DisplayOption::RoundedContactAvatars));
+}
+
+InterfaceStyle PreferredInterfaceStyle() {
+	const auto saved = App().settings().readPref<int>(kInterfaceStyle, 0);
+	switch (saved) {
+	case int(InterfaceStyle::Windows): return InterfaceStyle::Windows;
+	case int(InterfaceStyle::Material3): return InterfaceStyle::Material3;
+	case int(InterfaceStyle::Windows11): return InterfaceStyle::Windows11;
+	}
+	return InterfaceStyle::MacOS;
+}
+
+void SetPreferredInterfaceStyle(InterfaceStyle style) {
+	App().settings().writePref<int>(kInterfaceStyle, int(style));
+	App().saveSettingsDelayed();
+}
+
+bool PreferredMaterialOption(MaterialOption option) {
+	return App().settings().readPref<bool>(
+		kMaterialKeys[int(option)],
+		option != MaterialOption::MutedSwitches);
+}
+
+void SetPreferredMaterialOption(MaterialOption option, bool enabled) {
+	App().settings().writePref<bool>(kMaterialKeys[int(option)], bool(enabled));
+	App().saveSettingsDelayed();
+}
+
+void InitInterfaceStyle() {
+	InterfaceStyleAtStartup = PreferredInterfaceStyle();
+	using E = MaterialOption;
+	const auto read = PreferredMaterialOption;
+	style::SetMaterialDesign({
+		.enabled = UseMaterial3Style(),
+		.grouped = read(E::Grouped),
+		.roundedSelection = read(E::RoundedSelection),
+		.floatingField = read(E::FloatingField),
+		.roundedMenu = read(E::RoundedMenu),
+		.expressive = read(E::Expressive),
+		.switches = read(E::Switches),
+		.mutedSwitches = read(E::MutedSwitches),
+		.sliders = read(E::Sliders),
+		.windows11 = UseWindows11Style(),
+	});
+}
+
+bool UseMacOSStyle() {
+	return Platform::IsWindows()
+		&& InterfaceStyleAtStartup == InterfaceStyle::MacOS;
+}
+
+bool UseMaterial3Style() {
+	return Platform::IsWindows()
+		&& InterfaceStyleAtStartup == InterfaceStyle::Material3;
+}
+
+bool UseWindows11Style() {
+	return Platform::IsWindows()
+		&& InterfaceStyleAtStartup == InterfaceStyle::Windows11;
 }
 
 AppIconAppearance ApplicationIconAppearance() {

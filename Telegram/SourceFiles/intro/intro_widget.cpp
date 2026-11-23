@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "intro/intro_widget.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "intro/intro_start.h"
 #include "intro/intro_phone.h"
 #include "intro/intro_qr.h"
@@ -395,7 +397,7 @@ void Widget::historyMove(StackAction action, Animate animate) {
 
 	getStep()->prepareShowAnimated(wasStep);
 	if (wasStep->hasCover() != getStep()->hasCover()) {
-		_nextTopFrom = wasStep->contentTop() + st::introNextTop;
+		_nextTopFrom = wasStep->nextButtonTop();
 		_controlsTopFrom = wasStep->hasCover() ? st::introCoverHeight : 0;
 		_coverShownAnimation.start(
 			[this] { updateControlsGeometry(); },
@@ -806,7 +808,14 @@ void Widget::paintEvent(QPaintEvent *e) {
 		_showAnimation->paintContents(p);
 		return;
 	}
-	p.fillRect(e->rect(), st::windowBg);
+	if (Core::Telega::UseWindows11Style()) {
+		auto gradient = QRadialGradient(rect().center(), std::max(width(), height()) * .58);
+		gradient.setColorAt(0., st::dialogsBgActive->c);
+		gradient.setColorAt(1., st::dialogsBg->c);
+		p.fillRect(e->rect(), gradient);
+	} else {
+		p.fillRect(e->rect(), st::windowBg);
+	}
 }
 
 void Widget::resizeEvent(QResizeEvent *e) {
@@ -844,7 +853,7 @@ void Widget::updateControlsGeometry() {
 	}
 	_back->moveToLeft(0, controlsTop);
 
-	auto nextTopTo = getStep()->contentTop() + st::introNextTop;
+	auto nextTopTo = getStep()->nextButtonTop();
 	auto nextTop = anim::interpolate(_nextTopFrom, nextTopTo, shown);
 	const auto shownAmount = _nextShownAnimation.value(_nextShown ? 1. : 0.);
 	const auto realNextTop = anim::interpolate(

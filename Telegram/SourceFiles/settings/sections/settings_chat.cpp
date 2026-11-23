@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_common_session.h"
 
 #include "base/timer_rpl.h"
+#include "core/core_telega_preferences.h"
 #include "settings/settings_builder.h"
 #include "settings/sections/settings_advanced.h"
 #include "settings/sections/settings_main.h"
@@ -1239,7 +1240,7 @@ void BuildSupportSection(SectionBuilder &builder) {
 }
 
 void BuildGlassSection(SectionBuilder &builder) {
-	if (!Platform::IsWindows()) {
+	if (!Core::Telega::UseMacOSStyle()) {
 		return;
 	}
 	builder.addSubsectionTitle({
@@ -1427,7 +1428,7 @@ Chat::Chat(QWidget *parent, not_null<Window::SessionController*> controller)
 }
 
 rpl::producer<QString> Chat::title() {
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle()) {
 		return GlassLabel(u"Оформление"_q, u"Appearance"_q);
 	}
 	return tr::lng_settings_section_chat_settings();
@@ -2739,7 +2740,9 @@ void SetupFontSettings(
 		});
 	}
 
-	Ui::AddSkip(container, st::settingsCheckboxesSkip);
+	if (!IsGroupedSettingsContent(container)) {
+		Ui::AddSkip(container, st::settingsCheckboxesSkip);
+	}
 }
 
 Type ChatId() {

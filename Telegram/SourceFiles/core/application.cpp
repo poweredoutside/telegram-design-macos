@@ -70,6 +70,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/audio/media_audio_track.h"
 #include "media/player/media_player_instance.h"
 #include "core/core_telega_preferences.h"
+#include "core/core_telega_material.h"
 #include "ui/text/text_block_parser.h"
 #include "data/data_audio_msg_id.h"
 #include "data/data_document.h"
@@ -347,12 +348,33 @@ void Application::run() {
 	}
 #endif
 
-	const auto customFont = settings().customFontFamily();
-	style::SetCustomFont((Platform::IsWindows() && customFont.isEmpty())
-		? (QFontDatabase::families().contains(u"SF Pro Text"_q)
+	const auto regular = QFontDatabase::addApplicationFont(
+		u":/gui/material-fonts/GoogleSans-Regular.ttf"_q);
+	auto googleSans = QString();
+	if (regular >= 0) {
+		googleSans = QFontDatabase::applicationFontFamilies(regular).value(0);
+		QFontDatabase::addApplicationFont(
+			u":/gui/material-fonts/GoogleSans-SemiBold.ttf"_q);
+		QFontDatabase::addApplicationFont(
+			u":/gui/material-fonts/GoogleSans-Italic.ttf"_q);
+		QFontDatabase::addApplicationFont(
+			u":/gui/material-fonts/GoogleSans-SemiBoldItalic.ttf"_q);
+	}
+	auto customFont = settings().customFontFamily();
+	if (customFont.isEmpty() && Telega::UseWindows11Style()) {
+		customFont = QFontDatabase::families().contains(u"Segoe UI Variable Text"_q)
+			? u"Segoe UI Variable Text"_q
+			: u"Segoe UI"_q;
+	} else if (customFont.isEmpty() && Telega::UseMacOSStyle()) {
+		customFont = QFontDatabase::families().contains(u"SF Pro Text"_q)
 			? u"SF Pro Text"_q
-			: u"Segoe UI"_q)
-		: customFont);
+			: u"Segoe UI"_q;
+	} else if (customFont.isEmpty()
+		&& Telega::UseMaterial3Style()
+		&& Telega::PreferredMaterialOption(Telega::MaterialOption::GoogleSans)) {
+		customFont = googleSans;
+	}
+	style::SetCustomFont(customFont);
 	style::internal::StartFonts();
 
 	Test::ApplyStartupOverrides();

@@ -6,9 +6,13 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/ui/dialogs_layout.h"
+#include "dialogs/dialogs_row.h"
+#include "dialogs/dialogs_row_style.h"
 
 #include "base/options.h"
 #include "base/platform/base_platform_info.h"
+#include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 #include "base/unixtime.h"
 #include "core/ui_integration.h"
 #include "data/data_channel.h"
@@ -89,9 +93,9 @@ const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 }
 
 [[nodiscard]] bool IsMacChatRow(const PaintContext &context) {
-	return Platform::IsWindows()
+	return Core::Telega::UseMacOSStyle()
 		&& !context.search
-		&& context.st == &st::defaultDialogRow;
+		&& context.st == &DefaultRowStyle();
 }
 
 [[nodiscard]] QRect PaintMacUnreadBadge(
@@ -539,11 +543,11 @@ void PaintRow(
 	const auto thread = entry->asThread();
 	const auto sublist = entry->asSublist();
 
-	auto bg = context.active
-		? st::dialogsBgActive
+	const auto &bg = context.active
+		? st::dialogsBgActive->b
 		: context.selected
-		? st::dialogsBgOver
-		: context.currentBg;
+		? st::dialogsBgOver->b
+		: *context.currentBg;
 	auto swipeTranslation = 0.;
 	auto swipeMirrored = false;
 	if (history
@@ -558,20 +562,49 @@ void PaintRow(
 	if (swipeTranslation) {
 		p.translate(swipeMirrored ? swipeTranslation : -swipeTranslation, 0);
 	}
-	const auto rounded = Platform::IsWindows()
+	const auto material = Core::Telega::UseMaterial3Style();
+	const auto fluent = Core::Telega::UseWindows11Style();
+	const auto rounded = (Core::Telega::UseMacOSStyle()
+		|| fluent
+		|| (material && style::MaterialDesign().roundedSelection))
 		&& !context.search
 		&& !swipeTranslation;
+	const auto inset = fluent
+		? QMargins(style::ConvertScale(6), style::ConvertScale(2),
+			style::ConvertScale(6), style::ConvertScale(2))
+		: material
+		? QMargins(
+			style::ConvertScale(rtl() ? 12 : 6),
+			style::ConvertScale(2),
+			style::ConvertScale(rtl() ? 6 : 12),
+			style::ConvertScale(2))
+		: st::dialogsRowInset;
+	const auto area = geometry.marginsRemoved(inset);
+	const auto radius = fluent
+		? style::ConvertScale(4)
+		: material
+		? style::ConvertScale(12)
+		: st::dialogsRowRadius;
 	if (rounded) {
-		p.fillRect(geometry, st::windowBg);
-		const auto inset = st::dialogsRowInset;
-		const auto area = geometry.marginsRemoved(inset);
-		const auto radius = st::dialogsRowRadius;
-		p.save();
-		p.setRenderHint(QPainter::Antialiasing);
-		p.setPen(Qt::NoPen);
-		p.setBrush(bg);
-		p.drawRoundedRect(area, radius, radius);
-		p.restore();
+		p.fillRect(geometry, (material || fluent) ? context.currentBg : st::windowBg);
+		if ((!material && !fluent) || context.active || context.selected) {
+			p.save();
+			p.setRenderHint(QPainter::Antialiasing);
+			p.setPen(Qt::NoPen);
+			p.setBrush(bg);
+			p.drawRoundedRect(area, radius, radius);
+			if (fluent && context.active) {
+				const auto stripe = style::ConvertScale(3);
+				const auto h = std::min(style::ConvertScale(36), area.height());
+				const auto x = rtl() ? area.right() - stripe + 1 : area.left();
+				p.setBrush(st::windowActiveTextFg);
+				p.drawRoundedRect(
+					QRect(x, area.y() + (area.height() - h) / 2, stripe, h),
+					stripe / 2.,
+					stripe / 2.);
+			}
+			p.restore();
+		}
 	} else {
 		p.fillRect(geometry, bg);
 	}
@@ -582,10 +615,7 @@ void PaintRow(
 		p.save();
 		if (rounded) {
 			auto clip = QPainterPath();
-			clip.addRoundedRect(
-				geometry.marginsRemoved(st::dialogsRowInset),
-				st::dialogsRowRadius,
-				st::dialogsRowRadius);
+			clip.addRoundedRect(area, radius, radius);
 			p.setClipPath(clip, Qt::IntersectClip);
 		}
 		row->paintRipple(p, 0, 0, context.width, &ripple->c);
@@ -1185,7 +1215,7 @@ void PaintRow(
 
 const style::icon *ChatTypeIcon(not_null<PeerData*> peer) {
 	return ChatTypeIcon(peer, {
-		.st = &st::defaultDialogRow,
+		.st = &DefaultRowStyle(),
 		.currentBg = st::windowBg,
 	});
 }
@@ -1293,9 +1323,9 @@ void RowPainter::Paint(
 		| (row->topicJumpRipple() ? Flag::TopicJumpRipple : Flag(0));
 	const auto paintItemCallback = [&](int nameleft, int namewidth) {
 		const auto texttop = context.st->textTop;
-		const auto twoLines = Platform::IsWindows()
+		const auto twoLines = Core::Telega::UseMacOSStyle()
 			&& !context.search
-			&& context.st == &st::defaultDialogRow;
+			&& context.st == &DefaultRowStyle();
 		const auto badgeTop = twoLines
 			? (context.st->height - context.st->padding.bottom() - st::dialogsUnreadHeight)
 			: texttop;

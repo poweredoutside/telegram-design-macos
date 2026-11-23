@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/settings_common.h"
+#include "core/core_telega_preferences.h"
 
 #include "base/platform/base_platform_info.h"
 #include "base/timer.h"
@@ -28,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/vertical_layout.h"
 #include "ui/text/text_entity.h"
 #include "ui/style/style_core_scale.h"
+#include "ui/style/style_material.h"
 #include "styles/style_edit_peer_members.h"
 #include "styles/style_info.h"
 #include "styles/style_menu_icons.h"
@@ -67,8 +69,11 @@ not_null<Ui::VerticalLayout*> GroupedSettingsContent::content() const {
 }
 
 int GroupedSettingsContent::resizeGetHeight(int newWidth) {
+	const auto inset = Core::Telega::UseMaterial3Style()
+		? style::ConvertScale(10)
+		: st::macSettingsPageInset;
 	const auto innerWidth = std::clamp(
-		newWidth - 2 * st::macSettingsPageInset,
+		newWidth - 2 * inset,
 		0,
 		style::ConvertScale(600));
 	_content->resizeToWidth(innerWidth);
@@ -506,6 +511,28 @@ not_null<Ui::VerticalLayout*> AddGroupedSettingsRows(
 void FinishGroupedSettingsRows(
 		not_null<Ui::VerticalLayout*> group,
 		const style::color *background) {
+	const auto material = Core::Telega::UseMaterial3Style();
+	const auto fluent = Core::Telega::UseWindows11Style();
+	if (material && !style::MaterialDesign().grouped) {
+		return;
+	} else if (material || fluent) {
+		group->paintRequest() | rpl::on_next([=](QRect clip) {
+			auto p = QPainter(group);
+			p.fillRect(clip, style::MaterialTone(
+				st::windowBg->c, st::windowFg->c, fluent ? .035 : .06));
+		}, group->lifetime());
+		for (auto i = 0; i != group->count(); ++i) {
+			const auto row = group->widgetAt(i).get();
+			if (const auto button = dynamic_cast<Ui::SettingsButton*>(row)) {
+				button->setMaterialSurface();
+			}
+			for (const auto child : row->findChildren<QWidget*>()) {
+				if (const auto button = dynamic_cast<Ui::SettingsButton*>(child)) {
+					button->setMaterialSurface();
+				}
+			}
+		}
+	}
 	const auto &pageBackground = background ? *background : st::boxSearchBg;
 	const auto overlay = Ui::CreateChild<Ui::RpWidget>(group);
 	overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -529,20 +556,30 @@ void FinishGroupedSettingsRows(
 		}
 		const auto inset = style::ConvertScale(14);
 		for (auto i = 0; i != int(rows.size()); ++i) {
-			if (plain || i + 1 != rows.size()) {
+			const auto last = (i + 1 == int(rows.size()));
+			if ((material || fluent) && !last) {
+				const auto bottom = (rows[i]->geometry().bottom() + 1
+					+ rows[i + 1]->y()) / 2;
+				p.fillRect(0, bottom - st::lineWidth, group->width(),
+					st::lineWidth, pageBackground);
+			} else if (!material && !fluent && !last) {
 				p.fillRect(inset,
 					rows[i]->y() + rows[i]->height() - st::lineWidth,
 					std::max(0, group->width() - 2 * inset),
 					st::lineWidth, st::shadowFg);
 			}
 		}
-		if (!plain && !rows.empty()) {
+		if ((material || fluent || !plain) && !rows.empty()) {
 			p.setRenderHint(QPainter::Antialiasing);
 			auto outside = QPainterPath();
 			outside.setFillRule(Qt::OddEvenFill);
 			outside.addRect(overlay->rect());
 			const auto radius = std::min(
-				st::macSettingsRadius, overlay->height() / 2);
+				fluent ? style::ConvertScale(8)
+					: material
+					? style::ConvertScale(18)
+					: st::macSettingsRadius,
+				overlay->height() / 2);
 			outside.addRoundedRect(overlay->rect(), radius, radius);
 			p.fillPath(outside, pageBackground);
 		}
@@ -561,7 +598,9 @@ not_null<Ui::FlatLabel*> AddGroupedSettingsHeader(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> text) {
 	return container->add(object_ptr<Ui::FlatLabel>(
-		container, std::move(text), st::macSettingsPageHeader),
+		container, std::move(text), Core::Telega::UseMaterial3Style()
+			? st::materialSettingsPageHeader
+			: st::macSettingsPageHeader),
 		style::margins(style::ConvertScale(14), style::ConvertScale(20),
 			style::ConvertScale(14), style::ConvertScale(5)));
 }
@@ -578,7 +617,10 @@ void AddGroupedSettingsFooter(
 const style::SettingsButton &ResolveButtonStyle(
 		not_null<QWidget*> parent,
 		const style::SettingsButton &st) {
-	if (!Platform::IsWindows()) {
+	const auto grouped = (Core::Telega::UseWindows11Style()
+		|| (Core::Telega::UseMaterial3Style() && style::MaterialDesign().grouped))
+		&& IsGroupedSettingsContent(parent);
+	if (!Core::Telega::UseMacOSStyle() && !grouped) {
 		return st;
 	}
 	for (auto ancestor = parent.get(); ancestor; ancestor = ancestor->parentWidget()) {

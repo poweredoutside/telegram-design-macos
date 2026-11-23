@@ -159,6 +159,7 @@ PRIVATE
     ui/platform/ui_platform_window.h
     ui/platform/ui_platform_utility.h
     ui/style/style_core.cpp
+    ui/style/style_material.h
     ui/style/style_core.h
     ui/style/style_core_color.cpp
     ui/style/style_core_color.h

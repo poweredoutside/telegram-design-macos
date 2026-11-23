@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/themes/window_theme_preview.h"
+#include "core/core_telega_preferences.h"
 
 #include "base/platform/base_platform_info.h"
 #include "dialogs/dialogs_three_state_icon.h"
@@ -1197,7 +1198,7 @@ QImage GeneratePreview(
 }
 
 int DefaultPreviewTitleHeight() {
-	return Platform::IsWindows()
+	return Core::Telega::UseMacOSStyle()
 		? st::macDesktopTitle.height
 		: st::defaultWindowTitle.height;
 }
@@ -1207,7 +1208,7 @@ void DefaultPreviewWindowTitle(
 		const style::palette &palette,
 		QRect body,
 		int outerWidth) {
-	const auto &title = Platform::IsWindows()
+	const auto &title = Core::Telega::UseMacOSStyle()
 		? st::macDesktopTitle
 		: st::defaultWindowTitle;
 	const auto titleRect = QRect(
@@ -1217,7 +1218,7 @@ void DefaultPreviewWindowTitle(
 		title.height);
 	p.fillRect(titleRect, QColor(0, 0, 0));
 	p.fillRect(titleRect, title.bgActive[palette]);
-	const auto onLeft = Platform::IsWindows();
+	const auto onLeft = Core::Telega::UseMacOSStyle();
 	const auto buttons = onLeft ? std::array{
 		std::pair(&title.close, &title.closeIconActive),
 		std::pair(&title.minimize, &title.minimizeIconActive),

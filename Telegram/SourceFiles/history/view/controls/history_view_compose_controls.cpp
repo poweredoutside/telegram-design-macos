@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h"
 #include "core/core_settings.h"
 #include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 #include "core/shortcuts.h"
 #include "core/ui_integration.h"
 #include "data/components/ephemeral_messages.h"
@@ -178,14 +179,34 @@ constexpr auto kCommonModifiers = 0
 [[nodiscard]] const style::ComposeControls &ComposeStyle(
 		const ComposeControlsDescriptor &descriptor) {
 	const auto override = descriptor.stOverride;
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle()) {
 		if (!override || override == &st::defaultComposeControls) {
 			return st::defaultComposeControlsMac;
 		} else if (override == &st::repliesComposeControls) {
 			return st::repliesComposeControlsMac;
 		}
 	}
-	return override ? *override : st::defaultComposeControls;
+	const auto &regular = override ? *override : st::defaultComposeControls;
+	if (!Core::Telega::UseWindows11Style()
+		&& !(Core::Telega::UseMaterial3Style()
+			&& style::MaterialDesign().floatingField)) {
+		return regular;
+	}
+	const auto rounded = [](const style::ComposeControls &base) {
+		auto result = base;
+		result.radius = style::ConvertScale(22);
+		result.field.textBg = st::transparent;
+		result.field.textBgActive = st::transparent;
+		return result;
+	};
+	if (!override || override == &st::defaultComposeControls) {
+		static const auto result = rounded(st::defaultComposeControls);
+		return result;
+	} else if (override == &st::repliesComposeControls) {
+		static const auto result = rounded(st::repliesComposeControls);
+		return result;
+	}
+	return regular;
 }
 
 base::options::toggle MacCmdReplyImmediately({
@@ -3335,7 +3356,9 @@ void ComposeControls::initField() {
 		}
 		return false;
 	});
-	if (!usesFloatingInput()) {
+	if (!usesFloatingInput()
+		&& (!(Core::Telega::UseMaterial3Style() || Core::Telega::UseWindows11Style())
+			|| _st.field.textBg != st::transparent)) {
 		InitMessageFieldFade(_field, _st.field.textBg);
 	}
 	_field->setEditLinkCallback(
@@ -5968,7 +5991,15 @@ void ComposeControls::paintFloatingInput(QPainter &p, QRect clip) {
 void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 	if (_backgroundRect) {
 		auto hq = PainterHighQualityEnabler(p);
-		p.setBrush(_st.bg);
+		const auto material = Core::Telega::UseMaterial3Style()
+			&& style::MaterialDesign().floatingField
+			&& _st.field.textBg == st::transparent;
+		const auto fluent = Core::Telega::UseWindows11Style()
+			&& _st.field.textBg == st::transparent;
+		p.setBrush(material
+			? QBrush(style::MaterialTone(
+				_st.bg->c, st::windowActiveTextFg->c, .14))
+			: QBrush(_st.bg));
 		p.setPen(Qt::NoPen);
 		const auto r = _st.radius;
 		if (_commentsShown && !_commentsShown->isHidden()) {
@@ -5982,7 +6013,12 @@ void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 				- _starsReaction->width()
 				- _st.starsSkip);
 		}
-		p.drawRoundedRect(full, _st.radius, _st.radius);
+		if (material || fluent) {
+			const auto inset = style::ConvertScale(fluent ? 6 : 4);
+			full = full.marginsRemoved({ inset, inset, inset, inset });
+		}
+		const auto radius = fluent ? full.height() / 2. : _st.radius;
+		p.drawRoundedRect(full, radius, radius);
 	} else {
 		p.fillRect(clip, _st.bg);
 	}

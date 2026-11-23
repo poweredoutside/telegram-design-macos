@@ -1,8 +1,8 @@
 #include "window/themes/window_theme_glass.h"
 
-#include "base/platform/base_platform_info.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include <rpl/event_stream.h>
 #include <rpl/then.h>
 
@@ -16,7 +16,7 @@ rpl::event_stream<Ui::LiquidGlassStyle> Changes;
 Ui::LiquidGlassStyle GlassStyle() {
 	auto &settings = Core::App().settings();
 	return {
-		.enabled = Platform::IsWindows()
+		.enabled = Core::Telega::UseMacOSStyle()
 			&& settings.readPref<bool>("macos/glass/enabled", true),
 		.opacity = std::clamp(settings.readPref<int>("macos/glass/opacity", 15), 15, 100),
 		.blur = std::clamp(settings.readPref<int>("macos/glass/blur", 32), 0, 40),
@@ -25,6 +25,9 @@ Ui::LiquidGlassStyle GlassStyle() {
 }
 
 void SetGlassStyle(Ui::LiquidGlassStyle style) {
+	if (!Core::Telega::UseMacOSStyle()) {
+		return;
+	}
 	style.opacity = std::clamp(style.opacity, 15, 100);
 	style.blur = std::clamp(style.blur, 0, 40);
 	style.refraction = std::clamp(style.refraction, 0, 100);

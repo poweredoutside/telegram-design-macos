@@ -17,6 +17,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "dialogs/dialogs_three_state_icon.h"
 #include "dialogs/ui/dialogs_layout.h"
+#include "dialogs/dialogs_row.h"
+#include "dialogs/dialogs_row_style.h"
 #include "dialogs/ui/dialogs_topics_view.h"
 #include "ui/effects/spoiler_mess.h"
 #include "ui/style/style_core_scale.h"
@@ -235,7 +237,7 @@ void MessageView::prepare(
 	const auto senderTill = (preview.arrowInTextPosition > 0)
 		? preview.arrowInTextPosition
 		: preview.imagesInTextPosition;
-	if (Platform::IsWindows() && senderTill > 0) {
+	if (Core::Telega::UseMacOSStyle() && senderTill > 0) {
 		auto separateText = Text::Mid(
 			preview.text,
 			std::max(senderTill, preview.imagesInTextPosition));
@@ -248,7 +250,7 @@ void MessageView::prepare(
 	} else {
 		_separateTextCache = { st::dialogsTextWidthMin };
 	}
-	if ((hasImages || _leftIcon || Platform::IsWindows()) && senderTill > 0) {
+	if ((hasImages || _leftIcon || Core::Telega::UseMacOSStyle()) && senderTill > 0) {
 		auto sender = Text::Mid(preview.text, 0, senderTill);
 		TextUtilities::Trim(sender);
 		_senderCache.setMarkedText(
@@ -259,7 +261,7 @@ void MessageView::prepare(
 	} else {
 		_senderCache = { st::dialogsTextWidthMin };
 	}
-	const auto senderPeer = (Platform::IsWindows()
+	const auto senderPeer = (Core::Telega::UseMacOSStyle()
 		&& !_senderCache.isEmpty()
 		&& !history->peer->isUser()
 		&& !history->peer->isBroadcast()
@@ -380,7 +382,7 @@ void MessageView::prepare(
 		std::move(textToCache),
 		[&] {
 			auto result = DialogTextOptions();
-			if (Platform::IsWindows()) {
+			if (Core::Telega::UseMacOSStyle()) {
 				result.flags |= TextParseMultiline;
 				result.maxh = 2 * st::dialogsTextFont->height;
 			}
@@ -527,9 +529,9 @@ void MessageView::paint(
 	}
 	const auto pausedSpoiler = context.paused
 		|| On(PowerSaving::kChatSpoiler);
-	const auto separateSender = Platform::IsWindows()
+	const auto separateSender = Core::Telega::UseMacOSStyle()
 		&& !context.search
-		&& context.st == &st::defaultDialogRow
+		&& context.st == &DefaultRowStyle()
 		&& !_senderCache.isEmpty();
 	if (!_senderCache.isEmpty()) {
 		auto senderPalette = *palette;

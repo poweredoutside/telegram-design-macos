@@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/edit_peer_requests_box.h"
 #include "core/core_settings.h"
 #include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
 #include "history/view/history_view_draw_to_reply.h"
@@ -252,14 +253,31 @@ constexpr auto kCommonModifiers = 0
 	| Qt::ControlModifier;
 const auto kPsaAboutPrefix = "cloud_lng_about_psa_";
 
+[[nodiscard]] const style::InputField &ComposeFieldStyle() {
+	if (Core::Telega::UseMacOSStyle()) {
+		return st::historyComposeFieldMac;
+	} else if (!Core::Telega::UseWindows11Style()
+		&& !(Core::Telega::UseMaterial3Style()
+			&& style::MaterialDesign().floatingField)) {
+		return st::historyComposeField;
+	}
+	static const auto material = [] {
+		auto result = st::historyComposeField;
+		result.textBg = st::transparent;
+		result.textBgActive = st::transparent;
+		return result;
+	}();
+	return material;
+}
+
 [[nodiscard]] int ComposePadding() {
-	return Platform::IsWindows()
+	return Core::Telega::UseMacOSStyle()
 		? st::historyComposeMacInset
 		: st::historySendPadding;
 }
 
 [[nodiscard]] int ComposeTopPadding() {
-	return Platform::IsWindows() ? 0 : st::historySendPadding;
+	return Core::Telega::UseMacOSStyle() ? 0 : st::historySendPadding;
 }
 
 [[nodiscard]] int ComposeVerticalPadding() {
@@ -315,7 +333,7 @@ HistoryWidget::HistoryWidget(
 	? object_ptr<Support::Autocomplete>(this, &session())
 	: nullptr)
 , _send(std::make_shared<Ui::SendButton>(this,
-	Platform::IsWindows() ? st::historySendMac : st::historySend))
+	Core::Telega::UseMacOSStyle() ? st::historySendMac : st::historySend))
 , _aiButton(Ui::CreateChild<HistoryView::Controls::ComposeAiButton>(
 	this,
 	st::historyAiComposeButton))
@@ -346,8 +364,8 @@ HistoryWidget::HistoryWidget(
 	st::historyComposeButton)
 , _reportMessages(this, QString(), st::historyComposeButton)
 , _attachToggle(this,
-	Platform::IsWindows() ? st::historyAttachMac : st::historyAttach)
-, _tabbedSelectorToggle(this, Platform::IsWindows()
+	Core::Telega::UseMacOSStyle() ? st::historyAttachMac : st::historyAttach)
+, _tabbedSelectorToggle(this, Core::Telega::UseMacOSStyle()
 	? st::historyAttachEmojiMac : st::historyAttachEmoji)
 , _botKeyboardShow(this, st::historyBotKeyboardShow)
 , _botKeyboardHide(this, st::historyBotKeyboardHide)
@@ -360,7 +378,7 @@ HistoryWidget::HistoryWidget(
 , _forwardPanel(std::make_unique<ForwardPanel>([=] { updateField(); }))
 , _field(
 	this,
-	Platform::IsWindows() ? st::historyComposeFieldMac : st::historyComposeField,
+	ComposeFieldStyle(),
 	Ui::InputField::Mode::MultiLine,
 	tr::lng_message_ph())
 , _richDraftPreview(std::make_unique<HistoryView::Controls::RichDraftPreview>(
@@ -631,7 +649,10 @@ HistoryWidget::HistoryWidget(
 		showPremiumToast(document);
 		return false;
 	});
-	if (!Platform::IsWindows()) {
+	if (!Core::Telega::UseMacOSStyle()
+		&& !Core::Telega::UseWindows11Style()
+		&& !(Core::Telega::UseMaterial3Style()
+			&& style::MaterialDesign().floatingField)) {
 		InitMessageFieldFade(_field, st::historyComposeField.textBg);
 	}
 
@@ -664,7 +685,7 @@ HistoryWidget::HistoryWidget(
 		updateFieldSize();
 		moveFieldControls();
 	}, _send->lifetime());
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle()) {
 		Window::Theme::GlassStyleValue() | rpl::on_next([=] {
 			updateField();
 		}, lifetime());
@@ -7573,7 +7594,7 @@ int HistoryWidget::fieldHeight() const {
 	}
 	return (_canSendTexts || _editMsgId)
 		? _field->height()
-		: Platform::IsWindows()
+		: Core::Telega::UseMacOSStyle()
 		? st::historyComposeFieldMac.heightMin
 		: (st::historySendSize.height() - ComposeVerticalPadding());
 }
@@ -7583,7 +7604,7 @@ bool HistoryWidget::fieldOrDisabledShown() const {
 }
 
 bool HistoryWidget::sendButtonInField() const {
-	return Platform::IsWindows()
+	return Core::Telega::UseMacOSStyle()
 		&& (_send->type() == Ui::SendButton::Type::Send
 			|| _send->type() == Ui::SendButton::Type::Save);
 }
@@ -7775,7 +7796,7 @@ void HistoryWidget::moveFieldControls() {
 // (_attachDocument|_attachPhoto) _field (_ttlInfo) (_scheduled) (_giftToUser) (_silent|_cmdStart|_kbShow) (_toggleSuggestPost) (_kbHide|_tabbedSelectorToggle) _send
 // (_botStart|_unblock|_joinChannel|_muteUnmute|_reportMessages)
 
-	const auto mac = Platform::IsWindows();
+	const auto mac = Core::Telega::UseMacOSStyle();
 	auto buttonsBottom = bottom - _attachToggle->height()
 		- (mac ? ComposePadding() : 0);
 	auto left = mac ? st::historyComposeMacInset : st::historySendRight;
@@ -7884,7 +7905,7 @@ void HistoryWidget::updateFieldSize() {
 		- st::historySendRight
 		- _send->width()
 		- _tabbedSelectorToggle->width();
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle()) {
 		fieldWidth -= 2 * st::historyComposeMacInset
 			+ st::historyComposeMacGap
 			+ (sendButtonInField()
@@ -7922,8 +7943,8 @@ void HistoryWidget::updateFieldSize() {
 
 	if (_fieldDisabled) {
 		_fieldDisabled->resize(
-			Platform::IsWindows() ? std::max(1, fieldWidth) : width(),
-			Platform::IsWindows() ? fieldHeight() : st::historySendSize.height());
+			Core::Telega::UseMacOSStyle() ? std::max(1, fieldWidth) : width(),
+			Core::Telega::UseMacOSStyle() ? fieldHeight() : st::historySendSize.height());
 	}
 	fieldWidth = std::max(1, fieldWidth);
 	if (_field->width() != fieldWidth) {
@@ -11648,10 +11669,30 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 	const auto replyArea = myrtlrect(0, backy, width(),
 		_field->y() - ComposeTopPadding() - backy);
-	if (!Platform::IsWindows() || _field->isHidden() || isRecording()) {
-		p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
+	const auto composer = myrtlrect(0, backy, width(), backh);
+	const auto fluent = Core::Telega::UseWindows11Style();
+	if ((fluent || (Core::Telega::UseMaterial3Style()
+			&& style::MaterialDesign().floatingField))
+		&& !_field->isHidden()
+		&& !isRecording()) {
+		const auto inset = style::ConvertScale(fluent ? 6 : 4);
+		const auto area = composer.marginsRemoved({ inset, inset, inset, inset });
+		const auto radius = fluent ? area.height() / 2. : style::ConvertScale(22);
+		p.save();
+		{
+			auto hq = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(fluent
+				? st::historyReplyBg->c
+				: style::MaterialTone(
+					st::historyReplyBg->c, st::windowActiveTextFg->c, .14));
+			p.drawRoundedRect(area, radius, radius);
+		}
+		p.restore();
+	} else if (!Core::Telega::UseMacOSStyle() || _field->isHidden() || isRecording()) {
+		p.fillRect(composer, st::historyReplyBg);
 	}
-	if (Platform::IsWindows() && !_field->isHidden()) {
+	if (Core::Telega::UseMacOSStyle() && !_field->isHidden()) {
 		const auto glass = Window::Theme::GlassStyle();
 		const auto edge = st::historyComposeMacInset;
 		const auto right = edge + (sendButtonInField()
@@ -11996,7 +12037,7 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 				drawField(p, clip);
 			}
 		}
-	} else {
+	} else if (!Core::Telega::UseWindows11Style()) {
 		const auto w = 0
 			+ st::msgServiceFont->width(tr::lng_willbe_history(tr::now))
 			+ st::msgPadding.left()

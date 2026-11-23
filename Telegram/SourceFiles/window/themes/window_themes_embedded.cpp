@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/serialize_common.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_wall_paper.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/style/style_palette_colorizer.h"
@@ -29,7 +30,10 @@ constexpr auto kDayBaseFile = ":/gui/day-custom-base.tdesktop-theme"_cs;
 constexpr auto kNightBaseFile = ":/gui/night-custom-base.tdesktop-theme"_cs;
 
 [[nodiscard]] QString PalettePath(const EmbeddedScheme &scheme) {
-	return (Platform::IsWindows() && scheme.path.isEmpty())
+	if (scheme.path.isEmpty() && Core::Telega::UseWindows11Style()) {
+		return u":/gui/windows11-light.tdesktop-theme"_q;
+	}
+	return (Core::Telega::UseMacOSStyle() && scheme.path.isEmpty())
 		? u":/gui/macos-light.tdesktop-theme"_q
 		: scheme.path;
 }
@@ -358,36 +362,36 @@ std::vector<EmbeddedScheme> EmbeddedThemes() {
 	return {
 		EmbeddedScheme{
 			EmbeddedType::Default,
-			qColor(Platform::IsWindows() ? "f5f5f7" : "9bd494"),
-			qColor(Platform::IsWindows() ? "dcebff" : "eaffdc"),
+			qColor(Core::Telega::UseMacOSStyle() ? "f5f5f7" : "9bd494"),
+			qColor(Core::Telega::UseMacOSStyle() ? "dcebff" : "eaffdc"),
 			qColor("ffffff"),
-			qColor(Platform::IsWindows() ? "dcebff" : "eaffdc"),
+			qColor(Core::Telega::UseMacOSStyle() ? "dcebff" : "eaffdc"),
 			qColor("ffffff"),
 			name(tr::lng_settings_theme_classic),
 			QString(),
-			qColor(Platform::IsWindows() ? "007aff" : "40a7e3")
+			qColor(Core::Telega::UseMacOSStyle() ? "007aff" : "40a7e3")
 		},
 		EmbeddedScheme{
 			EmbeddedType::DayBlue,
-			qColor(Platform::IsWindows() ? "f5f5f7" : "7ec4ea"),
-			qColor(Platform::IsWindows() ? "dcebff" : "d7f0ff"),
+			qColor(Core::Telega::UseMacOSStyle() ? "f5f5f7" : "7ec4ea"),
+			qColor(Core::Telega::UseMacOSStyle() ? "dcebff" : "d7f0ff"),
 			qColor("ffffff"),
-			qColor(Platform::IsWindows() ? "dcebff" : "d7f0ff"),
+			qColor(Core::Telega::UseMacOSStyle() ? "dcebff" : "d7f0ff"),
 			qColor("ffffff"),
 			name(tr::lng_settings_theme_day),
 			u":/gui/day-blue.tdesktop-theme"_q,
-			qColor(Platform::IsWindows() ? "007aff" : "40a7e3")
+			qColor(Core::Telega::UseMacOSStyle() ? "007aff" : "40a7e3")
 		},
 		EmbeddedScheme{
 			EmbeddedType::Night,
-			qColor(Platform::IsWindows() ? "1e1e1e" : "485761"),
-			qColor(Platform::IsWindows() ? "254c72" : "5ca7d4"),
-			qColor(Platform::IsWindows() ? "323236" : "6b808d"),
-			qColor(Platform::IsWindows() ? "323236" : "6b808d"),
-			qColor(Platform::IsWindows() ? "254c72" : "5ca7d4"),
+			qColor(Core::Telega::UseMacOSStyle() ? "1e1e1e" : "485761"),
+			qColor(Core::Telega::UseMacOSStyle() ? "254c72" : "5ca7d4"),
+			qColor(Core::Telega::UseMacOSStyle() ? "323236" : "6b808d"),
+			qColor(Core::Telega::UseMacOSStyle() ? "323236" : "6b808d"),
+			qColor(Core::Telega::UseMacOSStyle() ? "254c72" : "5ca7d4"),
 			name(tr::lng_settings_theme_tinted),
 			u":/gui/night.tdesktop-theme"_q,
-			qColor(Platform::IsWindows() ? "0a84ff" : "5288c1")
+			qColor(Core::Telega::UseMacOSStyle() ? "0a84ff" : "5288c1")
 		},
 		EmbeddedScheme{
 			EmbeddedType::NightGreen,
@@ -472,7 +476,7 @@ Fn<void(style::palette&)> PreparePaletteCallback(
 			: style::colorizer();
 
 		auto instance = Instance();
-		const auto path = Platform::IsWindows()
+		const auto path = Core::Telega::UseMacOSStyle()
 			? (dark
 				? u":/gui/macos-dark.tdesktop-theme"_q
 				: u":/gui/macos-light.tdesktop-theme"_q)
@@ -683,7 +687,7 @@ const EmbeddedAccentRecipe &AccentRecipe(EmbeddedType type) {
 }
 
 Ui::ChatThemeBackground PrepareDefaultBackground(bool dark) {
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle()) {
 		return {
 			.colorForFill = QColor(dark ? u"#1e1e1e"_q : u"#f5f5f7"_q),
 		};

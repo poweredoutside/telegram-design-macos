@@ -16,7 +16,8 @@ public:
 		QWidget *parent,
 		not_null<Window::SessionController*> controller,
 		Fn<void()> menu,
-		Fn<void()> repaintBackdrop);
+		Fn<void()> repaintBackdrop,
+		Fn<void()> close);
 	[[nodiscard]] Type selected() const {
 		return _selected.current();
 	}

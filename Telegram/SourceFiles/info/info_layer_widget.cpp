@@ -8,12 +8,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/info_layer_widget.h"
 
 #include "info/info_content_widget.h"
+#include "info/info_controller.h"
 #include "info/info_top_bar.h"
 #include "info/info_memento.h"
 #include "ui/rp_widget.h"
 #include "ui/focus_persister.h"
 #include "ui/widgets/buttons.h"
 #include "ui/cached_round_corners.h"
+#include "ui/style/style_material.h"
 #include "window/section_widget.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
@@ -22,6 +24,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
+
+#include <QtGui/QPainterPath>
 
 namespace Info {
 
@@ -285,6 +289,19 @@ int LayerWidget::resizeGetHeight(int newWidth) {
 			if (newGeometry != oldGeometry) {
 				_contentWrap->forceContentRepaint();
 			}
+			if (style::MaterialDesign().enabled) {
+				const auto settings = _contentWrap->controller()->section().type()
+					== Section::Type::Settings;
+				if (settings && !newGeometry.isEmpty()) {
+					auto outline = QPainterPath();
+					const auto radius = style::ConvertScale(20);
+					outline.addRoundedRect(
+						QRect(QPoint(), newGeometry.size()), radius, radius);
+					setMask(QRegion(outline.toFillPolygon().toPolygon()));
+				} else if (!mask().isEmpty()) {
+					clearMask();
+				}
+			}
 			if (newGeometry.topLeft() != oldGeometry.topLeft()) {
 				move(newGeometry.topLeft());
 			}
@@ -361,6 +378,10 @@ void LayerWidget::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
 
 	const auto clip = e->rect();
+	if (style::MaterialDesign().enabled && !mask().isEmpty()) {
+		p.fillRect(clip, st::boxBg);
+		return;
+	}
 	const auto radius = st::boxRadius;
 	const auto &corners = Ui::CachedCornerPixmaps(Ui::BoxCorners);
 	if (!_tillBottom) {

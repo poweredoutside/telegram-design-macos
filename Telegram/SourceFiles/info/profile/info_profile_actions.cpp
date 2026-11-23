@@ -1560,7 +1560,8 @@ Section DetailsFiller::makeInfo() {
 			rpl::producer<TextWithEntities> &&text,
 			const style::FlatLabel &textSt = st::infoLabeled,
 			const style::margins &padding = st::infoProfileLabeledPadding,
-			const style::PopupMenu &stMenu = st::defaultPopupMenu) {
+			const style::PopupMenu &stMenu = st::defaultPopupMenu,
+			anim::type visibilityAnimation = anim::type::normal) {
 		auto line = CreateTextWithLabel(
 			result,
 			v::text::take_marked(std::move(label)),
@@ -1568,7 +1569,8 @@ Section DetailsFiller::makeInfo() {
 			st::infoLabel,
 			textSt,
 			padding,
-			stMenu);
+			stMenu,
+			visibilityAnimation);
 		tracker.track(result->add(std::move(line.wrap)));
 
 		line.text->setClickHandlerFilter(infoClickFilter);
@@ -1592,13 +1594,15 @@ Section DetailsFiller::makeInfo() {
 			rpl::producer<TextWithEntities> &&text,
 			const QString &contextCopyText,
 			const style::margins &padding = st::infoProfileLabeledPadding,
-			const style::PopupMenu &stMenu = st::defaultPopupMenu) {
-		auto result = addInfoLine(
+			const style::PopupMenu &stMenu = st::defaultPopupMenu,
+			anim::type visibilityAnimation = anim::type::normal) {
+		auto result = addInfoLineGeneric(
 			std::move(label),
 			std::move(text),
 			st::infoLabeledOneLine,
 			padding,
-			stMenu);
+			stMenu,
+			visibilityAnimation);
 		result.text->setDoubleClickSelectsParagraph(true);
 		result.text->setContextCopyText(contextCopyText);
 		return result;
@@ -1701,16 +1705,18 @@ Section DetailsFiller::makeInfo() {
 
 		const auto phoneLine = addInfoOneLine(
 			tr::lng_info_mobile_label(),
-			PhoneWithSpoilerValue(user, PhoneOrHiddenValue(user)),
+			VisiblePhoneValue(user, PhoneOrHiddenValue(user)),
 			tr::lng_profile_copy_phone(tr::now),
 			st::infoProfileLabeledPadding,
-			st::popupMenuWithIcons);
+			st::popupMenuWithIcons,
+			anim::type::instant);
 		{
 			const auto phoneLabel = phoneLine.text;
 			const auto hook = [=](Ui::FlatLabel::ContextMenuRequest request) {
 				if (request.selection.empty()) {
 					const auto callback = [=] {
-						CopyPhoneToClipboard(PhoneOrHiddenValue(user));
+						CopyPhoneToClipboard(VisiblePhoneValue(
+							user, PhoneOrHiddenValue(user)));
 					};
 					request.menu->addAction(
 						tr::lng_profile_copy_phone(tr::now),
@@ -1720,7 +1726,7 @@ Section DetailsFiller::makeInfo() {
 					phoneLabel->fillContextMenu(request);
 				}
 				AddPhoneMenu(request.menu, user);
-				AddPhoneSpoilerMenu(request.menu, user);
+				AddHidePhoneMenu(request.menu, user);
 			};
 			phoneLabel->setContextMenuHook(hook);
 		}

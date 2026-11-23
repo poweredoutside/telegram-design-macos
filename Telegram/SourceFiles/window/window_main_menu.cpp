@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 #include "core/application.h"
 #include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 #include "core/click_handler_types.h"
 #include "data/data_changes.h"
 #include "data/data_document_media.h"
@@ -39,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_domain.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
+#include "mainwidget.h"
 #include "mtproto/mtproto_config.h"
 #include "settings/sections/settings_advanced.h"
 #include "settings/sections/settings_calls.h"
@@ -86,9 +88,30 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
+#include <QtGui/QPainterPath>
 
 namespace Window {
 namespace {
+
+[[nodiscard]] bool RoundedMainMenu() {
+	return Core::Telega::UseWindows11Style()
+		|| (Core::Telega::UseMaterial3Style() && style::MaterialDesign().roundedMenu);
+}
+
+[[nodiscard]] const style::SettingsButton &MainMenuItemStyle() {
+	if (!Core::Telega::UseMaterial3Style()) {
+		return st::mainMenuButton;
+	}
+	static const auto material = [] {
+		auto result = st::mainMenuButton;
+		const auto s = [](int value) { return style::ConvertScale(value); };
+		result.style = st::defaultTextStyle;
+		result.textBg = st::transparent;
+		result.padding = QMargins(s(61), s(13), s(20), s(11));
+		return result;
+	}();
+	return material;
+}
 
 constexpr auto kPlayStatusLimit = 2;
 
@@ -125,6 +148,66 @@ constexpr auto kPlayStatusLimit = 2;
 }
 
 } // namespace
+
+void ShowWindows11MainMenu(not_null<SessionController*> controller) {
+	const auto menu = Ui::CreateChild<Ui::PopupMenu>(
+		controller->content(), st::popupMenuWithIcons);
+	const auto &session = controller->session();
+	const auto domain = &session.domain();
+	const auto self = session.user();
+	menu->addAction(tr::lng_menu_night_mode(tr::now), [=] {
+		if (Theme::Background()->editingTheme()) {
+			controller->show(Ui::MakeInformBox(tr::lng_theme_editor_cant_change_theme()));
+			return;
+		}
+		Theme::ToggleNightModeWithConfirmation(&controller->window(), [] {
+			Theme::ToggleNightMode();
+			Theme::KeepApplied();
+		});
+	}, &st::menuIconNightMode);
+	menu->addSeparator();
+	menu->addAction(self->name(), [=] {
+		controller->showSection(Info::Stories::MakeMyProfile(self));
+	}, &st::menuIconProfile);
+	for (const auto &entry : domain->accounts()) {
+		const auto account = entry.account.get();
+		if (account != &session.account() && account->sessionExists()) {
+			menu->addAction(account->session().user()->name(), [=] {
+				domain->maybeActivate(account);
+			}, &st::menuIconProfile);
+		}
+	}
+	if (!session.supportMode() && domain->accounts().size() < domain->maxAccounts()) {
+		menu->addAction(tr::lng_menu_add_account(tr::now), [=] {
+			controller->window().preventOrInvoke([=] {
+				Core::App().setActivePrimaryWindow(&controller->window());
+				domain->addActivated(MTP::Environment{});
+			});
+		}, &st::menuIconAddAccount);
+	}
+	menu->addSeparator();
+	menu->addAction(tr::lng_menu_contacts(tr::now), [=] {
+		controller->show(PrepareContactsBox(controller));
+	}, &st::menuIconUserShow);
+	menu->addAction(tr::lng_menu_calls(tr::now), [=] {
+		::Calls::ShowCallsBox(controller);
+	}, &st::menuIconPhone);
+	menu->addAction(tr::lng_menu_settings(tr::now), [=] {
+		controller->window().showSettings();
+	}, &st::menuIconSettings);
+	menu->addSeparator();
+	menu->addAction(tr::lng_create_group_title(tr::now), [=] {
+		controller->showNewGroup();
+	}, &st::menuIconGroups);
+	menu->addAction(tr::lng_create_channel_title(tr::now), [=] {
+		controller->showNewChannel();
+	}, &st::menuIconChannel);
+	menu->addAction(tr::lng_saved_messages(tr::now), [=] {
+		controller->showPeerHistory(self);
+	}, &st::menuIconSavedMessages);
+	const auto inset = style::ConvertScale(5);
+	menu->popup(controller->widget()->bodyWidget()->mapToGlobal(QPoint(inset, inset)));
+}
 
 class MainMenu::ToggleAccountsButton final : public Ui::AbstractButton {
 public:
@@ -354,7 +437,7 @@ MainMenu::MainMenu(
 , _telegram(
 	Ui::CreateChild<Ui::FlatLabel>(_footer.get(), st::mainMenuTelegramLabel))
 , _version(AddVersionLabel(_footer)) {
-	setAttribute(Qt::WA_OpaquePaintEvent);
+	setAttribute(Qt::WA_OpaquePaintEvent, !RoundedMainMenu());
 
 	setupUserpicButton();
 	setupAccountsToggle();
@@ -533,7 +616,7 @@ void MainMenu::setupArchive() {
 	const auto button = AddButtonWithIcon(
 		inner,
 		tr::lng_archived_name(),
-		st::mainMenuButton,
+		MainMenuItemStyle(),
 		{ &st::menuIconArchiveOpen });
 	inner->add(
 		object_ptr<Ui::PlainShadow>(inner),
@@ -648,6 +731,13 @@ void MainMenu::setupSetEmojiStatus() {
 
 void MainMenu::parentResized() {
 	resize(st::mainMenuWidth, parentWidget()->height());
+	if (RoundedMainMenu()) {
+		auto outline = QPainterPath();
+		const auto radius = style::ConvertScale(
+			Core::Telega::UseWindows11Style() ? 8 : 16);
+		outline.addRoundedRect(rect(), radius, radius);
+		setMask(QRegion(outline.toFillPolygon().toPolygon()));
+	}
 }
 
 void MainMenu::showFinished() {
@@ -672,7 +762,7 @@ void MainMenu::setupMenu() {
 		return AddButtonWithIcon(
 			_menu,
 			std::move(text),
-			st::mainMenuButton,
+			MainMenuItemStyle(),
 			std::move(descriptor));
 	};
 	if (!_controller->session().supportMode()) {
@@ -700,9 +790,9 @@ void MainMenu::setupMenu() {
 					object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
 						_menu,
 						CreateButtonWithIcon(_menu, tr::lng_wallet_menu(),
-							st::mainMenuButton, { &st::walletMenuIcon })));
+							MainMenuItemStyle(), { &st::walletMenuIcon })));
 				Ui::NewBadge::AddAfterButtonText(wallet->entity(),
-					tr::lng_wallet_menu(), st::mainMenuButton);
+					tr::lng_wallet_menu(), MainMenuItemStyle());
 				wallet->toggleOn(session->appConfig().value() | rpl::map([=] {
 					return session->appConfig().walletAvailable();
 				}) | rpl::distinct_until_changed());

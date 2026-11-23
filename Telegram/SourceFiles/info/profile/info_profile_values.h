@@ -53,7 +53,7 @@ rpl::producer<not_null<PeerData*>> MigratedOrMeValue(
 [[nodiscard]] QString PublicLinkByPhone(not_null<UserData*> user);
 [[nodiscard]] rpl::producer<TextWithEntities> PhoneOrHiddenValue(
 	not_null<UserData*> user);
-[[nodiscard]] rpl::producer<TextWithEntities> PhoneWithSpoilerValue(
+[[nodiscard]] rpl::producer<TextWithEntities> VisiblePhoneValue(
 	not_null<UserData*> user,
 	rpl::producer<TextWithEntities> phone);
 void CopyPhoneToClipboard(rpl::producer<TextWithEntities> phone);

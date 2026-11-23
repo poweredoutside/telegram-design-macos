@@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/search_field_controller.h"
 #include "ui/ui_utility.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "calls/calls_instance.h"
 #include "core/shortcuts.h"
 #include "window/window_session_controller.h"
@@ -63,7 +64,7 @@ namespace Info {
 namespace {
 
 const style::InfoTopBar &TopBarStyle(Wrap wrap, bool settings) {
-	if (Platform::IsWindows() && settings) {
+	if (Core::Telega::UseMacOSStyle() && settings) {
 		return (wrap == Wrap::Layer)
 			? st::infoSettingsLayerTopBar
 			: st::infoSettingsTopBar;
@@ -454,7 +455,7 @@ void WrapWidget::setupTop() {
 
 void WrapWidget::createTopBar() {
 	const auto wrapValue = wrap();
-	const auto settings = Platform::IsWindows()
+	const auto settings = Core::Telega::UseMacOSStyle()
 		&& _controller->section().type() == Section::Type::Settings;
 	auto selectedItems = _topBar
 		? _topBar->takeSelectedItems()
@@ -531,7 +532,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 	} else if (section.type() == Section::Type::Settings) {
 		addTopBarMenuButton();
 		if (section.settingsType() == ::Settings::MainId()) {
-			const auto &st = Platform::IsWindows()
+			const auto &st = Core::Telega::UseMacOSStyle()
 				? st::infoSettingsTopBarSearch
 				: (wrap() == Wrap::Layer)
 				? st::infoLayerTopBarSearch
@@ -543,7 +544,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 				_controller->showSettings(::Settings::Search::Id());
 			});
 		} else if (section.settingsType() == ::Settings::ShortcutsId()) {
-			const auto &st = Platform::IsWindows()
+			const auto &st = Core::Telega::UseMacOSStyle()
 				? st::infoSettingsTopBarKeysLegend
 				: (wrap() == Wrap::Layer)
 				? st::infoLayerTopBarKeysLegend
@@ -558,7 +559,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 			const auto controller = _controller->parentController();
 			const auto self = controller->session().user();
 			const auto show = controller->uiShow();
-			const auto &st = Platform::IsWindows()
+			const auto &st = Core::Telega::UseMacOSStyle()
 				? st::infoSettingsTopBarQr
 				: (wrap() == Wrap::Layer)
 				? st::infoLayerTopBarQr
@@ -648,7 +649,7 @@ void WrapWidget::addTopBarMenuButton() {
 		return;
 	}
 
-	const auto settings = Platform::IsWindows()
+	const auto settings = Core::Telega::UseMacOSStyle()
 		&& _controller->section().type() == Section::Type::Settings;
 	_topBarMenuToggle.reset(_topBar->addButton(
 		base::make_unique_q<Ui::IconButton>(

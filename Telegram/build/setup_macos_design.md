@@ -7,7 +7,7 @@ Build the custom per-user Windows x64 installer with Inno Setup 6.7.4:
 ```
 
 The script reads the existing Release build from `out\Release` and writes
-`out\setup\Telega-Desktop-Setup-x64.exe`. Use `/OPATH` to change the output
+`out\setup-release\Telega-Desktop-Setup-x64.exe`. Use `/OPATH` to change the output
 directory or `/DPayloadDir=PATH` to select another build. Setup reads the app
 version from the selected executable.
 

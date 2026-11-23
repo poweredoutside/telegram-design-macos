@@ -44,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/background_box.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "webview/webview_common.h"
 
 #include <QtCore/QBuffer>
@@ -89,13 +90,20 @@ inline bool AreTestingTheme() {
 }
 
 QByteArray readThemeContent(const QString &path) {
-	const auto effectivePath = !Platform::IsWindows()
-		? path
-		: (path == u":/gui/day-blue.tdesktop-theme"_q)
-		? u":/gui/macos-light.tdesktop-theme"_q
-		: (path == u":/gui/night.tdesktop-theme"_q)
-		? u":/gui/macos-dark.tdesktop-theme"_q
-		: path;
+	auto effectivePath = path;
+	if (path == u":/gui/day-blue.tdesktop-theme"_q) {
+		if (Core::Telega::UseWindows11Style()) {
+			effectivePath = u":/gui/windows11-light.tdesktop-theme"_q;
+		} else if (Core::Telega::UseMacOSStyle()) {
+			effectivePath = u":/gui/macos-light.tdesktop-theme"_q;
+		}
+	} else if (path == u":/gui/night.tdesktop-theme"_q) {
+		if (Core::Telega::UseWindows11Style()) {
+			effectivePath = u":/gui/windows11-dark.tdesktop-theme"_q;
+		} else if (Core::Telega::UseMacOSStyle()) {
+			effectivePath = u":/gui/macos-dark.tdesktop-theme"_q;
+		}
+	}
 	QFile file(effectivePath);
 	if (!file.exists()) {
 		LOG(("Theme Error: theme file not found: %1").arg(path));
@@ -586,6 +594,14 @@ void ChatBackground::initialRead() {
 	}
 	if (_themeObject.pathAbsolute.isEmpty() && !nightMode()) {
 		applyDefaultThemeAccentColorizer();
+		if (Core::Telega::UseWindows11Style() && _themeImage.isNull()) {
+			auto file = zlib::FileToRead(readThemeContent(u":/gui/windows11-light.tdesktop-theme"_q));
+			auto bytes = QByteArray();
+			auto tiled = false;
+			if (loadBackground(file, &bytes, &tiled)) {
+				setThemeData(QImage::fromData(bytes), tiled);
+			}
+		}
 	}
 	if (!Local::readBackground()) {
 		set(Data::ThemeWallPaper());
@@ -761,6 +777,17 @@ QImage ChatBackground::postprocessBackgroundImage(QImage image) {
 }
 
 void ChatBackground::set(const Data::WallPaper &paper, QImage image) {
+	if (Core::Telega::UseWindows11Style() && !_themeImage.isNull()
+		&& IsEmbeddedTheme(_themeObject.pathAbsolute)
+		&& Data::IsDefaultWallPaper(paper)) {
+		const auto standard = Data::DefaultWallPaper();
+		if (paper.backgroundColors() == standard.backgroundColors()
+			&& paper.patternOpacity() == standard.patternOpacity()
+			&& paper.gradientRotation() == standard.gradientRotation()) {
+			set(Data::ThemeWallPaper());
+			return;
+		}
+	}
 	image = Ui::PreprocessBackgroundImage(std::move(image));
 
 	const auto needResetAdjustable = Data::IsDefaultWallPaper(paper)
@@ -828,7 +855,7 @@ void ChatBackground::set(const Data::WallPaper &paper, QImage image) {
 }
 
 void ChatBackground::setPreparedAfterPaper(QImage image) {
-	if (Platform::IsWindows()
+	if (Core::Telega::UseMacOSStyle()
 		&& (Data::IsDefaultWallPaper(_paper)
 			|| Data::details::IsTestingDefaultWallPaper(_paper))) {
 		auto background = QImage(1, 1, QImage::Format_RGB32);
@@ -917,7 +944,7 @@ bool ChatBackground::adjustPaletteRequired() {
 
 	if (_editingTheme.has_value()) {
 		return false;
-	} else if (Platform::IsWindows() && usingDefaultBackground()) {
+	} else if (Core::Telega::UseMacOSStyle() && usingDefaultBackground()) {
 		return false;
 	} else if (isNonDefaultThemeOrBackground() || nightMode()) {
 		return !usingThemeBackground();
@@ -1192,7 +1219,7 @@ void ChatBackground::setTestingDefaultTheme() {
 
 void ChatBackground::applyDefaultThemeAccentColorizer() {
 	const auto colorizer = ColorizerForTheme(QString());
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle() || Core::Telega::UseWindows11Style()) {
 		const auto &settings = Core::App().settings();
 		const auto accent = settings.systemAccentColorEnabled()
 			? SystemAccentColor()

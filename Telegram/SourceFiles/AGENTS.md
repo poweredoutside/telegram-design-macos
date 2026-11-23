@@ -323,7 +323,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 ### settings/sections — Settings pages
 - Paths: `SourceFiles/settings/sections/`, `SourceFiles/settings/cloud_password/`, `SourceFiles/settings/settings_privacy_controllers*`, `SourceFiles/settings/settings_experimental*`, `SourceFiles/settings/settings_power_saving*`, `SourceFiles/settings/settings_scale_preview*`, `SourceFiles/settings/settings_notifications_common.h`, `SourceFiles/settings/settings_intro*`, `SourceFiles/settings/settings_codes*`, `SourceFiles/ui/boxes/choose_font_box*`
 - Main, account info, privacy and security with per-rule pages, two-step verification steps, notifications, chat settings, folders, advanced, data and storage, local passcode, sessions, websites, passkeys, calls, shortcuts, experimental options and the Stars page. It must not own the framework or Business pages.
-- `settings_telega` owns the Telega macOS hub, local theme library actions, and the Gemini settings and chat UI. Existing Telegram settings stay owned by their original sections.
+- `settings_telega` owns the Telega Desktop hub, local theme library actions, and the Gemini settings and chat UI. Existing Telegram settings stay owned by their original sections.
 
 ### settings/business — Telegram Business pages
 - Paths: `SourceFiles/settings/business/`, `SourceFiles/settings/sections/settings_business*`

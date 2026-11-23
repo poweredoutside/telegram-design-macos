@@ -5,6 +5,7 @@
 // https://github.com/desktop-app/legal/blob/master/LEGAL
 //
 #include "ui/widgets/side_bar_button.h"
+#include "ui/style/style_material.h"
 
 #include "ui/effects/ripple_animation.h"
 #include "ui/painter.h"
@@ -52,7 +53,22 @@ void SideBarButton::setActive(bool active) {
 	if (_active == active) {
 		return;
 	}
+	const auto progress = _activePill.value(_active ? 1. : 0.);
 	_active = active;
+	const auto &material = style::MaterialDesign();
+	const auto animateSelection = material.enabled
+		? material.expressive
+		: (isListItem() || isPageTab());
+	if (animateSelection && isVisible() && !anim::Disabled()) {
+		_activePill.start(
+			[this] { update(); },
+			progress,
+			active ? 1. : 0.,
+			crl::time(180),
+			anim::easeOutCubic);
+	} else {
+		_activePill.stop();
+	}
 	if (isPageTab()) {
 		// Announce selection via a dedicated selection event (the Windows
 		// bridge maps these to UIA_SelectionItem_ElementSelected); a generic
@@ -166,11 +182,34 @@ void SideBarButton::paintEvent(QPaintEvent *e) {
 	auto p = Painter(this);
 	const auto clip = e->rect();
 
-	const auto &bg = _active ? _st.textBgActive : _st.textBg;
-	p.fillRect(clip, bg);
+	const auto &design = style::MaterialDesign();
+	const auto progress = _activePill.value(_active ? 1. : 0.);
+	const auto &bg = _st.textBg;
+	p.fillRect(clip, (design.enabled || design.windows11)
+		? QBrush(bg->c)
+		: anim::brush(bg, _st.textBgActive, progress));
 
+	if (design.windows11 && (progress > 0. || isOver() || isDown())) {
+		auto hq = PainterHighQualityEnabler(p);
+		const auto inset = style::ConvertScale(4);
+		const auto area = rect().adjusted(inset, inset, -inset, -inset);
+		p.setPen(Qt::NoPen);
+		p.setBrush(anim::brush(bg, _st.textBgActive,
+			std::max(progress, (isOver() || isDown()) ? .6 : 0.)));
+		p.drawRoundedRect(area, inset, inset);
+	} else if (design.enabled && progress > 0.) {
+		auto hq = PainterHighQualityEnabler(p);
+		const auto w = std::min(width(), style::ConvertScale(52));
+		const auto h = std::min(height(), style::ConvertScale(30));
+		const auto center = _showIcon
+			? iconTop() + computeIcon().height() / 2
+			: height() / 2;
+		const auto top = std::clamp(center - h / 2, 0, height() - h);
+		p.setPen(Qt::NoPen);
+		p.setBrush(anim::brush(bg, _st.textBgActive, progress));
+		p.drawRoundedRect(QRect((width() - w) / 2, top, w, h), h / 2., h / 2.);
+	}
 	RippleButton::paintRipple(p, 0, 0);
-
 	if (_lock.locked) {
 		p.setOpacity(kPremiumLockedOpacity);
 	}
@@ -206,7 +245,7 @@ void SideBarButton::paintEvent(QPaintEvent *e) {
 
 		auto hq = PainterHighQualityEnabler(p);
 		p.setPen(Qt::NoPen);
-		p.setBrush(_active
+		p.setBrush((_active && !design.enabled && !design.windows11)
 			? (_badgeMuted ? _st.badgeBgMutedActive : _st.badgeBgActive)
 			: (_badgeMuted ? _st.badgeBgMuted : _st.badgeBg));
 		const auto r = _st.badgeHeight / 2;

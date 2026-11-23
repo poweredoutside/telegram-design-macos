@@ -65,19 +65,21 @@ Step::Step(
 	QWidget *parent,
 	not_null<Main::Account*> account,
 	not_null<Data*> data,
-	bool hasCover)
+	bool hasCover,
+	bool centered)
 : RpWidget(parent)
 , _account(account)
 , _data(data)
 , _hasCover(hasCover)
-, _title(this, _hasCover ? st::introCoverTitle : st::introTitle)
+, _centered(centered)
+, _title(this, (_hasCover || _centered) ? st::introCoverTitle : st::introTitle)
 , _description(
 	this,
 	object_ptr<Ui::FlatLabel>(
 		this,
 		_hasCover && Platform::IsWindows()
 			? st::macIntroCoverDescription
-			: _hasCover
+			: (_hasCover || _centered)
 			? st::introCoverDescription
 			: st::introDescription)) {
 	hide();
@@ -278,6 +280,11 @@ void Step::updateLabelsPosition() {
 	if (hasCover()) {
 		_title->moveToLeft((width() - _title->width()) / 2, contentTop() + st::introCoverTitleTop);
 		_description->moveToLeft((width() - _description->width()) / 2, contentTop() + st::introCoverDescriptionTop);
+	} else if (_centered) {
+		const auto titleTop = contentTop() + style::ConvertScale(102);
+		_description->resizeToWidth(st::introNextButton.width);
+		_title->moveToLeft((width() - _title->width()) / 2, titleTop);
+		_description->moveToLeft(contentLeft(), titleTop + style::ConvertScale(34));
 	} else {
 		_title->moveToLeft(contentLeft() + st::buttonRadius, contentTop() + st::introTitleTop);
 		_description->resizeToWidth(st::introDescription.minWidth);
@@ -499,6 +506,10 @@ void Step::paintCover(QPainter &p, int top) {
 
 int Step::contentLeft() const {
 	return (width() - st::introNextButton.width) / 2;
+}
+
+int Step::nextButtonTop() const {
+	return contentTop() + st::introNextTop;
 }
 
 int Step::contentTop() const {

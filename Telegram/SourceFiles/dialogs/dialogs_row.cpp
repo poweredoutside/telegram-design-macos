@@ -6,6 +6,10 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_row.h"
+#include "dialogs/dialogs_row_style.h"
+
+#include "base/platform/base_platform_info.h"
+#include "core/core_telega_preferences.h"
 
 #include "ui/chat/chat_theme.h" // CountAverageColor.
 #include "ui/color_contrast.h"
@@ -404,6 +408,46 @@ Row::~Row() {
 	clearTopicJumpRipple();
 }
 
+const style::DialogRow &DefaultRowStyle() {
+	if (Core::Telega::UseMacOSStyle() || !Platform::IsWindows()) {
+		return st::defaultDialogRow;
+	}
+	static const auto classic = [] {
+		auto result = st::defaultDialogRow;
+		const auto s = [](int value) { return style::ConvertScale(value); };
+		result.height = s(62);
+		result.padding = QMargins(s(10), s(8), s(10), s(8));
+		result.photoSize = s(46);
+		result.nameLeft = s(68);
+		result.nameTop = s(10);
+		result.textLeft = s(68);
+		result.textTop = s(34);
+		return result;
+	}();
+	if (!Core::Telega::UseMaterial3Style() && !Core::Telega::UseWindows11Style()) {
+		return classic;
+	}
+	static const auto rounded = [] {
+		auto result = classic;
+		const auto s = [](int value) { return style::ConvertScale(value); };
+		result.height = s(68);
+		result.padding = QMargins(s(12), s(9), s(22), s(9));
+		result.photoSize = s(50);
+		result.nameLeft = s(74);
+		result.nameTop = s(12);
+		result.textLeft = s(74);
+		result.textTop = s(37);
+		if (Core::Telega::UseWindows11Style()) {
+			result.padding = QMargins(s(16), s(10), s(16), s(10));
+			result.photoSize = s(48);
+			result.nameTop = s(14);
+			result.textTop = s(35);
+		}
+		return result;
+	}();
+	return rounded;
+}
+
 const style::DialogRow &Row::ComputeSt(
 		not_null<const Entry*> entry,
 		FilterId filterId) {
@@ -415,20 +459,20 @@ const style::DialogRow &Row::ComputeSt(
 			? (hasTags ? st::taggedForumDialogRow : st::forumDialogRow)
 			: hasTags
 			? st::taggedDialogRow
-			: st::defaultDialogRow;
+			: DefaultRowStyle();
 	} else if (entry->asTopic()) {
 		return st::forumTopicRow;
 	}
-	return st::defaultDialogRow;
+	return DefaultRowStyle();
 }
 
 void Row::recountHeight(float64 narrowRatio, FilterId filterId) {
 	const auto &st = ComputeSt(_id.entry(), filterId);
-	_height = ((&st == &st::defaultDialogRow) || !_id.history())
-		? st::defaultDialogRow.height
+	_height = ((&st == &DefaultRowStyle()) || !_id.history())
+		? DefaultRowStyle().height
 		: anim::interpolate(
 			st.height,
-			st::defaultDialogRow.height,
+			DefaultRowStyle().height,
 			narrowRatio);
 }
 

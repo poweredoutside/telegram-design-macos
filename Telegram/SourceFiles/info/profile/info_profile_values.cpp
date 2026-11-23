@@ -164,7 +164,7 @@ rpl::producer<TextWithEntities> PhoneOrHiddenValue(not_null<UserData*> user) {
 	});
 }
 
-rpl::producer<TextWithEntities> PhoneWithSpoilerValue(
+rpl::producer<TextWithEntities> VisiblePhoneValue(
 		not_null<UserData*> user,
 		rpl::producer<TextWithEntities> phone) {
 	if (!user->isSelf()) {
@@ -175,7 +175,7 @@ rpl::producer<TextWithEntities> PhoneWithSpoilerValue(
 		user->session().settings().phoneNumberHiddenValue()
 	) | rpl::map([](const TextWithEntities &phone, bool hidden) {
 		return hidden
-			? Ui::Text::Wrapped(phone, EntityType::Spoiler)
+			? TextWithEntities()
 			: phone;
 	});
 }
@@ -183,6 +183,9 @@ rpl::producer<TextWithEntities> PhoneWithSpoilerValue(
 void CopyPhoneToClipboard(rpl::producer<TextWithEntities> phone) {
 	auto text = rpl::variable<TextWithEntities>(
 		std::move(phone)).current().text;
+	if (text.isEmpty()) {
+		return;
+	}
 	text.replace(' ', QString()).replace('-', QString());
 	TextUtilities::SetClipboardText({ text });
 }

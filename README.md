@@ -5,11 +5,11 @@
 
 ## Скачать установщик
 
-[Скачать Telega Desktop 1.0.3 для Windows x64](https://github.com/poweredoutside/telegram-design-macos/releases/download/v1.0.3/Telega-Desktop-Setup-x64.exe)
+[Скачать Telega Desktop 1.0.4 x64 RELEASE для Windows](https://github.com/poweredoutside/telegram-design-macos/releases/download/v1.0.4/Telega-Desktop-Setup-x64.exe)
 
 [Страница релизов и контрольные суммы](https://github.com/poweredoutside/telegram-design-macos/releases)
 
-Текущая версия — **Telega Desktop 1.0.3** для Windows 10 версии 1809 и новее и Windows 11, x64.
+Текущая версия — **Telega Desktop 1.0.4 x64 RELEASE** для Windows 10 версии 1809 и новее и Windows 11.
 Установщик не подписан сертификатом Windows, поэтому система может показать предупреждение о неизвестном издателе.
 
 Установите приложение в отдельную папку, предложенную установщиком, и войдите в свой аккаунт.
@@ -21,7 +21,8 @@
 
 ## Что изменено
 
-- Нижняя навигация: контакты, звонки, чаты и настройки.
+- Четыре стиля интерфейса: macOS, Telegram, Material Design 3 и Unigram.
+- Нижняя навигация в стиле macOS: контакты, звонки, чаты и настройки.
 - Оформление списка чатов, выбранных строк, панели окна и настроек в стиле macOS.
 - Светлая и тёмная темы, иконки из открытого исходного кода Telegram для macOS.
 - Настраиваемый Liquid Glass для нижней навигации, поля ввода и панели ответа.
@@ -31,7 +32,7 @@
 - ИИ-чат с Gemini, OpenAI, Claude и Perplexity. [Справка по настройкам](docs/telega-settings.md).
 - Живые обои, свои иконки приложения и локальное сохранение сообщений.
 
-[Полный список изменений 1.0.3](docs/releases/1.0.3.md).
+[Полный список изменений 1.0.4](docs/releases/1.0.4.md) · [Изменения 1.0.3](docs/releases/1.0.3.md).
 
 Это адаптация интерфейса Telegram Desktop для Windows; полное визуальное и функциональное совпадение с нативным macOS-клиентом не заявляется.
 
@@ -76,12 +77,12 @@ cmake --build out --config Release --target Telegram --parallel 4
 & 'C:\path\to\ISCC.exe' 'Telegram\build\setup_macos_design.iss'
 ```
 
-Результат: `out/setup/Telega-Desktop-Setup-x64.exe`.
+Результат: `out/setup-release/Telega-Desktop-Setup-x64.exe`.
 [Описание установщика](Telegram/build/setup_macos_design.md) и [инструкция для Release](Telegram/build/macos_design_release.md).
 Библиотеки сборки и инструменты нужно подготовить отдельно; их бинарные файлы не включены в репозиторий.
 Исходные upstream-workflows сохранены в `docs/upstream-workflows` и автоматически не запускаются.
 
-## Проверка версии 1.0.3
+## Проверка версии 1.0.4
 
 Проверены запуск с отдельным профилем, установка и удаление, обновление значка ярлыка, регистрация ссылок и галочка Tg Ws Proxy. Контрольные суммы опубликованы вместе с выпуском.
 

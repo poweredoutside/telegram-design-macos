@@ -19,6 +19,7 @@
 #include "ui/painter.h"
 #include "ui/integration.h"
 #include "ui/screen_reader_mode.h"
+#include "ui/style/style_material.h"
 #include "base/timer.h"
 #include "ui/ui_utility.h"
 
@@ -37,6 +38,13 @@ namespace Ui {
 namespace {
 
 constexpr auto kSubmenuAimDelay = crl::time(300);
+
+int PopupRadius(const style::PopupMenu &st) {
+	return (style::MaterialDesign().enabled
+		&& st.radius >= st::defaultPopupMenu.radius)
+		? std::max(st.radius, style::ConvertScale(14))
+		: st.radius;
+}
 
 [[nodiscard]] bool PointInTriangle(
 		QPoint point,
@@ -107,7 +115,7 @@ struct PopupMenu::SubmenuAim {
 PopupMenu::PopupMenu(QWidget *parent, const style::PopupMenu &st)
 : RpWidget(parent)
 , _st(st)
-, _roundRect(_st.radius, _st.menu.itemBg)
+, _roundRect(PopupRadius(_st), _st.menu.itemBg)
 , _boxShadow(_st.shadow)
 , _scroll(this, st::defaultMultiSelect.scroll)
 , _menu(_scroll->setOwnedWidget(
@@ -121,7 +129,7 @@ PopupMenu::PopupMenu(QWidget *parent, const style::PopupMenu &st)
 PopupMenu::PopupMenu(QWidget *parent, QMenu *menu, const style::PopupMenu &st)
 : RpWidget(parent)
 , _st(st)
-, _roundRect(_st.radius, _st.menu.itemBg)
+, _roundRect(PopupRadius(_st), _st.menu.itemBg)
 , _boxShadow(_st.shadow)
 , _scroll(this, st::defaultMultiSelect.scroll)
 , _menu(_scroll->setOwnedWidget(
@@ -267,7 +275,7 @@ void PopupMenu::updateRoundingOverlay() {
 		_roundRect.paint(p, _inner, RectPart::AllCorners);
 		if (!_grabbingForPanelAnimation) {
 			p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-			_boxShadow.paint(p, _inner, _st.radius);
+			_boxShadow.paint(p, _inner, PopupRadius(_st));
 		}
 	}, _roundingOverlay->lifetime());
 
@@ -898,9 +906,10 @@ void PopupMenu::prepareShowAnimation() {
 
 	const auto pixelRatio = style::DevicePixelRatio();
 	_showAnimation = std::make_unique<PanelAnimation>(_st.animation, _origin);
-	_showAnimation->setFinalImage(std::move(cache), QRect(_inner.topLeft() * pixelRatio, _inner.size() * pixelRatio), _st.radius);
+	const auto radius = PopupRadius(_st);
+	_showAnimation->setFinalImage(std::move(cache), QRect(_inner.topLeft() * pixelRatio, _inner.size() * pixelRatio), radius);
 	if (_useTransparency) {
-		_showAnimation->setCornerMasks(Images::CornersMask(_st.radius));
+		_showAnimation->setCornerMasks(Images::CornersMask(radius));
 	} else {
 		_showAnimation->setSkipShadow(true);
 	}

@@ -334,6 +334,7 @@ public:
 
 	void setToggleLocked(bool locked);
 	void setColorOverride(std::optional<QColor> textColorOverride);
+	void setMaterialSurface();
 	void setPaddingOverride(style::margins padding);
 	void setAllowTextLines(int lines = 0);
 
@@ -368,6 +369,7 @@ private:
 	int _allowTextLines = 1;
 	std::unique_ptr<Ui::ToggleView> _toggle;
 	std::optional<QColor> _textColorOverride;
+	bool _materialSurface = false;
 	Text::MarkedContext _context;
 
 };

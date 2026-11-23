@@ -34,7 +34,11 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=6.1
+#ifdef DebugPayload
 OutputDir=..\..\out\setup
+#else
+OutputDir=..\..\out\setup-release
+#endif
 OutputBaseFilename={#SetupFilename}
 SetupIconFile=..\Resources\art\telega256.ico
 UninstallDisplayIcon={app}\Telegram.exe

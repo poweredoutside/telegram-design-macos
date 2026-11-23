@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/settings_builder.h"
+#include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 
 #include "apiwrap.h"
 #include "base/platform/base_platform_info.h"
@@ -158,7 +160,11 @@ SectionBuilder::SectionBuilder(BuildContext context)
 }
 
 void SectionBuilder::enableGroupedLayout() {
-	if (_groupedLayout || !Platform::IsWindows()) {
+	if (_groupedLayout
+		|| (!Core::Telega::UseMacOSStyle()
+			&& !(Core::Telega::UseMaterial3Style()
+				&& style::MaterialDesign().grouped)
+			&& !Core::Telega::UseWindows11Style())) {
 		return;
 	}
 	_groupedLayout = true;
@@ -179,7 +185,10 @@ void SectionBuilder::group(FnMut<void()> method) {
 	if (const auto ctx = std::get_if<WidgetContext>(&_context)) {
 		const auto outer = ctx->container;
 		if (_groupNeedsSpace) {
-			Ui::AddSkip(outer, st::macSettingsPageInset);
+			const auto gap = Core::Telega::UseMaterial3Style()
+				? style::ConvertScale(14)
+				: st::macSettingsPageInset;
+			Ui::AddSkip(outer, gap);
 		}
 		const auto group = AddGroupedSettingsRows(outer);
 		ctx->container = group;
@@ -438,6 +447,7 @@ Ui::SettingsButton *SectionBuilder::addPrivacyButton(PrivacyButtonArgs &&args) {
 }
 
 Ui::Checkbox *SectionBuilder::addCheckbox(CheckboxArgs &&args) {
+	const auto material = _groupedLayout && Core::Telega::UseMaterial3Style();
 	const auto factory = [&](not_null<Ui::VerticalLayout*> container) {
 		return object_ptr<Ui::Checkbox>(
 			container,
@@ -449,7 +459,13 @@ Ui::Checkbox *SectionBuilder::addCheckbox(CheckboxArgs &&args) {
 		.factory = factory,
 		.id = std::move(args.id),
 		.title = rpl::duplicate(args.title),
-		.margin = st::settingsCheckboxPadding,
+		.margin = material
+			? style::margins(
+				style::ConvertScale(12),
+				style::ConvertScale(9),
+				style::ConvertScale(12),
+				style::ConvertScale(9))
+			: st::settingsCheckboxPadding,
 		.highlight = std::move(args.highlight),
 		.shown = std::move(args.shown),
 		.keywords = std::move(args.keywords),

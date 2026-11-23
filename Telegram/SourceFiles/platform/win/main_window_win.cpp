@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/win/base_windows_wrl.h"
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/sandbox.h"
 #include "lang/lang_keys.h"
 #include "storage/localstorage.h"
@@ -393,8 +394,9 @@ MainWindow::MainWindow(not_null<Window::Controller*> controller)
 	qApp->installNativeEventFilter(&_private->filter);
 
 	setupNativeWindowFrame();
-	setTitleStyle(st::macDesktopTitle);
-	Ui::Platform::SetTitleControlsOnRight(TitleControlsOnRight());
+	const auto macStyle = Core::Telega::UseMacOSStyle();
+	setTitleStyle(macStyle ? st::macDesktopTitle : st::defaultWindowTitle);
+	Ui::Platform::SetTitleControlsOnRight(!macStyle || TitleControlsOnRight());
 
 	SetWindowPriority(this, controller->isPrimary() ? 2 : 1);
 

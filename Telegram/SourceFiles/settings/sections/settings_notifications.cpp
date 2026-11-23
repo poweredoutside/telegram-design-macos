@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "boxes/ringtones_box.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/version.h"
 #include "data/data_chat_filters.h"
 #include "data/data_session.h"
@@ -722,7 +723,8 @@ private:
 NotifyPreview::NotifyPreview(bool nameShown, bool previewShown)
 : _nameShown(nameShown)
 , _previewShown(previewShown)
-, _roundRect(st::boxRadius, st::msgInBg)
+, _roundRect(st::boxRadius, Core::Telega::UseWindows11Style()
+	? st::menuBg : st::msgInBg)
 , _userpic(u":/gui/icons/settings/dino.svg"_q)
 , _logo(Window::LogoNoMargin()) {
 	const auto ratio = style::DevicePixelRatio();
@@ -757,6 +759,9 @@ int NotifyPreview::resizeGetHeight(int newWidth) {
 	_height = st::notifyPreviewUserpicPosition.y()
 		+ st::notifyPreviewUserpicSize
 		+ st::notifyPreviewUserpicPosition.y();
+	if (Core::Telega::UseWindows11Style()) {
+		_height += style::ConvertScale(32);
+	}
 	const auto available = _width
 		- st::notifyPreviewTextPosition.x()
 		- st::notifyPreviewUserpicPosition.x();
@@ -774,8 +779,19 @@ void NotifyPreview::paint(Painter &p, int x, int y) {
 	const auto guard = gsl::finally([&] { p.translate(-x, -y); });
 
 	_roundRect.paint(p, { 0, 0, _width, _height });
+	const auto header = Core::Telega::UseWindows11Style() ? style::ConvertScale(32) : 0;
+	if (header) {
+		const auto inset = st::notifyPreviewUserpicPosition.x();
+		const auto side = style::ConvertScale(16);
+		p.drawImage(QRect(inset, (header - side) / 2, side, side), _logo);
+		p.setFont(st::normalFont);
+		p.setPen(st::windowFg);
+		p.drawText(QRect(inset + side + style::ConvertScale(8), 0,
+			std::max(0, _width - 2 * inset - side), header),
+			Qt::AlignLeft | Qt::AlignVCenter, u"Telega Desktop"_q);
+	}
 	const auto userpic = QRect(
-		st::notifyPreviewUserpicPosition,
+		st::notifyPreviewUserpicPosition + QPoint(0, header),
 		QSize{ st::notifyPreviewUserpicSize, st::notifyPreviewUserpicSize });
 
 	if (_nameShown) {
@@ -796,14 +812,14 @@ void NotifyPreview::paint(Painter &p, int x, int y) {
 	title.drawElided(
 		p,
 		st::notifyPreviewTitlePosition.x(),
-		st::notifyPreviewTitlePosition.y(),
+		st::notifyPreviewTitlePosition.y() + header,
 		_width - st::notifyPreviewTitlePosition.x() - userpic.x());
 
 	const auto &text = _previewShown ? _text : _preview;
 	text.drawElided(
 		p,
 		st::notifyPreviewTextPosition.x(),
-		st::notifyPreviewTextPosition.y(),
+		st::notifyPreviewTextPosition.y() + header,
 		_width - st::notifyPreviewTextPosition.x() - userpic.x(),
 		2);
 }
@@ -819,6 +835,7 @@ NotifyViewCheckboxes SetupNotifyViewOptions(
 		container,
 		object_ptr<Ui::RpWidget>(container)));
 	const auto widget = wrap->entity();
+	const auto fluent = Core::Telega::UseWindows11Style();
 
 	const auto makeCheckbox = [&](const QString &text, bool checked) {
 		return Ui::MakeChatServiceCheckbox(
@@ -846,9 +863,12 @@ NotifyViewCheckboxes SetupNotifyViewOptions(
 		_1 >= (st::historyMinimalWidth / 2)
 	) | rpl::on_next([=](int width) {
 		const auto margins = st::notifyPreviewMargins;
-		const auto bubblew = width - margins.left() - margins.right();
+		const auto available = width - margins.left() - margins.right();
+		const auto bubblew = fluent ? std::min(available, style::ConvertScale(390)) : available;
 		const auto bubbleh = view->resizeGetHeight(bubblew);
-		const auto height = bubbleh + margins.top() + margins.bottom();
+		const auto height = fluent
+			? std::max(style::ConvertScale(206), bubbleh + margins.top() + margins.bottom())
+			: bubbleh + margins.top() + margins.bottom();
 		widget->resize(width, height);
 
 		const auto skip = st::notifyPreviewChecksSkip;
@@ -864,6 +884,9 @@ NotifyViewCheckboxes SetupNotifyViewOptions(
 	) | rpl::on_next([=](QRect rect) {
 		Painter p(widget);
 		p.setClipRect(rect);
+		const auto margins = st::notifyPreviewMargins;
+		const auto available = widget->width() - margins.left() - margins.right();
+		const auto bubblew = fluent ? std::min(available, style::ConvertScale(390)) : available;
 		Window::SectionWidget::PaintBackground(
 			p,
 			theme->get(),
@@ -872,8 +895,8 @@ NotifyViewCheckboxes SetupNotifyViewOptions(
 
 		view->paint(
 			p,
-			st::notifyPreviewMargins.left(),
-			st::notifyPreviewMargins.top());
+			fluent ? widget->width() - margins.right() - bubblew : margins.left(),
+			margins.top());
 	}, widget->lifetime());
 
 	name->checkedChanges(
@@ -1639,10 +1662,17 @@ void BuildNotificationsSectionContent(SectionBuilder &builder) {
 		builder.addSkip(st::settingsPrivacySkip);
 	}
 
-	BuildMultiAccountSection(builder);
-	BuildGlobalNotificationsSection(builder);
-	BuildNotifyViewSection(builder);
-	BuildNotifyTypeSection(builder);
+	if (Core::Telega::UseWindows11Style()) {
+		BuildNotifyViewSection(builder);
+		BuildNotifyTypeSection(builder);
+		BuildGlobalNotificationsSection(builder);
+		BuildMultiAccountSection(builder);
+	} else {
+		BuildMultiAccountSection(builder);
+		BuildGlobalNotificationsSection(builder);
+		BuildNotifyViewSection(builder);
+		BuildNotifyTypeSection(builder);
+	}
 	BuildEventNotificationsSection(builder);
 	BuildCallNotificationsSection(builder);
 	BuildBadgeCounterSection(builder);

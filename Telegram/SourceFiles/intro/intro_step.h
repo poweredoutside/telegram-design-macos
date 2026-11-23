@@ -42,7 +42,8 @@ public:
 		QWidget *parent,
 		not_null<Main::Account*> account,
 		not_null<Data*> data,
-		bool hasCover = false);
+		bool hasCover = false,
+		bool centered = false);
 	~Step();
 
 	QAccessible::Role accessibilityRole() override {
@@ -96,6 +97,7 @@ public:
 	[[nodiscard]] virtual auto nextButtonStyle() const
 		-> rpl::producer<const style::RoundButton*>;
 	[[nodiscard]] virtual rpl::producer<> nextButtonFocusRequests() const;
+	[[nodiscard]] virtual int nextButtonTop() const;
 
 	[[nodiscard]] int contentLeft() const;
 	[[nodiscard]] int contentTop() const;
@@ -206,6 +208,7 @@ private:
 	mutable std::optional<MTP::Sender> _api;
 
 	bool _hasCover = false;
+	const bool _centered;
 	Fn<void(Step *step, StackAction action, Animate animate)> _goCallback;
 	Fn<Step*()> _stepBelowCallback;
 	Fn<void()> _showResetCallback;

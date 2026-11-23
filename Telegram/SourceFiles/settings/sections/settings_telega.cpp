@@ -8,6 +8,7 @@
 #include "chat_helpers/stickers_list_widget.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_material.h"
 #include "core/core_telega_preferences.h"
 #include "core/file_utilities.h"
 #include "core/update_checker.h"
@@ -19,6 +20,7 @@
 #include "info/profile/info_profile_actions.h"
 #include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
+#include "lottie/lottie_icon.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "mainwidget.h"
@@ -41,8 +43,10 @@
 #include "ui/widgets/buttons.h"
 #include "ui/painter.h"
 #include "ui/layers/generic_box.h"
+#include "ui/new_badges.h"
 #include "ui/search_field_controller.h"
 #include "ui/style/style_core_font.h"
+#include "ui/style/style_material.h"
 #include "ui/ui_utility.h"
 #include "ui/vertical_list.h"
 #include "ui/widgets/checkbox.h"
@@ -67,6 +71,7 @@
 #include "window/themes/window_theme_preview.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
+#include "window/window_session_controller_link_info.h"
 
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
@@ -86,6 +91,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QSaveFile>
+#include <QtCore/QTime>
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtGui/QDesktopServices>
@@ -165,7 +171,7 @@ void AddToggle(
 	button->toggledChanges() | rpl::on_next(std::move(change), button->lifetime());
 }
 
-void AddValueAction(
+not_null<Button*> AddValueAction(
 		not_null<Ui::VerticalLayout*> list,
 		QString title,
 		rpl::producer<QString> value,
@@ -176,6 +182,7 @@ void AddValueAction(
 		st::macSettingsPageButtonNoIcon);
 	button->setAccessibleName(title);
 	button->setClickedCallback(std::move(click));
+	return button;
 }
 
 void ShowColorPicker(
@@ -413,7 +420,7 @@ void AddDisplayOption(
 		[=](bool enabled) { Core::Telega::SetDisplayEnabled(option, enabled); });
 }
 
-void AddIndexChoice(
+not_null<Button*> AddIndexChoice(
 		not_null<Ui::VerticalLayout*> list,
 		not_null<Window::SessionController*> controller,
 		QString title,
@@ -424,7 +431,7 @@ void AddIndexChoice(
 	const auto index = [=] { return std::clamp(current(), 0, int(choices.size()) - 1); };
 	const auto value = list->lifetime().make_state<rpl::variable<QString>>(choices[index()]);
 	const auto weak = QPointer<Ui::VerticalLayout>(list.get());
-	AddValueAction(list, title, value->value(), [=] {
+	return AddValueAction(list, title, value->value(), [=] {
 		show(controller, title, choices, index(), [=](int selected) {
 			if (weak && selected >= 0 && selected < choices.size()) {
 				save(selected);
@@ -1468,35 +1475,31 @@ private:
 
 };
 
-Fn<void(int)> AddAppearancePreview(
+Fn<void(int)> AddAvatarPreview(
 		not_null<Ui::VerticalLayout*> list,
 		QString label,
-		int initial,
-		bool sticker) {
+		int initial) {
+	using Option = Core::Telega::DisplayOption;
 	const auto sample = list->add(object_ptr<Ui::FixedHeightWidget>(
-		list, style::ConvertScale(sticker ? 118 : 56)));
+		list, style::ConvertScale(56)));
 	sample->setAccessibleName(label);
 	const auto value = sample->lifetime().make_state<int>(initial);
-	if (!sticker) {
-		using Option = Core::Telega::DisplayOption;
-		rpl::merge(
-			Core::Telega::DisplayValue(Option::UniformAvatarRadius),
-			Core::Telega::DisplayValue(Option::RoundedContactAvatars)
-		) | rpl::on_next([=] {
-			sample->update();
-		}, sample->lifetime());
-	}
+	rpl::merge(
+		Core::Telega::DisplayValue(Option::UniformAvatarRadius),
+		Core::Telega::DisplayValue(Option::RoundedContactAvatars)
+	) | rpl::on_next([=] {
+		sample->update();
+	}, sample->lifetime());
 	sample->paintRequest() | rpl::on_next([=](const QRect &clip) {
 		auto painter = QPainter(sample);
 		painter.fillRect(clip, st::windowBg);
 		painter.setRenderHint(QPainter::Antialiasing);
-		painter.setRenderHint(QPainter::SmoothPixmapTransform);
 		painter.setPen(Qt::NoPen);
 		const auto inset = style::ConvertScale(14);
-		const auto size = style::ConvertScale(sticker ? 64 * *value / 100 : 32);
+		const auto size = style::ConvertScale(32);
 		const auto top = (sample->height() - size) / 2;
 		painter.setBrush(st::windowBgOver);
-		const auto textStart = sticker ? inset : (2 * inset + size);
+		const auto textStart = 2 * inset + size;
 		const auto textWidth = std::clamp(
 			sample->width() - textStart - inset, 0, style::ConvertScale(116));
 		const auto line = style::ConvertScale(4);
@@ -1504,23 +1507,17 @@ Fn<void(int)> AddAppearancePreview(
 			textWidth, line, line / 2., line / 2.);
 		painter.drawRoundedRect(textStart, sample->height() / 2 + line,
 			textWidth * 2 / 3, line, line / 2., line / 2.);
-		if (sticker) {
-			painter.drawImage(QRect(sample->width() - inset - size, top, size, size),
-				Window::Logo());
-		} else {
-			using Option = Core::Telega::DisplayOption;
-			const auto rounded = Core::Telega::DisplayEnabled(Option::RoundedContactAvatars);
-			const auto uniform = Core::Telega::DisplayEnabled(Option::UniformAvatarRadius);
-			const auto radius = rounded ? std::min(*value, 30) : *value;
-			const auto contactRadius = size * radius / 100.;
-			const auto forumRadius = size * (uniform ? radius : std::min(radius, 30)) / 100.;
-			painter.setBrush(st::windowBgActive);
-			painter.drawRoundedRect(inset, top, size, size, contactRadius, contactRadius);
-			const auto forumLeft = sample->width() - inset - size;
-			if (forumLeft > textStart + textWidth + inset) {
-				painter.setBrush(st::windowSubTextFg);
-				painter.drawRoundedRect(forumLeft, top, size, size, forumRadius, forumRadius);
-			}
+		const auto rounded = Core::Telega::DisplayEnabled(Option::RoundedContactAvatars);
+		const auto uniform = Core::Telega::DisplayEnabled(Option::UniformAvatarRadius);
+		const auto radius = rounded ? std::min(*value, 30) : *value;
+		const auto contactRadius = size * radius / 100.;
+		const auto forumRadius = size * (uniform ? radius : std::min(radius, 30)) / 100.;
+		painter.setBrush(st::windowBgActive);
+		painter.drawRoundedRect(inset, top, size, size, contactRadius, contactRadius);
+		const auto forumLeft = sample->width() - inset - size;
+		if (forumLeft > textStart + textWidth + inset) {
+			painter.setBrush(st::windowSubTextFg);
+			painter.drawRoundedRect(forumLeft, top, size, size, forumRadius, forumRadius);
 		}
 	}, sample->lifetime());
 	style::PaletteChanged() | rpl::on_next([=] { sample->update(); }, sample->lifetime());
@@ -1530,6 +1527,75 @@ Fn<void(int)> AddAppearancePreview(
 			sample->update();
 		}
 	};
+}
+
+not_null<Ui::FixedHeightWidget*> AddStickerPreview(
+		not_null<Ui::VerticalLayout*> list,
+		const QString &label,
+		not_null<rpl::variable<int>*> scale) {
+	using Timestamp = Core::Telega::StickerTimestamp;
+	const auto sample = list->add(object_ptr<Ui::FixedHeightWidget>(
+		list, style::ConvertScale(136)));
+	sample->setAccessibleName(label);
+	const auto icon = Lottie::MakeIcon({
+		.name = u"greeting"_q,
+		.sizeOverride = QSize(256, 256),
+	});
+	const auto image = icon ? icon->frame() : QImage();
+	const auto time = QTime::currentTime();
+	sample->paintRequest() | rpl::on_next([=](const QRect &clip) {
+		auto painter = QPainter(sample);
+		painter.fillRect(clip, st::windowBg);
+		painter.setRenderHint(QPainter::Antialiasing);
+		painter.setRenderHint(QPainter::SmoothPixmapTransform);
+		painter.setPen(Qt::NoPen);
+		const auto inset = style::ConvertScale(14);
+		const auto available = std::max(0, sample->width() - 2 * inset);
+		const auto size = std::min(
+			style::ConvertScale(80 * scale->current() / 100),
+			available);
+		const auto sticker = QRect(
+			sample->width() - inset - size,
+			(sample->height() - size) / 2,
+			size,
+			size);
+		const auto line = style::ConvertScale(4);
+		const auto textWidth = std::clamp(
+			sticker.x() - 2 * inset, 0, style::ConvertScale(116));
+		painter.setBrush(st::windowBgOver);
+		painter.drawRoundedRect(inset, sample->height() / 2 - 2 * line,
+			textWidth, line, line / 2., line / 2.);
+		painter.drawRoundedRect(inset, sample->height() / 2 + line,
+			textWidth * 2 / 3, line, line / 2., line / 2.);
+		painter.drawImage(sticker, image);
+		const auto mode = Core::Telega::StickerTime();
+		if (mode == Timestamp::Hidden
+			|| (mode == Timestamp::Automatic && !sample->underMouse())) {
+			return;
+		}
+		const auto text = Core::Telega::FormatTime(time);
+		const auto font = st::msgDateFont;
+		const auto width = font->width(text) + 2 * st::msgDateImgPadding.x();
+		const auto height = font->height + 2 * st::msgDateImgPadding.y();
+		const auto side = sticker.x() - width - inset / 2;
+		const auto left = (mode == Timestamp::Always && side >= inset)
+			? side
+			: std::max(inset, sticker.x() + size - width);
+		const auto badge = QRect(left, sticker.y() + size - height, width, height);
+		painter.setBrush(st::msgServiceBg);
+		painter.drawRoundedRect(badge, height / 2., height / 2.);
+		painter.setPen(st::msgServiceFg);
+		painter.setFont(font);
+		painter.drawText(badge, Qt::AlignCenter, text);
+	}, sample->lifetime());
+	scale->changes() | rpl::on_next([=] { sample->update(); }, sample->lifetime());
+	Core::Telega::DisplayValue(Core::Telega::DisplayOption::TimeWithSeconds)
+	| rpl::on_next([=] { sample->update(); }, sample->lifetime());
+	style::PaletteChanged() | rpl::on_next([=] { sample->update(); }, sample->lifetime());
+	sample->events() | rpl::filter([](not_null<QEvent*> event) {
+		return event->type() == QEvent::Enter || event->type() == QEvent::Leave;
+	}) | rpl::on_next([=] { sample->update(); }, sample->lifetime());
+	return sample;
 }
 
 void SetupFolderAppearance(
@@ -1910,30 +1976,244 @@ public:
 
 };
 
+void ShowMaterialDesignSettings(
+		not_null<Window::SessionController*> controller) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		using Option = Core::Telega::MaterialOption;
+		const auto read = Core::Telega::PreferredMaterialOption;
+		box->setTitle(rpl::single(u"Material Design 3"_q));
+		box->setWidth(style::ConvertScale(456));
+		box->setMaxHeight(style::ConvertScale(720));
+		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+		const auto content = AddGroupedSettingsContent(box->verticalLayout());
+		const auto preview = content->add(object_ptr<Ui::FixedHeightWidget>(
+			content, style::ConvertScale(180)));
+		preview->setAccessibleName(Text(u"Предпросмотр стиля"_q, u"Style preview"_q));
+		preview->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(preview);
+			p.setRenderHint(QPainter::Antialiasing);
+			p.setPen(Qt::NoPen);
+			const auto s = [](int size) { return style::ConvertScale(size); };
+			const auto bg = st::boxBg->c;
+			const auto accent = st::windowActiveTextFg->c;
+			const auto card = style::MaterialTone(bg, accent, .09);
+			const auto selected = style::MaterialTone(bg, accent, .34);
+			const auto line = [&](QRectF area, int radius, QColor color) {
+				p.setBrush(color);
+				p.drawRoundedRect(area, radius, radius);
+			};
+			const auto w = preview->width();
+			if (w < s(240)) {
+				return;
+			}
+			const auto left = w * .4;
+			line(preview->rect(), s(20), card);
+			line({ qreal(s(10)), qreal(s(10)), left - s(15), qreal(s(160)) },
+				read(Option::RoundedMenu) ? s(14) : 0, bg);
+			line({ left + s(5), qreal(s(10)), w - left - s(15), qreal(s(160)) },
+				s(14), bg);
+			const auto roundedSelection = read(Option::RoundedSelection);
+			const auto colors = std::array{
+				QColor(239, 144, 175),
+				QColor(129, 198, 129),
+				QColor(105, 178, 241),
+				QColor(255, 190, 96),
+			};
+			for (auto i = 0; i != 4; ++i) {
+				const auto y = s(19 + 38 * i);
+				if (i == 1) {
+					line({ qreal(s(13)), qreal(y - s(3)), left - s(21), qreal(s(34)) },
+						roundedSelection ? s(12) : 0, selected);
+				}
+				p.setBrush(colors[i]);
+				p.drawEllipse(QRect(s(17), y, s(26), s(26)));
+				line({ qreal(s(50)), qreal(y + s(5)), (left - s(64)) * .72, qreal(s(5)) },
+					s(3), st::windowFg->c);
+				line({ qreal(s(50)), qreal(y + s(15)), left - s(64), qreal(s(4)) },
+					s(2), st::windowSubTextFg->c);
+			}
+			const auto right = w - left - s(34);
+			const auto grouped = read(Option::Grouped);
+			const auto switches = read(Option::Switches);
+			const auto mutedSwitches = read(Option::MutedSwitches);
+			for (auto i = 0; i != 3; ++i) {
+				const auto y = s(20 + 26 * i);
+				line({ left + s(14), qreal(y), right, qreal(s(23)) },
+					grouped ? s(6) : 0, card);
+				line({ left + s(24), qreal(y + s(9)), right * .42, qreal(s(5)) },
+					s(3), st::windowFg->c);
+				const auto muted = i == 2 && mutedSwitches;
+				line({ w - qreal(s(55)), qreal(y + s(5)), qreal(s(23)), qreal(s(13)) },
+					s(7), muted ? st::windowSubTextFg->c : accent);
+				if (switches) {
+					line({ w - qreal(s(muted ? 53 : 44)), qreal(y + s(7)),
+						qreal(s(9)), qreal(s(9)) }, s(5), bg);
+				}
+			}
+			const auto floating = read(Option::FloatingField);
+			line({ left + s(14), qreal(s(133)), right - s(33), qreal(s(28)) },
+				floating ? s(14) : 0, floating ? card : bg);
+			line({ left + s(25), qreal(s(145)), right * .28, qreal(s(5)) },
+				s(3), st::windowSubTextFg->c);
+			line({ w - qreal(s(48)), qreal(s(133)), qreal(s(28)), qreal(s(28)) },
+				floating ? s(14) : s(5), accent);
+		}, preview->lifetime());
+		style::PaletteChanged() | rpl::on_next([=] {
+			preview->update();
+		}, preview->lifetime());
+		const auto changed = box->lifetime().make_state<bool>(false);
+		const auto save = [=](Option option, bool value) {
+			if (value != read(option)) {
+				Core::Telega::SetPreferredMaterialOption(option, value);
+				*changed = true;
+				preview->update();
+			}
+		};
+		const auto add = [=](
+				not_null<Ui::VerticalLayout*> rows,
+				Option option,
+				QString title) {
+			AddToggle(rows, std::move(title), rpl::single(read(option)),
+				[=](bool value) { save(option, value); });
+		};
+		[[maybe_unused]] const auto appearanceHeading = AddGroupedSettingsHeader(
+			content, rpl::single(Text(u"Вид"_q, u"Appearance"_q)));
+		const auto appearance = AddGroupedSettingsRows(content);
+		AddIndexChoice(appearance, controller, Text(
+			u"Шрифт по умолчанию"_q, u"Default font"_q), {
+			u"Google Sans"_q,
+			Text(u"Стандартный"_q, u"Default"_q),
+		}, [=] { return read(Option::GoogleSans) ? 0 : 1; },
+		[=](int index) { save(Option::GoogleSans, index == 0); });
+		add(appearance, Option::Grouped,
+			Text(u"Сгруппированные пункты списков"_q, u"Grouped list items"_q));
+		add(appearance, Option::RoundedSelection,
+			Text(u"Скруглённое выделение чатов"_q, u"Rounded chat selection"_q));
+		add(appearance, Option::FloatingField,
+			Text(u"Плавающее поле ввода"_q, u"Floating message field"_q));
+		add(appearance, Option::RoundedMenu,
+			Text(u"Скруглённое боковое меню"_q, u"Rounded side menu"_q));
+		add(appearance, Option::Expressive,
+			Text(u"Анимации Material Expressive"_q, u"Material Expressive animations"_q));
+		FinishGroupedSettingsRows(appearance, &st::boxBg);
+		AddGroupedSettingsFooter(content, rpl::single(Text(
+			u"Изменения применяются после перезапуска. Шрифт, выбранный в «Оформлении», имеет приоритет."_q,
+			u"Changes apply after restarting. A font chosen in Appearance takes priority."_q)));
+		[[maybe_unused]] const auto controlsHeading = AddGroupedSettingsHeader(
+			content, rpl::single(Text(u"Элементы управления"_q, u"Controls"_q)));
+		const auto controls = AddGroupedSettingsRows(content);
+		add(controls, Option::Switches,
+			Text(u"Стиль переключателей"_q, u"Switch style"_q));
+		add(controls, Option::MutedSwitches,
+			Text(u"Приглушённые выключенные переключатели"_q, u"Muted off switches"_q));
+		add(controls, Option::Sliders,
+			Text(u"Стиль слайдеров"_q, u"Slider style"_q));
+		FinishGroupedSettingsRows(controls, &st::boxBg);
+		Ui::AddSkip(content, style::ConvertScale(12));
+		box->boxClosing() | rpl::on_next([=] {
+			if (*changed && Core::Telega::UseMaterial3Style()) {
+				crl::on_main(controller->widget(), [=] {
+					OfferSettingsRestart(controller);
+				});
+			}
+		}, box->lifetime());
+	}));
+}
+
 class Appearance final : public TelegaPage<Appearance> {
 public:
 	Appearance(QWidget *parent, not_null<Window::SessionController*> controller)
 	: TelegaPage(parent, controller) {
 		using Option = Core::Telega::DisplayOption;
 		beginGroups();
-		const auto themes = addGroup(QString(), u"темы обои яркость theme wallpaper brightness"_q);
-		AddAction(themes, Text(u"Темы и фон"_q, u"Themes and wallpaper"_q), [=] {
-			showOther(Themes::Id());
-		});
-		AddAction(themes, Text(u"Живые обои"_q, u"Live wallpaper"_q), [=] {
+		using Style = Core::Telega::InterfaceStyle;
+		const auto styles = std::array{
+			Style::MacOS,
+			Style::Windows,
+			Style::Material3,
+			Style::Windows11,
+		};
+		const auto interfaceRows = addGroup(QString(),
+			u"style design macos windows material стиль дизайн"_q);
+		const auto selectedStyle = interfaceRows->lifetime().make_state<rpl::variable<Style>>(
+			Core::Telega::PreferredInterfaceStyle());
+		const auto styleNames = QStringList{
+			u"macOS"_q, u"Telegram"_q, u"Material Design 3"_q, u"Unigram"_q,
+		};
+		const auto styleChoice = AddIndexChoice(
+			interfaceRows,
+			controller,
+			Text(u"Выбор стиля"_q, u"Interface style"_q),
+			styleNames,
+			[=] {
+				const auto preferred = selectedStyle->current();
+				const auto i = std::find(styles.begin(), styles.end(), preferred);
+				return int(i - styles.begin());
+			},
+			[=](int index) {
+				const auto selected = styles[index];
+				if (selected != Core::Telega::PreferredInterfaceStyle()) {
+					Core::Telega::SetPreferredInterfaceStyle(selected);
+					*selectedStyle = selected;
+					OfferSettingsRestart(controller);
+				}
+			});
+		const auto beta = Text(u"бета"_q, u"beta"_q);
+		styleChoice->setAccessibleDescription(beta);
+		const auto badge = Ui::NewBadge::CreateNewBadge(styleChoice, rpl::single(beta));
+		const auto &buttonStyle = styleChoice->st();
+		auto longestValue = 0;
+		for (const auto &name : styleNames) {
+			longestValue = std::max(longestValue, buttonStyle.rightLabel.style.font->width(name));
+		}
+		const auto gap = buttonStyle.style.font->spacew;
+		const auto reserved = buttonStyle.padding.right()
+			+ std::max(buttonStyle.padding.right(), st::settingsButtonRightSkip)
+			+ longestValue;
+		styleChoice->widthValue() | rpl::on_next([=, &buttonStyle](int width) {
+			const auto left = buttonStyle.padding.left() + styleChoice->fullTextWidth() + gap;
+			badge->setVisible(left + badge->width() + gap + reserved <= width);
+			const auto top = buttonStyle.padding.top()
+				+ buttonStyle.style.font->ascent
+				- st::settingsPremiumNewBadge.style.font->ascent
+				- st::settingsPremiumNewBadgePadding.top();
+			badge->moveToLeft(left, top, width);
+		}, badge->lifetime());
+		if (Platform::IsWindows()) {
+			const auto title = Text(u"Настройки Material Design 3"_q,
+				u"Material Design 3 settings"_q);
+			const auto row = interfaceRows->add(object_ptr<Ui::SlideWrap<Button>>(
+				interfaceRows,
+				object_ptr<Button>(interfaceRows, rpl::single(title),
+					st::macSettingsPageButtonNoIcon)));
+			row->entity()->setAccessibleName(title);
+			row->entity()->setClickedCallback([=] {
+				ShowMaterialDesignSettings(controller);
+			});
+			row->toggleOn(selectedStyle->value() | rpl::map([](Style style) {
+				return style == Style::Material3;
+			}), anim::type::instant);
+		}
+		const auto font = addGroup(Text(u"Шрифт"_q, u"Font"_q),
+			u"google sans системный шрифт system font"_q);
+		SetupFontSettings(controller, font);
+		const auto wallpaper = addGroup(QString(), u"живые обои live wallpaper"_q);
+		AddAction(wallpaper, Text(u"Живые обои"_q, u"Live wallpaper"_q), [=] {
 			ShowLiveWallpaperBox(controller);
 		});
 #ifdef Q_OS_WIN
-		AddIndexChoice(
-			addGroup(Text(u"Окно"_q, u"Window"_q)),
-			controller,
-			Text(u"Расположение кнопок окна"_q, u"Window button position"_q),
-			{
-				Text(u"Слева — macOS"_q, u"Left — macOS"_q),
-				Text(u"Справа — Windows"_q, u"Right — Windows"_q),
-			},
-			[] { return Platform::TitleControlsOnRight() ? 1 : 0; },
-			[](int index) { Platform::SetTitleControlsOnRight(index == 1); });
+		if (Core::Telega::UseMacOSStyle()) {
+			AddIndexChoice(
+				addGroup(Text(u"Окно"_q, u"Window"_q)),
+				controller,
+				Text(u"Расположение кнопок окна"_q, u"Window button position"_q),
+				{
+					Text(u"Слева — macOS"_q, u"Left — macOS"_q),
+					Text(u"Справа — Windows"_q, u"Right — Windows"_q),
+				},
+				[] { return Platform::TitleControlsOnRight() ? 1 : 0; },
+				[](int index) { Platform::SetTitleControlsOnRight(index == 1); });
+		}
 #endif
 		const auto radiusTitle = Text(u"Скругление аватаров"_q, u"Avatar rounding"_q);
 		const auto avatar = addGroup(radiusTitle, u"аватар квадрат круг avatar square round"_q);
@@ -1951,7 +2231,7 @@ public:
 					OfferSettingsRestart(controller);
 				}
 			}, [=](int value) { (*avatarPreview)(value); });
-		*avatarPreview = AddAppearancePreview(avatar, radiusTitle, radius, false);
+		*avatarPreview = AddAvatarPreview(avatar, radiusTitle, radius);
 		const auto addRoundingToggle = [=](QString label, Option option) {
 			AddToggle(avatar, std::move(label), Core::Telega::DisplayValue(option),
 				[=](bool enabled) {
@@ -1992,16 +2272,6 @@ public:
 			addGroup(QString(), u"app logo icon логотип значок иконка"_q),
 			controller);
 		const auto appearance = addGroup(Text(u"Оформление"_q, u"Appearance"_q));
-		const auto settings = &Core::App().settings();
-		const auto currentFont = settings->customFontFamily();
-		const auto originalFont = (currentFont == style::SystemFontTag()) ? QString() : currentFont;
-		AddToggle(appearance, Text(u"Системный шрифт"_q, u"System font"_q),
-			rpl::single(currentFont == style::SystemFontTag()), [=](bool enabled) {
-				settings->setCustomFontFamily(enabled ? style::SystemFontTag() : originalFont);
-				Core::App().saveSettingsDelayed();
-				controller->showToast(Text(u"Шрифт изменится после перезапуска."_q,
-					u"The font changes after restart."_q));
-			});
 		AddDisplayOption(appearance, Text(u"Системные эмодзи"_q, u"System emoji"_q),
 			Option::SystemEmoji);
 		AddToggle(appearance, Text(u"Собственные темы чатов"_q, u"Individual chat themes"_q),
@@ -2021,7 +2291,7 @@ public:
 		const auto stickerTitle = Text(u"Размер стикеров"_q, u"Sticker size"_q);
 		const auto stickers = addGroup(stickerTitle, u"время на стикерах sticker timestamps"_q);
 		const auto scale = Core::Telega::StickerScale();
-		const auto stickerPreview = stickers->lifetime().make_state<Fn<void(int)>>();
+		const auto previewScale = stickers->lifetime().make_state<rpl::variable<int>>(scale);
 		auto scales = QStringList();
 		for (auto percent = 60; percent <= 140; percent += 5) {
 			scales.push_back(u"%1%"_q.arg(percent));
@@ -2029,18 +2299,22 @@ public:
 		AddSteppedSlider(stickers, stickerTitle, { Text(u"Маленький"_q, u"Small"_q),
 			Text(u"Большой"_q, u"Large"_q) }, scales, (scale - 60) / 5,
 			[](int index) { Core::Telega::SetStickerScale(60 + index * 5); },
-			[=](int index) { (*stickerPreview)(60 + index * 5); });
-		*stickerPreview = AddAppearancePreview(stickers, stickerTitle, scale, true);
-		AddChoice(stickers, controller, Text(u"Время на стикерах"_q, u"Sticker timestamps"_q), {
+			[=](int index) { *previewScale = 60 + index * 5; });
+		const auto preview = AddStickerPreview(stickers, stickerTitle, previewScale);
+		AddIndexChoice(stickers, controller, Text(u"Время на стикерах"_q, u"Sticker timestamps"_q), {
 			Text(u"По умолчанию"_q, u"Automatic"_q), Text(u"Всегда сбоку"_q, u"Always show"_q),
 			Text(u"Скрыть"_q, u"Hide"_q),
-		}, Core::Telega::StickerTime, Core::Telega::SetStickerTime);
+		}, [] { return int(Core::Telega::StickerTime()); }, [=](int index) {
+			Core::Telega::SetStickerTime(Core::Telega::StickerTimestamp(index));
+			preview->update();
+		});
 		addGroupFooter(Text(u"Размер стикеров обновится после перезапуска."_q,
 			u"Sticker size updates after restart."_q));
 		const auto features = addGroup(u"Telegram Premium"_q,
 			u"Telegram Gemini Premium AI голосовые видеосообщения"_q);
 		AddDisplayOption(features, Text(u"Скрытие рекламных сообщений (после перезапуска)"_q,
 			u"Hide sponsored messages (after restart)"_q), Option::HideSponsoredMessages);
+		const auto settings = &Core::App().settings();
 		AddToggle(features, Text(u"Перевод всей переписки"_q, u"Translate entire chats"_q),
 			settings->translateChatEnabledValue(), [=](bool enabled) {
 				settings->setTranslateChatEnabled(enabled);
@@ -2049,8 +2323,6 @@ public:
 		SetupTelegaTranscription(features, controller);
 		addGroupFooter(Text(u"Gemini получает запись только при выборе команды расшифровки через Gemini."_q,
 			u"Gemini receives the recording only when you choose its transcription action."_q));
-		const auto font = addGroup(Text(u"Шрифт"_q, u"Font"_q));
-		SetupFontSettings(controller, font);
 		finishGroups();
 	}
 
@@ -2461,7 +2733,7 @@ public:
 		const auto profile = addGroup(Text(u"Профиль"_q, u"Profile"_q), u"id dc номер phone"_q);
 		AddDisplayOption(profile, Text(u"Относительное время в сети"_q, u"Relative last-seen time"_q),
 			Option::RelativeLastSeen);
-		AddToggle(profile, Text(u"Скрывать номер телефона"_q, u"Mask my phone number"_q),
+		AddToggle(profile, Text(u"Скрывать номер телефона"_q, u"Hide my phone number"_q),
 			settings->phoneNumberHiddenValue(), [=](bool enabled) {
 				settings->setPhoneNumberHidden(enabled);
 				session->saveSettingsDelayed();
@@ -2471,7 +2743,7 @@ public:
 		AddDisplayOption(profile, Text(u"Показывать дата-центр фото профиля"_q,
 			u"Show the profile photo’s data center"_q), Option::ProfilePhotoDc);
 		addGroupFooter(Text(u"Скрытие номера действует только на этом устройстве."_q,
-			u"Phone number masking applies only to this device."_q));
+			u"The phone number is hidden on this device."_q));
 		const auto archive = addGroup(Text(u"Архив"_q, u"Archive"_q));
 		AddToggle(archive, Text(u"Скрыть папку архива"_q, u"Move the archive out of the chat list"_q),
 			rpl::single(settings->archiveInMainMenu()) | rpl::then(settings->archiveInMainMenuChanges()),
@@ -2768,6 +3040,84 @@ public:
 	rpl::producer<QString> title() override {
 		return rpl::single(Text(u"Обновления"_q, u"Updates"_q));
 	}
+};
+
+class SupportProject final : public TelegaPage<SupportProject> {
+public:
+	SupportProject(
+			QWidget *parent,
+			not_null<Window::SessionController*> controller)
+	: TelegaPage(parent, controller) {
+		beginGroups();
+		if (Platform::IsWindows()) {
+			const auto defaults = addGroup(
+				QString(), u"приложения по умолчанию links default app tg ton tonsite"_q);
+			AddButtonWithIcon(
+				defaults,
+				rpl::single(Text(u"Клиент по умолчанию для ссылок"_q,
+					u"Default app for links"_q)),
+				st::macSettingsPageButton,
+				{ &st::menuIconLink }
+			)->setClickedCallback([=] {
+				const auto direct = Platform::IsWindows11OrGreater()
+					&& QDesktopServices::openUrl(QUrl(
+						u"ms-settings:defaultapps?registeredAppUser=Telega%20Desktop"_q));
+				if (!direct && !QDesktopServices::openUrl(QUrl(u"ms-settings:defaultapps"_q))) {
+					controller->showToast(Text(u"Не удалось открыть настройки Windows."_q,
+						u"Could not open Windows Settings."_q));
+				}
+			});
+			addGroupFooter(Text(
+				u"Выберите Telega Desktop в настройках Windows для ссылок tg://, ton:// и tonsite://."_q,
+				u"Choose Telega Desktop in Windows Settings for tg://, ton:// and tonsite:// links."_q));
+		}
+		const auto donations = addGroup(
+			Text(u"Поддержать проект"_q, u"Support the project"_q),
+			u"CloudTips донат пожертвования donate tip"_q);
+		AddButtonWithIcon(
+			donations,
+			rpl::single(Text(u"Поддержать через CloudTips"_q, u"Support via CloudTips"_q)),
+			st::macSettingsPageButton,
+			{ &st::menuIconPayment }
+		)->setClickedCallback([=] {
+			if (!QDesktopServices::openUrl(QUrl(u"https://pay.cloudtips.ru/p/141b036a"_q))) {
+				controller->showToast(Text(u"Не удалось открыть CloudTips."_q,
+					u"Could not open CloudTips."_q));
+			}
+		});
+		addGroupFooter(Text(u"Пожертвования идут на разработку Telega Desktop."_q,
+			u"Donations support the development of Telega Desktop."_q));
+		const auto contacts = addGroup(
+			u"Telega Desktop"_q, u"разработчик канал developer channel dev_outside windows_custom"_q);
+		const auto addContact = [&](
+				QString title,
+				QString username,
+				const style::icon &icon,
+				Window::ResolveType type) {
+			AddButtonWithLabel(
+				contacts,
+				rpl::single(std::move(title)),
+				rpl::single(u"@"_q + username),
+				st::macSettingsPageButton,
+				{ &icon }
+			)->setClickedCallback([=] {
+				controller->showPeerByLink({
+					.usernameOrId = username,
+					.resolveType = type,
+				});
+			});
+		};
+		addContact(Text(u"Разработчик"_q, u"Developer"_q),
+			u"dev_outside"_q, st::menuIconProfile, Window::ResolveType::Profile);
+		addContact(Text(u"Канал"_q, u"Channel"_q),
+			u"windows_custom"_q, st::menuIconChannel, Window::ResolveType::Default);
+		finishGroups();
+	}
+
+	rpl::producer<QString> title() override {
+		return rpl::single(Text(u"Поддержать"_q, u"Support"_q));
+	}
+
 };
 
 struct AiChatColor {
@@ -3374,8 +3724,13 @@ protected:
 		auto p = QPainter(this);
 		p.setRenderHint(QPainter::Antialiasing);
 		p.setPen(hasFocus() ? QPen(st::windowActiveTextFg->c) : QPen(Qt::NoPen));
-		p.setBrush(underMouse() || isDown() ? st::windowBgRipple->c : st::windowBgOver->c);
-		const auto radius = style::ConvertScale(13);
+		const auto material = Core::Telega::UseMaterial3Style();
+		const auto over = underMouse() || isDown();
+		const auto fill = over ? st::windowBgRipple->c : st::windowBgOver->c;
+		p.setBrush(material
+			? style::MaterialTone(fill, st::windowActiveTextFg->c, over ? .17 : .09)
+			: fill);
+		const auto radius = style::ConvertScale(material ? 18 : 13);
 		p.drawRoundedRect(QRectF(rect()).adjusted(.5, .5, -.5, -.5), radius, radius);
 		const auto inset = style::ConvertScale(14);
 		const auto iconSize = style::ConvertScale(38);
@@ -3383,7 +3738,7 @@ protected:
 		iconBg.setAlpha(36);
 		p.setPen(Qt::NoPen);
 		p.setBrush(iconBg);
-		const auto tileRadius = style::ConvertScale(10);
+		const auto tileRadius = style::ConvertScale(material ? 12 : 10);
 		p.drawRoundedRect(
 			QRect(inset, (height() - iconSize) / 2, iconSize, iconSize),
 			tileRadius,
@@ -3447,7 +3802,7 @@ public:
 	Telega(QWidget *parent, not_null<Window::SessionController*> controller)
 	: Section(parent, controller)
 	, _mark(new QLabel(this))
-	, _brand(new QLabel(u"Telega macOS"_q, this))
+	, _brand(new QLabel(u"Telega Desktop"_q, this))
 	, _version(new QLabel(QString::fromLatin1(TELEGA_DISPLAY_VERSION), this))
 	, _search(CreateSectionSearchRow(this))
 	, _empty(new QLabel(Text(u"Ничего не найдено"_q, u"No results"_q), this)) {
@@ -3468,13 +3823,14 @@ public:
 		_version->setForegroundRole(QPalette::PlaceholderText);
 		_empty->setAlignment(Qt::AlignCenter);
 		auto categories = std::vector<Category>{
-			{ Text(u"Оформление"_q, u"Appearance"_q), Text(u"Логотип, шрифт, папки"_q, u"Logo, font, folders"_q), u"stories историй аватар avatar radius скругление шрифт font папки folders статус status стикеры stickers timestamps emoji эмодзи logo логотип icon иконка значок zalgo шум"_q, &st::menuIconPalette, Appearance::Id() },
+			{ Text(u"Оформление"_q, u"Appearance"_q), Text(u"Логотип, шрифт, папки"_q, u"Logo, font, folders"_q), u"stories историй аватар avatar radius скругление style macos windows стиль шрифт font папки folders статус status стикеры stickers timestamps emoji эмодзи logo логотип icon иконка значок zalgo шум"_q, &st::menuIconPalette, Appearance::Id() },
 			{ Text(u"Темы и фон"_q, u"Themes and wallpaper"_q), Text(u"Создание, импорт и экспорт тем"_q, u"Create, import and export themes"_q), u"custom локальные хранение цвет акцент яркость wallpaper background brightness theme colors"_q, &st::menuIconImportTheme, Themes::Id() },
 			{ Text(u"Сообщения"_q, u"Messages"_q), Text(u"Жесты, ввод, стикеры, медиа"_q, u"Gestures, input, stickers, media"_q), u"emoji reactions реакции send запятая упоминание копирование comma mention copy toast hd video перемотка видео хвостиков bubble tails пауза pause клик click секунды seconds просмотр views пересылка forward цитата quote count символы gifs голосовые voice калькулятор calculator меню menu online сведения details quick actions быстрые действия poll опрос gemini расшифровка"_q, &st::menuIconChatBubble, Messages::Id() },
 			{ Text(u"Перевод"_q, u"Translation"_q), Text(u"Сервис, язык, чаты"_q, u"Service, language, chats"_q), u"language переводчик google встроенный"_q, &st::menuIconTranslate, Translation::Id() },
 			{ Text(u"Приватность"_q, u"Privacy"_q), Text(u"Профиль и сохранение сообщений"_q, u"Profile and message retention"_q), u"номер phone профиль profile dc дата-центр last seen посещения password capture скриншот захват music обложка печатает typing прочитано read receipt истории stories online offline ghost авторы участники authors members удалённые удаленные изменения deleted edited message retention"_q, &st::menuIconLock, Privacy::Id() },
 			{ Text(u"Сеть"_q, u"Network"_q), Text(u"Прокси, загрузки"_q, u"Proxy and downloads"_q), u"tg-ws-proxy connection memory папка загрузок download folder upload ускорение speed cloudflare http/2 домены worker"_q, &st::menuIconNetwork, Network::Id() },
 			{ Text(u"Обновления"_q, u"Updates"_q), Text(u"GitHub, резервная копия"_q, u"GitHub, preferences backup"_q), u"auto версия импорт экспорт установить install restart перезапуск"_q, &st::menuIconRestore, Updates::Id() },
+			{ Text(u"Поддержать"_q, u"Support"_q), Text(u"CloudTips, разработчик, канал"_q, u"CloudTips, developer, channel"_q), u"донат пожертвования donate dev_outside windows_custom"_q, &st::menuIconLike, SupportProject::Id() },
 		};
 		for (auto &category : categories) {
 			const auto target = category.section;
@@ -3491,13 +3847,13 @@ public:
 	}
 
 	rpl::producer<QString> title() override {
-		return rpl::single(u"Telega macOS"_q);
+		return rpl::single(u"Telega Desktop"_q);
 	}
 
 protected:
 	int resizeGetHeight(int newWidth) override {
 		const auto pad = style::ConvertScale(14);
-		const auto gap = style::ConvertScale(6);
+		const auto gap = style::ConvertScale(Core::Telega::UseMaterial3Style() ? 2 : 6);
 		const auto cardHeight = style::ConvertScale(72);
 		const auto wide = newWidth >= style::ConvertScale(330);
 		const auto columns = wide ? 2 : 1;
@@ -3567,7 +3923,7 @@ void ShowTelegaAiChat(not_null<Window::SessionController*> controller) {
 }
 
 QString TelegaSettingsLabel() {
-	return Text(u"Настройки Telega macOS"_q, u"Telega macOS Settings"_q);
+	return Text(u"Настройки Telega Desktop"_q, u"Telega Desktop Settings"_q);
 }
 
 QString TelegaAiChatLabel() {

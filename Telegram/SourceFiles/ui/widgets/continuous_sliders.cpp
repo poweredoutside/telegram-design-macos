@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/widgets/continuous_sliders.h"
+#include "ui/style/style_material.h"
 
 #include "ui/painter.h"
 #include "ui/rect.h"
@@ -394,6 +395,31 @@ void MediaSlider::paintEvent(QPaintEvent *e) {
 		? QBrush(*_overrides.inactiveFg)
 		: anim::brush(_st.inactiveFg, _st.inactiveFgOver, over);
 	const auto borderFg = _st.borderFg;
+	const auto &options = style::MaterialDesign();
+	const auto material = options.enabled && options.sliders;
+	if (material && horizontal && _alwaysDisplayMarker && !borderWidth
+		&& _dividers.empty() && receivedTill <= value) {
+		const auto marker = qreal(markerFrom) + value * markerLength;
+		const auto thickness = std::min(height(), style::ConvertScale(14));
+		const auto top = (height() - thickness) / 2.;
+		const auto gap = style::ConvertScale(7);
+		const auto paintTrack = [&](QRectF area, const QBrush &brush) {
+			if (area.width() > 0.) {
+				p.setBrush(brush);
+				const auto r = std::min(area.width(), area.height()) / 2.;
+				p.drawRoundedRect(area, r, r);
+			}
+		};
+		paintTrack(QRectF(0, top, marker - gap, thickness), activeFg);
+		paintTrack(QRectF(marker + gap, top, width() - marker - gap, thickness),
+			inactiveFg);
+		if (!disabled) {
+			const auto half = style::ConvertScale(2);
+			const auto brush = _overrides.seekFg ? QBrush(*_overrides.seekFg) : activeFg;
+			paintTrack(QRectF(marker - half, top - 1, 2 * half, thickness + 2), brush);
+		}
+		return;
+	}
 	const auto gapStyle = (_dividerStyle == DividerStyle::Gaps);
 	if (gapStyle) {
 		rebuildDividerExclusion();
@@ -562,7 +588,16 @@ void MediaSlider::paintEvent(QPaintEvent *e) {
 			if (borderWidth > 0) {
 				ellipseRect -= Margins(borderHalf);
 			}
-			p.drawEllipse(ellipseRect);
+			if (material) {
+				const auto size = style::ConvertScale(6);
+				const auto dx = horizontal ? std::max(0, (ellipseRect.width() - size) / 2) : 0;
+				const auto dy = horizontal ? 0 : std::max(0, (ellipseRect.height() - size) / 2);
+				const auto thumb = ellipseRect.adjusted(dx, dy, -dx, -dy);
+				const auto radius = std::min(thumb.width(), thumb.height()) / 2.;
+				p.drawRoundedRect(thumb, radius, radius);
+			} else {
+				p.drawEllipse(ellipseRect);
+			}
 		}
 	}
 }

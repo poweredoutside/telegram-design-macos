@@ -1,5 +1,10 @@
 <RCC>
   <qresource prefix="/gui">
+    <file alias="material-fonts/GoogleSans-Regular.ttf">../../fonts/google-sans/GoogleSans-Regular.ttf</file>
+    <file alias="material-fonts/GoogleSans-SemiBold.ttf">../../fonts/google-sans/GoogleSans-SemiBold.ttf</file>
+    <file alias="material-fonts/GoogleSans-Italic.ttf">../../fonts/google-sans/GoogleSans-Italic.ttf</file>
+    <file alias="material-fonts/GoogleSans-SemiBoldItalic.ttf">../../fonts/google-sans/GoogleSans-SemiBoldItalic.ttf</file>
+    <file alias="material-fonts/GoogleSans-OFL.txt">../../fonts/google-sans/GoogleSans-OFL.txt</file>
     <file alias="icons/macos/native-Icon_Premium_Settings.png">../../icons/macos/native-Icon_Premium_Settings.png</file>
     <file alias="icons/macos/native-Icon_SettingsAskQuestion.png">../../icons/macos/native-Icon_SettingsAskQuestion.png</file>
     <file alias="icons/macos/native-Icon_SettingsFaq.png">../../icons/macos/native-Icon_SettingsFaq.png</file>
@@ -42,6 +47,8 @@
     <file alias="day-blue.tdesktop-theme">../../day-blue.tdesktop-theme</file>
     <file alias="macos-light.tdesktop-theme">../../macos-light.tdesktop-theme</file>
     <file alias="macos-dark.tdesktop-theme">../../macos-dark.tdesktop-theme</file>
+    <file alias="windows11-light.tdesktop-theme">../../windows11-light.tdesktop-theme</file>
+    <file alias="windows11-dark.tdesktop-theme">../../windows11-dark.tdesktop-theme</file>
     <file alias="night.tdesktop-theme">../../night.tdesktop-theme</file>
     <file alias="night-green.tdesktop-theme">../../night-green.tdesktop-theme</file>
     <file alias="day-custom-base.tdesktop-theme">../../day-custom-base.tdesktop-theme</file>

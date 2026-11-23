@@ -630,6 +630,7 @@ PRIVATE
     core/core_cloud_password.h
     core/core_screenshot_protection.cpp
     core/core_screenshot_protection.h
+    core/core_telega_material.h
     core/core_telega_preferences.cpp
     core/core_telega_preferences.h
     core/core_settings.cpp
@@ -940,6 +941,7 @@ PRIVATE
     dialogs/dialogs_removed_row_slide.h
     dialogs/dialogs_row.cpp
     dialogs/dialogs_row.h
+    dialogs/dialogs_row_style.h
     dialogs/dialogs_search_from_controllers.cpp
     dialogs/dialogs_search_from_controllers.h
     dialogs/dialogs_search_tags.cpp

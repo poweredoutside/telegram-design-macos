@@ -76,6 +76,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/emoji_interactions.h"
 #include "core/shortcuts.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/core_screenshot_protection.h"
 #include "core/click_handler_types.h"
 #include "core/file_utilities.h"
@@ -3879,11 +3880,13 @@ void SessionController::pushDefaultChatBackground() {
 		}
 	}
 	const auto &path = background->themeObject().pathAbsolute;
-	if (Platform::IsWindows()
+	if ((Core::Telega::UseMacOSStyle() || Core::Telega::UseWindows11Style())
 		&& !cloud.id
 		&& (path.isEmpty() || path.startsWith(u":/gui/"_q))
 		&& bubbles.colors.empty()) {
-		bubbles.colors = Ui::MacOutgoingGradient(st::msgOutBg->c);
+		bubbles.colors = (Core::Telega::UseWindows11Style() && Theme::IsNightMode())
+			? std::vector<QColor>{ QColor(0x6d, 0x4b, 0xcf), st::msgOutBg->c }
+			: Ui::MacOutgoingGradient(st::msgOutBg->c);
 	}
 	if (bubbles.colors != _defaultChatThemeBubblesColors) {
 		_defaultChatThemeBubblesColors = bubbles.colors;

@@ -5,6 +5,7 @@
 // https://github.com/desktop-app/legal/blob/master/LEGAL
 //
 #include "ui/widgets/menu/menu_action.h"
+#include "ui/style/style_material.h"
 
 #include "ui/effects/ripple_animation.h"
 #include "ui/painter.h"
@@ -96,6 +97,21 @@ void Action::paintEvent(QPaintEvent *e) {
 }
 
 void Action::paintBackground(QPainter &p, bool selected) {
+	if (selected && style::MaterialDesign().enabled
+		&& _st.itemBg->c.alpha() == 255
+		&& _st.itemBgOver->c.alpha() > 0) {
+		p.fillRect(rect(), _st.itemBg);
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		const auto x = style::ConvertScale(6);
+		const auto y = style::ConvertScale(1);
+		const auto radius = style::ConvertScale(10);
+		p.setPen(Qt::NoPen);
+		p.setBrush(_st.itemBgOver);
+		p.drawRoundedRect(rect().adjusted(x, y, -x, -y), radius, radius);
+		p.restore();
+		return;
+	}
 	if (selected && _st.itemBgOver->c.alpha() < 255) {
 		p.fillRect(0, 0, width(), _height, _st.itemBg);
 	}

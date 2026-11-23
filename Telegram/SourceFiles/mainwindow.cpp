@@ -417,6 +417,12 @@ void MainWindow::showMainMenu() {
 
 	if (isHidden()) showFromTray();
 
+	if (Core::Telega::UseWindows11Style()) {
+		if (const auto session = sessionController()) {
+			Window::ShowWindows11MainMenu(session);
+			return;
+		}
+	}
 	ensureLayerCreated();
 	_layer->showMainMenu(
 		object_ptr<Window::MainMenu>(body(), sessionController()),

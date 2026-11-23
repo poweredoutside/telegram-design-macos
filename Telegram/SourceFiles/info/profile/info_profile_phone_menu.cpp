@@ -8,12 +8,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_phone_menu.h"
 
 #include "data/data_user.h"
+#include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "main/main_app_config.h"
 #include "main/main_app_config_values.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
-#include "menu/menu_checked_action.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/menu/menu_action.h"
@@ -145,24 +145,20 @@ void AddPhoneMenu(not_null<Ui::PopupMenu*> menu, not_null<UserData*> user) {
 	}
 }
 
-void AddPhoneSpoilerMenu(
+void AddHidePhoneMenu(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<UserData*> user) {
-	if (!user->isSelf()) {
+	const auto session = &user->session();
+	if (!user->isSelf() || session->settings().phoneNumberHidden()) {
 		return;
 	}
-	const auto session = &user->session();
-	const auto toggle = [=] {
-		auto &settings = session->settings();
-		settings.setPhoneNumberHidden(!settings.phoneNumberHidden());
+	const auto title = Lang::GetInstance().id().startsWith(u"ru"_q)
+		? u"Скрыть номер телефона"_q
+		: u"Hide phone number"_q;
+	menu->addAction(title, [=] {
+		session->settings().setPhoneNumberHidden(true);
 		session->saveSettingsDelayed();
-	};
-	Menu::AddCheckedAction(
-		menu,
-		tr::lng_context_spoiler_effect(tr::now),
-		toggle,
-		&st::menuIconSpoiler,
-		session->settings().phoneNumberHidden());
+	}, &st::menuIconSpoiler);
 }
 
 } // namespace Profile

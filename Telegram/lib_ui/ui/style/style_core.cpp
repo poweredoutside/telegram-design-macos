@@ -6,6 +6,8 @@
 //
 #include "ui/style/style_core.h"
 
+#include "ui/style/style_material.h"
+
 #include "ui/effects/animation_value.h"
 #include "ui/painter.h"
 #include "styles/style_basic.h"
@@ -59,6 +61,24 @@ void StopShortAnimation() {
 }
 
 } // namespace internal
+
+namespace {
+
+auto Material = MaterialDesignOptions();
+
+} // namespace
+
+const MaterialDesignOptions &MaterialDesign() {
+	return Material;
+}
+
+void SetMaterialDesign(MaterialDesignOptions options) {
+	Material = options;
+}
+
+QColor MaterialTone(QColor surface, QColor accent, qreal amount) {
+	return anim::color(surface, accent, amount);
+}
 
 void StartManager(int scale) {
 	internal::RegisterFontFamily("Open Sans");

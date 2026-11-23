@@ -26,7 +26,8 @@ TextWithLabel CreateTextWithLabel(
 		const style::FlatLabel &labelSt,
 		const style::FlatLabel &textSt,
 		const style::margins &padding,
-		const style::PopupMenu &stMenu) {
+		const style::PopupMenu &stMenu,
+		anim::type visibilityAnimation) {
 	auto result = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 		parent,
 		object_ptr<Ui::VerticalLayout>(parent),
@@ -35,16 +36,18 @@ TextWithLabel CreateTextWithLabel(
 	auto layout = result->entity();
 	auto nonEmptyText = rpl::duplicate(
 		text
-	) | rpl::before_next([slide = result.data()](
+	) | rpl::before_next([slide = result.data(), visibilityAnimation](
 			const TextWithEntities &value) {
 		if (value.text.isEmpty()) {
-			slide->hide(anim::type::normal);
+			slide->hide(visibilityAnimation);
 		}
-	}) | rpl::filter([](const TextWithEntities &value) {
-		return !value.text.isEmpty();
-	}) | rpl::after_next([slide = result.data()](
+	}) | rpl::filter([=](const TextWithEntities &value) {
+		return !value.text.isEmpty() || visibilityAnimation == anim::type::instant;
+	}) | rpl::after_next([slide = result.data(), visibilityAnimation](
 			const TextWithEntities &value) {
-		slide->show(anim::type::normal);
+		if (!value.text.isEmpty()) {
+			slide->show(visibilityAnimation);
+		}
 	});
 	const auto labeled = layout->add(object_ptr<Ui::FlatLabel>(
 		layout,

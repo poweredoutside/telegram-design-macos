@@ -46,6 +46,8 @@ namespace Window {
 
 class SessionController;
 
+void ShowWindows11MainMenu(not_null<SessionController*> controller);
+
 class MainMenu final : public Ui::LayerWidget {
 public:
 	MainMenu(QWidget *parent, not_null<SessionController*> controller);

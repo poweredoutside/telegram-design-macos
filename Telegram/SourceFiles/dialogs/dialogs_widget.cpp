@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_widget.h"
 
+#include "dialogs/dialogs_row.h"
+#include "dialogs/dialogs_row_style.h"
+
 #include "base/call_delayed.h"
 #include "base/platform/base_platform_info.h"
 #include "boxes/contacts_box.h"
@@ -70,6 +73,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/message_field.h"
 #include "core/application.h"
 #include "core/core_telega_preferences.h"
+#include "ui/style/style_material.h"
 #include "core/update_checker.h"
 #include "core/shortcuts.h"
 #include "window/window_columns.h"
@@ -115,6 +119,36 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Dialogs {
 namespace {
+
+const style::InputField &DialogsSearchStyle() {
+	if (Core::Telega::UseMacOSStyle()) {
+		return st::dialogsFilterMac;
+	} else if (!Core::Telega::UseMaterial3Style()
+		&& !Core::Telega::UseWindows11Style()) {
+		return st::dialogsFilter;
+	}
+	static const auto result = [] {
+		auto result = st::dialogsFilter;
+		const auto s = [](int size) { return style::ConvertScale(size); };
+		result.textMargins.setLeft(s(38));
+		result.heightMin = s(36);
+		result.borderRadius = s(20);
+		if (Core::Telega::UseWindows11Style()) {
+			result.textMargins.setLeft(s(12));
+			result.heightMin = s(32);
+			result.borderRadius = s(16);
+			result.border = 0;
+			result.borderActive = 0;
+			result.textBgActive = result.textBg;
+			return result;
+		}
+		result.border = 0;
+		result.borderActive = 0;
+		result.textBgActive = result.textBg;
+		return result;
+	}();
+	return result;
+}
 
 constexpr auto kSearchPerPage = 50;
 constexpr auto kStoriesExpandDuration = crl::time(200);
@@ -227,9 +261,9 @@ Widget::Widget(
 , _api(&controller->session().mtp())
 , _chooseByDragTimer([=] { _inner->chooseRow(); })
 , _layout(layout)
-, _narrowWidth(st::defaultDialogRow.padding.left()
-	+ st::defaultDialogRow.photoSize
-	+ st::defaultDialogRow.padding.left())
+, _narrowWidth(DefaultRowStyle().padding.left()
+	+ DefaultRowStyle().photoSize
+	+ DefaultRowStyle().padding.left())
 , _searchControls(this)
 , _mainMenu({
 	.toggle = object_ptr<Ui::IconButton>(
@@ -238,9 +272,7 @@ Widget::Widget(
 	.under = object_ptr<MenuUnderButton>(_searchControls),
 })
 , _searchForNarrowLayout(_searchControls, st::dialogsSearchForNarrowFilters)
-, _search(_searchControls,
-	Platform::IsWindows() ? st::dialogsFilterMac : st::dialogsFilter,
-	tr::lng_dlg_filter())
+, _search(_searchControls, DialogsSearchStyle(), tr::lng_dlg_filter())
 , _chooseFromUser(
 	_searchControls,
 	object_ptr<Ui::IconButton>(this, st::dialogsSearchFrom))
@@ -263,6 +295,27 @@ Widget::Widget(
 , _searchTimer([=] { search(); })
 , _peerSearch(&controller->session(), Api::PeerSearch::Type::WithSponsored)
 , _singleMessageSearch(&controller->session()) {
+	if (Core::Telega::UseMaterial3Style()) {
+		const auto icon = Ui::CreateChild<Ui::RpWidget>(_search.data());
+		icon->setAttribute(Qt::WA_TransparentForMouseEvents);
+		_search->sizeValue() | rpl::on_next([=](QSize size) {
+			const auto side = style::ConvertScale(36);
+			icon->setGeometry(style::rtlrect(0, 0, side, size.height(), size.width()));
+		}, icon->lifetime());
+		icon->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(icon);
+			p.setRenderHint(QPainter::Antialiasing);
+			const auto center = QPointF(icon->width() / 2., icon->height() / 2.);
+			const auto unit = float64(style::ConvertScale(10)) / 10.;
+			p.setPen(QPen(st::placeholderFg->c, 1.5 * unit,
+				Qt::SolidLine, Qt::RoundCap));
+			const auto origin = center - QPointF(unit, unit);
+			p.drawEllipse(origin, 4.5 * unit, 4.5 * unit);
+			p.drawLine(origin + QPointF(3.4, 3.4) * unit,
+				origin + QPointF(7., 7.) * unit);
+		}, icon->lifetime());
+		icon->show();
+	}
 	const auto makeChildListShown = [](PeerId peerId, float64 shown) {
 		return InnerWidget::ChildListShown{ peerId, shown };
 	};
@@ -273,6 +326,11 @@ Widget::Widget(
 	_scroll->setOverscrollPullDistances(st::dialogsStoriesFull.height, 0);
 	_innerList = _scroll->setOwnedWidget(
 		object_ptr<Ui::VerticalLayout>(this));
+	_scroll->shownValue() | rpl::on_next([=](bool shown) {
+		if (!shown) {
+			_chatsFilterSlideCanvas = nullptr;
+		}
+	}, lifetime());
 	_inner = _innerList->add(object_ptr<InnerWidget>(
 		_innerList,
 		controller,
@@ -280,7 +338,7 @@ Widget::Widget(
 			_childListPeerId.value(),
 			_childListShown.value(),
 			makeChildListShown)));
-	if (Platform::IsWindows() && _layout == Layout::Main) {
+	if (Core::Telega::UseMacOSStyle() && _layout == Layout::Main) {
 		const auto spacer = _innerList->add(Ui::CreateSkipWidget(
 			_innerList,
 			st::dialogsNavigationHeight));
@@ -546,7 +604,7 @@ Widget::Widget(
 	});
 
 	setupMainMenuToggle();
-	if (Platform::IsWindows() && _layout == Layout::Main) {
+	if (Core::Telega::UseMacOSStyle() && _layout == Layout::Main) {
 		_navigation = std::make_unique<NavigationBar>(this, [=](
 				NavigationAction action) {
 			switch (action) {
@@ -597,6 +655,8 @@ Widget::Widget(
 		) | rpl::on_next([=] {
 			_navigation->setUnreadCount(session().data().unreadBadge());
 		}, lifetime());
+	}
+	if (_layout == Layout::Main && (_navigation || Core::Telega::UseWindows11Style())) {
 		_compose.create(_searchControls, st::macCompose);
 		_compose->setAccessibleName(tr::lng_no_conversations_button(tr::now));
 		_compose->setClickedCallback([=] {
@@ -1397,8 +1457,8 @@ void Widget::updateCommunityAddChatButton() {
 		const auto buttonWidth = buttonHeight
 			+ st::communityAddChatNarrowAddedWidth;
 		const auto stripHeight = buttonHeight
-			+ st::defaultDialogRow.padding.top()
-			+ st::defaultDialogRow.padding.bottom();
+			+ DefaultRowStyle().padding.top()
+			+ DefaultRowStyle().padding.bottom();
 		if (!shown) {
 			raw->toggle(false, anim::type::instant);
 			narrowButton->hide();
@@ -1409,7 +1469,7 @@ void Widget::updateCommunityAddChatButton() {
 			raw->toggle(false, anim::type::instant);
 			narrowButton->moveToLeft(
 				(_scroll->width() - buttonWidth) / 2,
-				bottom + st::defaultDialogRow.padding.top());
+				bottom + DefaultRowStyle().padding.top());
 			narrowButton->show();
 		} else {
 			narrowButton->hide();
@@ -1620,8 +1680,8 @@ void Widget::setupMainMenuToggle() {
 		controller()->filtersMenuChanged()
 	) | rpl::on_next([=] {
 		const auto filtersHidden = !controller()->filtersWidth();
-		_mainMenu.toggle->setVisible(!Platform::IsWindows() && filtersHidden);
-		_mainMenu.under->setVisible(!Platform::IsWindows() && filtersHidden);
+		_mainMenu.toggle->setVisible(!Core::Telega::UseMacOSStyle() && filtersHidden);
+		_mainMenu.under->setVisible(!Core::Telega::UseMacOSStyle() && filtersHidden);
 		_searchForNarrowLayout->setVisible(!filtersHidden);
 		updateControlsGeometry();
 	}, lifetime());
@@ -1634,7 +1694,12 @@ void Widget::setupMainMenuToggle() {
 			: !state.allMuted
 			? &st::dialogsMenuToggleUnread
 			: &st::dialogsMenuToggleUnreadMuted;
-		_mainMenu.toggle->setIconOverride(icon, icon);
+		if (Core::Telega::UseWindows11Style()) {
+			_mainMenu.toggle->setIconOverride(
+				&st::topBarMenuMac.icon, &st::topBarMenuMac.iconOver);
+		} else {
+			_mainMenu.toggle->setIconOverride(icon, icon);
+		}
 	}, _mainMenu.toggle->lifetime());
 }
 
@@ -1715,7 +1780,7 @@ void Widget::setupStories() {
 		if (position.overscroll > 0
 			|| (position.value
 				> (_storiesExplicitExpandScrollTop
-					+ st::dialogsRowHeight))) {
+					+ DefaultRowStyle().height))) {
 			storiesToggleExplicitExpand(false);
 		}
 		updateLockUnlockPosition();
@@ -2515,11 +2580,15 @@ void Widget::switchToChatsFilter(FilterId id) {
 	const auto was = _inner->filterId();
 	_chatsFilterForTopBarSuggestion = id;
 	const auto animated = (was != id)
-		&& !isHidden()
+		&& !anim::Disabled()
+		&& _scroll->isVisible()
+		&& !_scroll->size().isEmpty()
 		&& !_showAnimation
 		&& (_chatsFilterSwipeSwitch
+			|| controller()->filtersWidth()
 			|| (_chatFilters && !_chatFilters->isHidden()));
 	if (!animated) {
+		_chatsFilterSlideCanvas = nullptr;
 		_inner->switchToFilter(id);
 		return;
 	}
@@ -2528,22 +2597,29 @@ void Widget::switchToChatsFilter(FilterId id) {
 		return int(ranges::find(list, filterId, &Data::ChatFilter::id)
 			- begin(list));
 	};
-	const auto slideLeft = (indexOf(id) < indexOf(was));
+	const auto slideLeft = (indexOf(id) < indexOf(was)) != rtl();
 	const auto duration = _chatsFilterSwipeSwitch
 		? st::dialogsFilterSwipeSlideDuration
 		: st::dialogsFilterSlideDuration;
-	_chatsFilterSlideCanvas = nullptr;
 	_innerList->resizeToWidth(_scroll->width());
-	auto wasCache = grabForChatsFilterSlide();
+	auto wasCache = _chatsFilterSlideCanvas
+		? Ui::GrabOpaque(
+			_chatsFilterSlideCanvas.get(),
+			_chatsFilterSlideCanvas->rect(),
+			st::dialogsBg->c)
+		: grabForChatsFilterSlide();
+	_chatsFilterSlideCanvas = nullptr;
 	_inner->switchToFilter(id);
 	if (_inner->filterId() == was) {
 		return;
 	}
-	startChatsFilterSlide(
-		std::move(wasCache),
-		grabForChatsFilterSlide(),
-		slideLeft,
-		duration);
+	if (_scroll->isVisible()) {
+		startChatsFilterSlide(
+			std::move(wasCache),
+			grabForChatsFilterSlide(),
+			slideLeft,
+			duration);
+	}
 }
 
 QPixmap Widget::grabForChatsFilterSlide() {
@@ -2571,6 +2647,39 @@ void Widget::startChatsFilterSlide(
 	canvas->setAttribute(Qt::WA_TransparentForMouseEvents);
 	canvas->setAttribute(Qt::WA_OpaquePaintEvent);
 	canvas->setGeometry(_scroll->geometry());
+	const auto showCanvas = [=] {
+		canvas->show();
+		if (_connecting) {
+			_connecting->raise();
+		}
+	};
+	const auto finish = [=] {
+		InvokeQueued(canvas, [=] { _chatsFilterSlideCanvas = nullptr; });
+	};
+	if (Core::Telega::UseMaterial3Style() && style::MaterialDesign().expressive) {
+		const auto animation = canvas->lifetime().make_state<Ui::Animations::Simple>();
+		const auto offset = style::ConvertScale(24) * (slideLeft ? -1 : 1);
+		canvas->paintOn([
+			=,
+			wasCache = std::move(wasCache),
+			nowCache = std::move(nowCache)
+		](QPainter &p) {
+			const auto progress = animation->value(1.);
+			p.fillRect(canvas->rect(), st::dialogsBg);
+			p.drawPixmap(anim::interpolate(0, -offset, progress), 0, wasCache);
+			p.setOpacity(progress);
+			p.drawPixmap(anim::interpolate(offset, 0, progress), 0, nowCache);
+		});
+		showCanvas();
+		animation->start(
+			[=] { canvas->update(); },
+			0.,
+			1.,
+			duration,
+			anim::easeOutCubic);
+		animation->setFinishedCallback(finish);
+		return;
+	}
 	const auto animation
 		= canvas->lifetime().make_state<Window::SlideAnimation>();
 	animation->setDirection(slideLeft
@@ -2582,12 +2691,9 @@ void Widget::startChatsFilterSlide(
 		p.fillRect(canvas->rect(), st::dialogsBg);
 		animation->paintContents(p);
 	});
-	canvas->show();
-	if (_connecting) {
-		_connecting->raise();
-	}
+	showCanvas();
 	animation->setRepaintCallback([=] { canvas->update(); });
-	animation->setFinishedCallback([=] { _chatsFilterSlideCanvas = nullptr; });
+	animation->setFinishedCallback(finish);
 	animation->start();
 }
 
@@ -2800,6 +2906,7 @@ void Widget::startWidthAnimation() {
 	if (!_widthAnimationCache.isNull()) {
 		return;
 	}
+	_chatsFilterSlideCanvas = nullptr;
 	_widthAnimationCache = grabNonNarrowScrollFrame();
 	_scroll->hide();
 	if (_frozenAccountBar) {
@@ -3310,7 +3417,8 @@ void Widget::searchRequested(SearchRequestDelay delay) {
 }
 
 bool Widget::showMacSettings() {
-	if (!_navigation) {
+	const auto fluent = Core::Telega::UseWindows11Style();
+	if (_layout != Layout::Main || (!_navigation && !fluent)) {
 		return false;
 	}
 	const auto sessionController = controller();
@@ -3320,7 +3428,15 @@ bool Widget::showMacSettings() {
 			this,
 			sessionController,
 			[=] { showMainMenu(); },
-			[=] { _navigation->update(); });
+			[=] {
+				if (_navigation) {
+					_navigation->update();
+				}
+			},
+			[=] {
+				hideMacSettings();
+				setInnerFocus();
+			});
 		_settingsSidebar->hide();
 	}
 	auto params = Window::SectionShow(Window::SectionShow::Way::ClearStack);
@@ -3330,14 +3446,16 @@ bool Widget::showMacSettings() {
 		if (sessionController->mainSectionShown()) {
 			return true;
 		}
-	} else {
+	} else if (!fluent) {
 		sessionController->showSettings(_settingsSidebar->selected(), params);
 	}
 	_settingsSidebar->setGeometry(0, 0, width(), height());
 	_settingsSidebar->show();
 	_settingsSidebar->raise();
-	_navigation->raise();
-	_navigation->setActive(NavigationAction::Settings);
+	if (_navigation) {
+		_navigation->raise();
+		_navigation->setActive(NavigationAction::Settings);
+	}
 	return true;
 }
 
@@ -3348,7 +3466,9 @@ bool Widget::macSettingsShown() const {
 void Widget::hideMacSettings() {
 	if (macSettingsShown()) {
 		_settingsSidebar->hide();
-		_navigation->setActive(NavigationAction::Chats);
+		if (_navigation) {
+			_navigation->setActive(NavigationAction::Chats);
+		}
 	}
 }
 
@@ -4619,16 +4739,26 @@ void Widget::updateControlsGeometry() {
 	auto filterLeft = (controller()->filtersWidth()
 		? st::dialogsFilterSkip
 		: (st::dialogsFilterPadding.x()
-			+ (Platform::IsWindows() ? 0 : _mainMenu.toggle->width())))
+			+ (Core::Telega::UseMacOSStyle() ? 0 : _mainMenu.toggle->width())))
 		+ st::dialogsFilterPadding.x();
-	const auto macHeader = Platform::IsWindows()
+	const auto macHeader = Core::Telega::UseMacOSStyle()
+		&& _layout == Layout::Main
+		&& !_subsectionTopBar;
+	const auto fluentHeader = Core::Telega::UseWindows11Style()
 		&& _layout == Layout::Main
 		&& !_subsectionTopBar;
 	if (macHeader) {
 		filterLeft = st::dialogsMacSearchInset;
+	} else if ((fluentHeader || Core::Telega::UseMaterial3Style())
+		&& controller()->filtersWidth()) {
+		filterLeft = style::ConvertScale(12);
 	}
 	const auto filterRight = macHeader
 		? st::dialogsMacSearchInset
+		: fluentHeader
+		? style::ConvertScale(12) + (_compose ? _compose->width() : 0)
+		: Core::Telega::UseMaterial3Style()
+		? style::ConvertScale(12) + (_compose ? _compose->width() : 0)
 		: st::dialogsFilterSkip
 		+ st::dialogsFilterPadding.x()
 		+ (_compose ? _compose->width() : 0);
@@ -4636,7 +4766,12 @@ void Widget::updateControlsGeometry() {
 		- filterLeft
 		- filterRight;
 	const auto filterAreaHeight = macHeader
-		? st::dialogsMacHeaderHeight : st::topBarHeight;
+		? st::dialogsMacHeaderHeight
+		: fluentHeader
+		? style::ConvertScale(42)
+		: Core::Telega::UseMaterial3Style()
+		? style::ConvertScale(54)
+		: st::topBarHeight;
 	_searchControls->setGeometry(0, filterAreaTop, ratiow, filterAreaHeight);
 	if (_subsectionTopBar) {
 		_subsectionTopBar->setGeometryWithNarrowRatio(
@@ -4665,7 +4800,7 @@ void Widget::updateControlsGeometry() {
 		st::dialogsFilterPadding.x(),
 		(_narrowWidth - _mainMenu.toggle->width()) / 2,
 		narrowRatio);
-	if (Platform::IsWindows()) {
+	if (Core::Telega::UseMacOSStyle()) {
 		mainMenuLeft = -_mainMenu.toggle->width();
 	}
 	_mainMenu.toggle->moveToLeft(mainMenuLeft, st::dialogsFilterPadding.y());
@@ -4834,7 +4969,11 @@ void Widget::updateControlsGeometry() {
 			scrollWidth,
 			scrollHeight);
 		if (_chatsFilterSlideCanvas) {
-			_chatsFilterSlideCanvas->setGeometry(_scroll->geometry());
+			if (_chatsFilterSlideCanvas->size() != _scroll->size()) {
+				_chatsFilterSlideCanvas = nullptr;
+			} else {
+				_chatsFilterSlideCanvas->move(_scroll->pos());
+			}
 		}
 		if (scrollHeight != wasScrollHeight) {
 			controller()->floatPlayerAreaUpdated();
@@ -5012,7 +5151,7 @@ void Widget::paintEvent(QPaintEvent *e) {
 	if (above.intersects(r)) {
 		p.fillRect(above.intersected(r), bg);
 	}
-	if (Platform::IsWindows()
+	if (Core::Telega::UseMacOSStyle()
 		&& _layout == Layout::Main
 		&& !_subsectionTopBar
 		&& !_searchControls->isHidden()

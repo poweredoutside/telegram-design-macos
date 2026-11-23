@@ -30,7 +30,8 @@ cmake --build out --config Release --target Telegram
 ISCC.exe Telegram/build/setup_macos_design.iss
 ```
 
-Setup uses `out/Release` by default and writes the installer under `out/setup`.
+Setup reads `out/Release` by default and writes the installer directly to
+`out/setup-release/Telega-Desktop-Setup-x64.exe`.
 It installs per user and keeps `TelegramForcePortable` separate from the
 official app. The setup language can be chosen on every run. During an upgrade,
 Setup asks the matching installed client to quit normally and checks that its

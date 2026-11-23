@@ -11,6 +11,7 @@
 #include "ui/basic_click_handlers.h"
 #include "ui/ui_utility.h"
 #include "ui/painter.h"
+#include "ui/style/style_material.h"
 #include "styles/palette.h"
 
 #include <QtGui/QtEvents>
@@ -37,7 +38,10 @@ void AbstractCheckView::setChecked(bool checked, anim::type animated) {
 			[=] { if (_updateCallback) _updateCallback(); },
 			_checked ? 0. : 1.,
 			_checked ? 1. : 0.,
-			_duration);
+			_duration,
+			(style::MaterialDesign().enabled && style::MaterialDesign().expressive)
+				? anim::easeOutQuint
+				: anim::linear);
 	}
 	checkedChangedHook(animated);
 	if (changed) {
@@ -96,6 +100,31 @@ void ToggleView::paint(QPainter &p, int left, int top, int outerWidth) {
 	auto bgRect = style::rtlrect(left + _st->shift, top + _st->shift, fullWidth - 2 * _st->shift, innerDiameter, outerWidth);
 	auto fgRect = style::rtlrect(toggleLeft, top, _st->diameter, _st->diameter, outerWidth);
 	auto fgBrush = anim::brush(_st->untoggledFg, _st->toggledFg, toggled);
+
+	const auto &material = style::MaterialDesign();
+	if (material.enabled && material.switches && !_locked && !_st->xsize) {
+		const auto offTrack = style::MaterialTone(
+			_st->untoggledBg->c,
+			_st->untoggledFg->c,
+			material.mutedSwitches ? .16 : .34);
+		const auto track = style::rtlrect(
+			left, top, fullWidth, _st->diameter, outerWidth);
+		const auto radius = track.height() / 2.;
+		const auto stroke = std::max(1, _st->border);
+		p.setPen(QPen(anim::color(
+			_st->untoggledFg->c, _st->toggledFg->c, toggled), stroke));
+		p.setBrush(anim::color(offTrack, _st->toggledFg->c, toggled));
+		const auto edge = stroke / 2.;
+		p.drawRoundedRect(
+			QRectF(track).adjusted(edge, edge, -edge, -edge), radius, radius);
+		const auto thumbInset = _st->diameter * (.29 - .12 * toggled);
+		p.setPen(Qt::NoPen);
+		p.setBrush(anim::color(
+			_st->untoggledFg->c, _st->toggledBg->c, toggled));
+		p.drawEllipse(QRectF(fgRect).adjusted(
+			thumbInset, thumbInset, -thumbInset, -thumbInset));
+		return;
+	}
 
 	p.setPen(Qt::NoPen);
 	p.setBrush(fgBrush);

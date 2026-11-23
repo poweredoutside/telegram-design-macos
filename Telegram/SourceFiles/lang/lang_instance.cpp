@@ -30,8 +30,15 @@ constexpr auto kSerializeVersion = 1;
 constexpr auto kCloudLangPackName = "tdesktop"_cs;
 constexpr auto kCustomLanguage = "#custom"_cs;
 constexpr auto kLangValuesLimit = 20000;
+constexpr auto kChangePhoneErrorKey = "lng_change_phone_error";
 
-QString BrandDisplayText(QString text) {
+QString BrandDisplayText(QString text, bool officialTelegram) {
+	if (officialTelegram) {
+		static const auto Brand = QRegularExpression(
+			uR"(\bTelega\b)"_q,
+			QRegularExpression::UseUnicodePropertiesOption);
+		return text.replace(Brand, u"Telegram"_q);
+	}
 	if (!text.contains(u"Telegram") && !text.contains(u"Telega")) {
 		return text;
 	}
@@ -61,7 +68,8 @@ QString BrandDisplayText(QString text) {
 }
 
 QString BrandedOriginalValue(ushort key) {
-	return BrandDisplayText(GetOriginalValue(key));
+	static const auto phoneError = GetKeyIndex(QLatin1String(kChangePhoneErrorKey));
+	return BrandDisplayText(GetOriginalValue(key), key == phoneError);
 }
 
 std::vector<QString> PrepareDefaultValues() {
@@ -758,15 +766,18 @@ std::map<ushort, QString> Instance::ParseStrings(
 
 QString Instance::getNonDefaultValue(const QByteArray &key) const {
 	const auto i = _nonDefaultValues.find(key);
-	return (i != end(_nonDefaultValues))
-		? BrandDisplayText(QString::fromUtf8(i->second))
-		: _base
-		? _base->getNonDefaultValue(key)
-		: QString();
+	if (i != end(_nonDefaultValues)) {
+		return BrandDisplayText(
+			QString::fromUtf8(i->second),
+			key == kChangePhoneErrorKey);
+	}
+	return _base ? _base->getNonDefaultValue(key) : QString();
 }
 
 void Instance::applyValue(const QByteArray &key, const QByteArray &value) {
-	const auto branded = BrandDisplayText(QString::fromUtf8(value)).toUtf8();
+	const auto branded = BrandDisplayText(
+		QString::fromUtf8(value),
+		key == kChangePhoneErrorKey).toUtf8();
 	_nonDefaultValues[key] = value;
 	ParseKeyValue(key, branded, [&](ushort key, QString &&value) {
 		_nonDefaultSet[key] = 1;

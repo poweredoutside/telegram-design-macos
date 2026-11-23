@@ -53,6 +53,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "menu/menu_mark_as_read.h"
 #include "main/main_account.h"
 #include "main/main_session.h"
+#include "main/main_session_settings.h"
 #include "main/main_domain.h"
 #include "mtproto/mtproto_dc_options.h"
 #include "window/window_session_controller.h"
@@ -346,7 +347,7 @@ void SetupPhoto(
 void ShowMenu(
 		QWidget *parent,
 		const QString &copyButton,
-		const QString &text,
+		Fn<QString()> text,
 		const style::icon *copyIcon = nullptr,
 		Fn<void(not_null<Ui::PopupMenu*>)> extend = nullptr) {
 	const auto menu = Ui::CreateChild<Ui::PopupMenu>(
@@ -354,7 +355,10 @@ void ShowMenu(
 		extend ? st::popupMenuWithIcons : st::defaultPopupMenu);
 
 	menu->addAction(copyButton, [=] {
-		QGuiApplication::clipboard()->setText(text);
+		const auto value = text();
+		if (!value.isEmpty()) {
+			QGuiApplication::clipboard()->setText(value);
+		}
 	}, copyIcon);
 	if (extend) {
 		extend(menu);
@@ -402,7 +406,9 @@ not_null<Ui::SettingsButton*> AddRow(
 		if (button == Qt::LeftButton) {
 			edit();
 		} else if (!forcopy->isEmpty()) {
-			ShowMenu(wrap, copyButton, *forcopy, copyIcon, menuExtender);
+			ShowMenu(wrap, copyButton, [=, weak = QPointer(wrap.get())] {
+				return weak ? *forcopy : QString();
+			}, copyIcon, menuExtender);
 		}
 	}, wrap->lifetime());
 
@@ -590,20 +596,28 @@ void SetupRows(
 			Ui::MakeInformBox(tr::lng_change_phone_error()));
 		controller->window().activate();
 	};
+	const auto phoneWrap = container->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			container,
+			object_ptr<Ui::VerticalLayout>(container)));
+	auto phone = Info::Profile::VisiblePhoneValue(
+		self,
+		Info::Profile::PhoneValue(self));
 	const auto phoneButton = AddRow(
-		container,
+		phoneWrap->entity(),
 		tr::lng_settings_phone_label(),
-		Info::Profile::PhoneWithSpoilerValue(
-			self,
-			Info::Profile::PhoneValue(self)),
+		rpl::duplicate(phone),
 		tr::lng_profile_copy_phone(tr::now),
 		showChangePhone,
 		{ &st::menuIconPhone },
 		true,
 		[=](not_null<Ui::PopupMenu*> menu) {
-			Info::Profile::AddPhoneSpoilerMenu(menu, self);
+			Info::Profile::AddHidePhoneMenu(menu, self);
 		},
 		&st::menuIconCopy);
+	phoneWrap->toggleOn(std::move(phone) | rpl::map([](const TextWithEntities &text) {
+		return !text.text.isEmpty();
+	}), anim::type::instant);
 	if (targets) {
 		targets->phone = phoneButton;
 	}
@@ -903,10 +917,14 @@ void SetupAccountsWrap(
 			Window::AddSeparatorAndShiftUp(addAction);
 		}
 
-		addAction(tr::lng_profile_copy_phone(tr::now), [=] {
-			Info::Profile::CopyPhoneToClipboard(
-				Info::Profile::PhoneValue(session->user()));
-		}, &st::menuIconCopy);
+		if (!session->settings().phoneNumberHidden()) {
+			addAction(tr::lng_profile_copy_phone(tr::now), [=] {
+				Info::Profile::CopyPhoneToClipboard(
+					Info::Profile::VisiblePhoneValue(
+						user,
+						Info::Profile::PhoneValue(user)));
+			}, &st::menuIconCopy);
+		}
 
 		if (!locked) {
 			if (!isActive) {

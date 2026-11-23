@@ -5,6 +5,8 @@
 // https://github.com/desktop-app/legal/blob/master/LEGAL
 //
 #include "ui/widgets/buttons.h"
+#include "ui/style/style_material.h"
+#include "styles/palette.h"
 
 #include "ui/effects/ripple_animation.h"
 #include "ui/effects/cross_animation.h"
@@ -1005,8 +1007,19 @@ void SettingsButton::paintEvent(QPaintEvent *e) {
 	}
 }
 
+void SettingsButton::setMaterialSurface() {
+	_materialSurface = true;
+	update();
+}
+
 void SettingsButton::paintBg(Painter &p, const QRect &rect, bool over) const {
-	p.fillRect(rect, over ? _st.textBgOver : _st.textBg);
+	const auto bg = over ? _st.textBgOver : _st.textBg;
+	if (_materialSurface && bg->c.alpha() > 0) {
+		p.fillRect(rect, style::MaterialTone(
+			bg->c, st::windowFg->c, over ? .10 : .06));
+	} else {
+		p.fillRect(rect, bg);
+	}
 }
 
 void SettingsButton::paintText(Painter &p, bool over, int outerw) const {

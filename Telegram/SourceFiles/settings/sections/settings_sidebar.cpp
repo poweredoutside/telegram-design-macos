@@ -6,6 +6,7 @@
 #include "boxes/stickers_box.h"
 #include "chat_helpers/compose/compose_show.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "data/components/credits.h"
 #include "data/data_credits.h"
 #include "data/data_user.h"
@@ -55,6 +56,7 @@
 #include <QtGui/QImage>
 
 #include "styles/style_dialogs.h"
+#include "styles/style_info.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 
@@ -177,7 +179,9 @@ SidebarProfile::SidebarProfile(
 	Ui::UserpicButton::Role::OpenPhoto,
 	Ui::UserpicButton::Source::PeerPhoto,
 	st::macSettingsProfilePhoto) {
-	resize(0, st::macSettingsProfileHeight);
+	resize(0, Core::Telega::UseWindows11Style()
+		? style::ConvertScale(70) : st::macSettingsProfileHeight);
+	setContextMenuPolicy(Qt::PreventContextMenu);
 	setFocusPolicy(Qt::StrongFocus);
 	_userpic->showSavedMessagesOnSelf(false);
 	std::move(selected) | rpl::on_next([=](bool value) {
@@ -190,13 +194,10 @@ SidebarProfile::SidebarProfile(
 		setAccessibleName(_name);
 		update();
 	}, lifetime());
-	rpl::combine(
-		Info::Profile::PhoneValue(user),
-		user->session().settings().phoneNumberHiddenValue()
-	) | rpl::on_next([=](const TextWithEntities &phone, bool hidden) {
-		_phone = hidden
-			? QString(phone.text.size(), QChar(0x2022))
-			: phone.text;
+	Info::Profile::VisiblePhoneValue(
+		user, Info::Profile::PhoneValue(user)
+	) | rpl::on_next([=](const TextWithEntities &phone) {
+		_phone = phone.text;
 		update();
 	}, lifetime());
 	Info::Profile::UsernameValue(user) | rpl::on_next([=](
@@ -215,16 +216,20 @@ SidebarProfile::SidebarProfile(
 
 void SidebarProfile::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
+	const auto fluent = Core::Telega::UseWindows11Style();
 	p.setRenderHint(QPainter::Antialiasing);
 	p.setPen(Qt::NoPen);
+	const auto highlighted = isOver() || isDown() || hasFocus();
+	const auto radius = fluent ? style::ConvertScale(5) : st::macSettingsRadius;
 	p.setBrush(_selected
 		? st::dialogsBgActive
-		: (isOver() || isDown() || hasFocus())
+		: highlighted
 		? st::dialogsBgOver
 		: st::windowBg);
-	p.drawRoundedRect(rect().adjusted(
-		st::macSettingsInset, 0, -st::macSettingsInset, 0),
-		st::macSettingsRadius, st::macSettingsRadius);
+	if (!fluent || _selected || highlighted) {
+		p.drawRoundedRect(rect().adjusted(
+			st::macSettingsInset, 0, -st::macSettingsInset, 0), radius, radius);
+	}
 	const auto left = st::macSettingsProfileTextLeft;
 	const auto available = std::max(0,
 		width() - left - st::macSettingsInset - style::ConvertScale(35));
@@ -249,7 +254,7 @@ void SidebarProfile::paintEvent(QPaintEvent *e) {
 			top += st::dialogsTextFont->height;
 		}
 	}
-	if (!_selected) {
+	if (!fluent && !_selected) {
 		auto color = st::menuIconFg->c;
 		color.setAlphaF(.5);
 		st::macSettingsNext.paint(
@@ -308,6 +313,7 @@ SidebarRow::SidebarRow(
 void SidebarRow::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
 	const auto s = [](int value) { return style::ConvertScale(value); };
+	const auto fluent = Core::Telega::UseWindows11Style();
 	const auto iconRect = QRect(
 		st::macSettingsIconLeft,
 		(height() - st::macSettingsIconSize) / 2,
@@ -318,10 +324,19 @@ void SidebarRow::paintEvent(QPaintEvent *e) {
 	p.setRenderHint(QPainter::Antialiasing);
 	p.setPen(Qt::NoPen);
 	if (_selected || isOver() || isDown() || hasFocus()) {
+		const auto radius = fluent ? s(4) : st::macSettingsRadius;
 		p.setBrush(_selected ? st::dialogsBgActive : st::dialogsBgOver);
-		p.drawRoundedRect(area, st::macSettingsRadius, st::macSettingsRadius);
+		p.drawRoundedRect(area, radius, radius);
+		if (fluent && _selected) {
+			const auto marker = style::rtlrect(area.x(), (height() - s(16)) / 2,
+				s(3), s(16), width());
+			p.setBrush(st::windowActiveTextFg);
+			p.drawRoundedRect(marker, s(2), s(2));
+		}
 	}
-	if (_image.isNull()) {
+	if (fluent) {
+		_icon.paintInCenter(p, iconRect, _color);
+	} else if (_image.isNull()) {
 		p.setBrush(_color);
 		p.drawRoundedRect(iconRect, s(7), s(7));
 		_icon.paintInCenter(p, iconRect, Qt::white);
@@ -341,8 +356,8 @@ void SidebarRow::paintEvent(QPaintEvent *e) {
 		p.setRenderHint(QPainter::SmoothPixmapTransform);
 		p.drawImage(iconRect, (_selected && !_keepIcon) ? _activeImage : _image);
 	}
-	const auto chevronWidth = _selected ? 0 : st::macSettingsNext.width();
-	if (!_selected) {
+	const auto chevronWidth = (_selected || fluent) ? 0 : st::macSettingsNext.width();
+	if (chevronWidth) {
 		auto color = st::windowSubTextFg->c;
 		color.setAlphaF(.5);
 		st::macSettingsNext.paint(
@@ -405,9 +420,11 @@ Sidebar::Sidebar(
 	QWidget *parent,
 	not_null<Window::SessionController*> controller,
 	Fn<void()> menu,
-	Fn<void()> repaintBackdrop)
+	Fn<void()> repaintBackdrop,
+	Fn<void()> close)
 : RpWidget(parent)
-, _selected(InformationId()) {
+, _selected(Core::Telega::UseWindows11Style() ? nullptr : InformationId()) {
+	const auto fluent = Core::Telega::UseWindows11Style();
 	const auto scroll = Ui::CreateChild<Ui::ScrollArea>(this, st::defaultScrollArea);
 	const auto content = scroll->setOwnedWidget(object_ptr<Ui::VerticalLayout>(scroll));
 	scroll->scrolls() | rpl::on_next(repaintBackdrop, lifetime());
@@ -426,7 +443,9 @@ Sidebar::Sidebar(
 	}, lifetime());
 	const auto show = [=](Type type) {
 		_selected = type;
-		auto params = Window::SectionShow(Window::SectionShow::Way::ClearStack);
+		auto params = Window::SectionShow(fluent
+			? Window::SectionShow::Way::Forward
+			: Window::SectionShow::Way::ClearStack);
 		params.forbidLayer = true;
 		controller->showSettings(type, params);
 	};
@@ -497,9 +516,10 @@ Sidebar::Sidebar(
 				show(type);
 			}
 		});
+		return wrap->entity();
 	};
 	skip(10);
-	add(nullptr, tr::lng_menu_my_profile(), st::menuIconProfile,
+	const auto myProfile = add(nullptr, tr::lng_menu_my_profile(), st::menuIconProfile,
 		QColor(0, 122, 255), u"Icon_SettingsStories"_q, [=] {
 			auto params = Window::SectionShow();
 			params.forbidLayer = true;
@@ -507,6 +527,7 @@ Sidebar::Sidebar(
 				Info::Stories::MakeMyProfile(controller->session().user()),
 				params);
 		});
+	myProfile->setContextMenuPolicy(Qt::PreventContextMenu);
 	skip(20);
 	const auto languageUpdates = [] {
 		return rpl::single(rpl::empty) | rpl::then(
@@ -525,8 +546,16 @@ Sidebar::Sidebar(
 			ShowTelegaAiChat(controller);
 		});
 	skip(20);
-	add(MacGeneralId(), localized(u"General"_q, u"Основные"_q), st::macSettingsIcon,
-		QColor(142, 142, 147), u"Icon_SettingsGeneral"_q);
+	const auto addAppearance = [&] {
+		add(ChatId(), localized(u"Appearance"_q, u"Оформление"_q), st::menuIconChatBubble,
+			QColor(48, 176, 199), u"Icon_AppearanceSettings"_q);
+	};
+	if (fluent) {
+		addAppearance();
+	} else {
+		add(MacGeneralId(), localized(u"General"_q, u"Основные"_q), st::macSettingsIcon,
+			QColor(142, 142, 147), u"Icon_SettingsGeneral"_q);
+	}
 	add(NotificationsId(), tr::lng_settings_section_notify(), st::menuIconNotifications,
 		QColor(255, 69, 58), u"Icon_SettingsNotifications"_q);
 	add(PrivacySecurityId(), tr::lng_settings_section_privacy(), st::menuIconLock,
@@ -535,8 +564,9 @@ Sidebar::Sidebar(
 		QColor(175, 82, 222), u"Icon_SettingsStorage"_q);
 	add(SessionsId(), tr::lng_settings_sessions_title(), st::menuIconDevices,
 		QColor(0, 122, 255), u"Icon_PrivacySettings_ActiveSessions"_q);
-	add(ChatId(), localized(u"Appearance"_q, u"Оформление"_q), st::menuIconChatBubble,
-		QColor(48, 176, 199), u"Icon_AppearanceSettings"_q);
+	if (!fluent) {
+		addAppearance();
+	}
 	add(nullptr, tr::lng_settings_language(), st::menuIconChatBubble,
 		QColor(175, 82, 222), u"Icon_SettingsLanguage"_q, [=] {
 			static auto Guard = base::binary_guard();
@@ -551,6 +581,10 @@ Sidebar::Sidebar(
 		});
 	add(FoldersId(), tr::lng_settings_section_filters(), st::macChatsIcon,
 		QColor(0, 122, 255), u"Icon_SettingsFilters"_q);
+	if (fluent) {
+		add(AdvancedId(), tr::lng_settings_advanced(), st::macSettingsIcon,
+			QColor(142, 142, 147), QString());
+	}
 	if (controller->session().premiumPossible()) {
 		skip(20);
 		add(PremiumId(), tr::lng_premium_summary_title(), st::menuIconPremium,
@@ -598,28 +632,47 @@ Sidebar::Sidebar(
 	versionRow->entity()->setClickedCallback([=] {
 		QGuiApplication::clipboard()->setText(version);
 	});
-	Ui::AddSkip(content, st::dialogsNavigationHeight);
+	Ui::AddSkip(content, fluent ? style::ConvertScale(12) : st::dialogsNavigationHeight);
 	const auto edit = Ui::CreateChild<Ui::LinkButton>(
 		this, tr::lng_theme_edit(tr::now), st::macSettingsEdit);
 	edit->setClickedCallback([=] { show(InformationId()); });
-	const auto qr = Ui::CreateChild<Ui::IconButton>(this, st::macSettingsQr);
+	const auto qr = Ui::CreateChild<Ui::IconButton>(fluent
+		? static_cast<QWidget*>(profile->entity())
+		: this, st::macSettingsQr);
 	qr->setAccessibleName(tr::lng_group_invite_context_qr(tr::now));
 	qr->setClickedCallback([=] {
 		Ui::DefaultShowFillPeerQrBoxCallback(
 			controller->uiShow(), controller->session().user());
 	});
-	setContextMenuPolicy(Qt::CustomContextMenu);
-	QObject::connect(this, &QWidget::customContextMenuRequested, this,
-		[menu = std::move(menu)] { menu(); });
+	const auto back = fluent
+		? Ui::CreateChild<Ui::IconButton>(this, st::infoTopBarBack)
+		: nullptr;
+	if (back) {
+		edit->hide();
+		back->setAccessibleName(tr::lng_go_back(tr::now));
+		back->setClickedCallback(std::move(close));
+	} else {
+		setContextMenuPolicy(Qt::CustomContextMenu);
+		QObject::connect(this, &QWidget::customContextMenuRequested, this,
+			[menu = std::move(menu)] { menu(); });
+	}
 	const auto position = [=] {
-		const auto header = st::macSettingsHeaderHeight;
+		const auto header = fluent ? style::ConvertScale(44) : st::macSettingsHeaderHeight;
 		edit->moveToRight(style::ConvertScale(10),
 			(st::macSettingsStatusHeight - edit->height()) / 2);
-		qr->moveToLeft(style::ConvertScale(10),
-			(st::macSettingsStatusHeight - qr->height()) / 2);
-		search->setGeometryToLeft(style::ConvertScale(10),
-			st::macSettingsStatusHeight + style::ConvertScale(10),
-			std::max(1, width() - style::ConvertScale(20)),
+		if (back) {
+			back->moveToLeft(0, (header - back->height()) / 2);
+			qr->moveToRight(style::ConvertScale(12),
+				(profile->entity()->height() - qr->height()) / 2, width());
+		} else {
+			qr->moveToLeft(style::ConvertScale(10),
+				(st::macSettingsStatusHeight - qr->height()) / 2);
+		}
+		const auto searchLeft = back ? back->width() : style::ConvertScale(10);
+		search->setGeometryToLeft(searchLeft,
+			fluent ? (header - search->height()) / 2
+				: st::macSettingsStatusHeight + style::ConvertScale(10),
+			std::max(1, width() - searchLeft - style::ConvertScale(10)),
 			st::macSettingsSearch.heightMin);
 		scroll->setGeometry(0, header, width(), std::max(0, height() - header));
 		content->resizeToWidth(width());
@@ -633,7 +686,10 @@ Sidebar::Sidebar(
 	paintRequest() | rpl::on_next([=] {
 		auto p = QPainter(this);
 		const auto inset = style::ConvertScale(50);
-		p.fillRect(rect(), st::boxSearchBg);
+		p.fillRect(rect(), fluent ? st::dialogsBg : st::boxSearchBg);
+		if (fluent) {
+			return;
+		}
 		p.setFont(st::dialogsNameFont);
 		p.setPen(st::windowFg);
 		p.drawText(QRect(inset, 0, std::max(0, width() - 2 * inset),

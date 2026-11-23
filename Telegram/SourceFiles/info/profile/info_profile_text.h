@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/object_ptr.h"
+#include "ui/effects/animation_value.h"
 #include "styles/style_widgets.h"
 
 #include <rpl/producer.h>
@@ -39,7 +40,8 @@ TextWithLabel CreateTextWithLabel(
 	const style::FlatLabel &labelSt,
 	const style::FlatLabel &textSt,
 	const style::margins &padding,
-	const style::PopupMenu &stMenu = st::defaultPopupMenu);
+	const style::PopupMenu &stMenu = st::defaultPopupMenu,
+	anim::type visibilityAnimation = anim::type::normal);
 
 } // namespace Profile
 } // namespace Info

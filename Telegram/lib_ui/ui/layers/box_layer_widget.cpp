@@ -10,6 +10,7 @@
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/painter.h"
+#include "ui/style/style_material.h"
 #include "base/timer.h"
 #include "styles/style_layers.h"
 #include "styles/palette.h"
@@ -19,6 +20,15 @@
 #include <limits>
 
 namespace Ui {
+namespace {
+
+int BoxRadius() {
+	return style::MaterialDesign().enabled
+		? style::ConvertScale(20)
+		: st::boxRadius;
+}
+
+} // namespace
 
 struct BoxLayerWidget::LoadingProgress {
 	LoadingProgress(
@@ -42,7 +52,7 @@ BoxLayerWidget::BoxLayerWidget(
 : LayerWidget(parent)
 , _layer(delegate)
 , _content(std::move(content))
-, _roundRect(st::boxRadius, st().bg) {
+, _roundRect(BoxRadius(), st().bg) {
 	_content->setParent(this);
 
 	_additionalTitle.changes(
@@ -133,19 +143,20 @@ void BoxLayerWidget::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 
 	const auto clip = e->rect();
+	const auto radius = BoxRadius();
 	const auto paintTopRounded = !(_customCornersFilling & RectPart::FullTop)
-		&& clip.intersects(QRect(0, 0, width(), st::boxRadius));
+		&& clip.intersects(QRect(0, 0, width(), radius));
 	const auto paintBottomRounded = !(_customCornersFilling
 		& RectPart::FullBottom)
 		&& clip.intersects(
-			QRect(0, height() - st::boxRadius, width(), st::boxRadius));
+			QRect(0, height() - radius, width(), radius));
 	if (paintTopRounded || paintBottomRounded) {
 		_roundRect.paint(p, rect(), RectPart::None
 			| (paintTopRounded ? RectPart::FullTop : RectPart::None)
 			| (paintBottomRounded ? RectPart::FullBottom : RectPart::None));
 	}
 	const auto other = e->region().intersected(
-		QRect(0, st::boxRadius, width(), height() - 2 * st::boxRadius));
+		QRect(0, radius, width(), height() - 2 * radius));
 	if (!other.isEmpty()) {
 		for (const auto &rect : other) {
 			p.fillRect(rect, st().bg);

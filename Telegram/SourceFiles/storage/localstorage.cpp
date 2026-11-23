@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_location.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "core/version.h"
 #include "media/audio/media_audio.h"
 #include "mtproto/mtproto_config.h"
@@ -371,6 +372,7 @@ void start() {
 		_readOldUserSettings(false, context); // needed further in _readUserSettings
 		_readOldMtpData(false, context); // needed further in _readMtpData
 		applyReadContext(std::move(context));
+		Core::Telega::InitInterfaceStyle();
 
 		_settingsRewriteNeeded = true;
 		ApplyDefaultNightMode();
@@ -413,6 +415,7 @@ void start() {
 	_settingsSalt = salt;
 
 	applyReadContext(std::move(context));
+	Core::Telega::InitInterfaceStyle();
 	if (context.legacyRead) {
 		writeSettings();
 	}

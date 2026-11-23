@@ -34,6 +34,7 @@ public:
 	void cancelled() override;
 	void submit() override;
 	rpl::producer<QString> nextButtonText() const override;
+	int nextButtonTop() const override;
 
 	bool hasBack() const override {
 		return true;
@@ -77,6 +78,7 @@ private:
 	object_ptr<Ui::InputField> _codeField;
 	object_ptr<Ui::LinkButton> _toRecover;
 	object_ptr<Ui::LinkButton> _toPassword;
+	object_ptr<Ui::RpWidget> _illustration = { nullptr };
 	mtpRequestId _sentRequest = 0;
 
 };

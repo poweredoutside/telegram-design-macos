@@ -109,6 +109,12 @@ macSettingsPageHeader: FlatLabel(defaultFlatLabel) {
 		font: font(12px);
 	}
 }
+materialSettingsPageHeader: FlatLabel(macSettingsPageHeader) {
+	textFg: windowActiveTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(13px);
+	}
+}
 macSettingsPageRightLabel: FlatLabel(defaultSettingsRightLabel) {
 	textFg: windowSubTextFg;
 	style: TextStyle(defaultTextStyle) {

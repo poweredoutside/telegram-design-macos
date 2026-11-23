@@ -64,6 +64,7 @@ private:
 	Ui::Text::String _badge;
 	QImage _iconCache;
 	QImage _iconCacheActive;
+	Ui::Animations::Simple _activePill;
 	int _iconCacheBadgeWidth = 0;
 	bool _active = false;
 	bool _badgeMuted = false;

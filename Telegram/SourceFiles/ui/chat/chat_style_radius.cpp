@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/chat_style_radius.h"
 #include "base/options.h"
 #include "ui/chat/message_bubble.h"
+#include "ui/style/style_material.h"
 
 #include "styles/style_chat.h"
 
@@ -26,13 +27,15 @@ base::options::toggle UseSmallMsgBubbleRadius({
 const char kOptionUseSmallMsgBubbleRadius[] = "use-small-msg-bubble-radius";
 
 int BubbleRadiusSmall() {
-	return st::bubbleRadiusSmall;
+	return style::MaterialDesign().enabled
+		? style::ConvertScale(6)
+		: st::bubbleRadiusSmall;
 }
 
 int BubbleRadiusLarge() {
 	static const auto result = [] {
 		if (UseSmallMsgBubbleRadius.value()) {
-			return st::bubbleRadiusSmall;
+			return BubbleRadiusSmall();
 		} else {
 			return st::bubbleRadiusLarge;
 		}

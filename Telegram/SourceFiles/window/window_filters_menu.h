@@ -64,6 +64,8 @@ private:
 	void setupMainMenuIcon();
 	void showMenu(QPoint position, FilterId id);
 	void scrollToButton(not_null<Ui::RpWidget*> widget);
+	void animateActiveIndicator();
+	void updateActiveIndicator();
 	void applyFilterAt(int start, int delta);
 	void moveToFilter(int delta);
 	void moveToFilterEdge(int delta);
@@ -79,6 +81,7 @@ private:
 	Ui::ScrollArea _scroll;
 	not_null<Ui::VerticalLayout*> _container;
 	Ui::VerticalLayout *_list = nullptr;
+	Ui::RpWidget *_activeIndicator = nullptr;
 	std::unique_ptr<Ui::VerticalLayoutReorder> _reorder;
 	base::unique_qptr<Ui::SideBarButton> _setup;
 	base::unique_qptr<Ui::SlideWrap<FolderFavoriteButton>> _favorite;
@@ -90,6 +93,7 @@ private:
 	bool _ignoreRefresh = false;
 	bool _allChatsHidden = false;
 	bool _waitingSuggested = false;
+	int _activeIndicatorFrom = 0;
 
 	Api::RemoveComplexChatFilter _removeApi;
 
@@ -100,6 +104,7 @@ private:
 	} _drag;
 
 	Ui::Animations::Simple _scrollToAnimation;
+	Ui::Animations::Simple _activeIndicatorAnimation;
 
 };
 

@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_advanced.h"
+#include "core/core_telega_preferences.h"
 
 #include "settings/settings_common_session.h"
 
@@ -224,7 +225,15 @@ void BuildDataStorageSection(SectionBuilder &builder) {
 		}
 	};
 
-	if (builder.groupedLayout()) {
+	if (builder.groupedLayout() && Core::Telega::UseMaterial3Style()) {
+		builder.group([&] {
+			BuildConnectionRow(builder);
+			addPath();
+			addStorage();
+			addDownloads();
+			addAskPath();
+		});
+	} else if (builder.groupedLayout()) {
 		builder.group([&] {
 			addStorage();
 			addDownloads();
@@ -350,87 +359,90 @@ void BuildWindowTitleSection(SectionBuilder &builder) {
 		.keywords = { u"window"_q, u"title"_q, u"frame"_q },
 	});
 
-	const auto content = [=] {
-		return settings->windowTitleContent();
-	};
+	builder.group([&] {
+		const auto content = [=] {
+			return settings->windowTitleContent();
+		};
 
-	const auto showChatName = builder.addCheckbox({
-		.id = u"advanced/title_chat_name"_q,
-		.title = tr::lng_settings_title_chat_name(),
-		.checked = !content().hideChatName,
-		.keywords = { u"title"_q, u"chat"_q, u"name"_q },
-	});
-	if (showChatName) {
-		showChatName->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked == content().hideChatName);
-		}) | rpl::on_next([=](bool checked) {
-			auto updated = content();
-			updated.hideChatName = !checked;
-			settings->setWindowTitleContent(updated);
-			Core::App().saveSettingsDelayed();
-		}, showChatName->lifetime());
-	}
-
-	const auto showAccountName = (Core::App().domain().accountsAuthedCount() > 1)
-		? builder.addCheckbox({
-			.id = u"advanced/title_account_name"_q,
-			.title = tr::lng_settings_title_account_name(),
-			.checked = !content().hideAccountName,
-			.keywords = { u"title"_q, u"account"_q, u"name"_q },
-		})
-		: nullptr;
-	if (showAccountName) {
-		showAccountName->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked == content().hideAccountName);
-		}) | rpl::on_next([=](bool checked) {
-			auto updated = content();
-			updated.hideAccountName = !checked;
-			settings->setWindowTitleContent(updated);
-			Core::App().saveSettingsDelayed();
-		}, showAccountName->lifetime());
-	}
-
-	const auto showTotalUnread = builder.addCheckbox({
-		.id = u"advanced/title_total_unread"_q,
-		.title = tr::lng_settings_title_total_count(),
-		.checked = !content().hideTotalUnread,
-		.keywords = { u"title"_q, u"unread"_q, u"count"_q, u"badge"_q },
-	});
-	if (showTotalUnread) {
-		showTotalUnread->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked == content().hideTotalUnread);
-		}) | rpl::on_next([=](bool checked) {
-			auto updated = content();
-			updated.hideTotalUnread = !checked;
-			settings->setWindowTitleContent(updated);
-			Core::App().saveSettingsDelayed();
-		}, showTotalUnread->lifetime());
-	}
-
-	if (Ui::Platform::NativeWindowFrameSupported()) {
-		const auto nativeFrame = builder.addCheckbox({
-			.id = u"advanced/native_frame"_q,
-			.title = Platform::IsWayland()
-				? tr::lng_settings_qt_frame()
-				: tr::lng_settings_native_frame(),
-			.checked = settings->nativeWindowFrame(),
-			.keywords = { u"frame"_q, u"native"_q, u"window"_q, u"border"_q },
+		const auto showChatName = builder.addCheckbox({
+			.id = u"advanced/title_chat_name"_q,
+			.title = tr::lng_settings_title_chat_name(),
+			.checked = !content().hideChatName,
+			.keywords = { u"title"_q, u"chat"_q, u"name"_q },
 		});
-		if (nativeFrame) {
-			nativeFrame->checkedChanges(
-			) | rpl::filter([](bool checked) {
-				return (checked != Core::App().settings().nativeWindowFrame());
+		if (showChatName) {
+			showChatName->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked == content().hideChatName);
 			}) | rpl::on_next([=](bool checked) {
-				Core::App().settings().setNativeWindowFrame(checked);
+				auto updated = content();
+				updated.hideChatName = !checked;
+				settings->setWindowTitleContent(updated);
 				Core::App().saveSettingsDelayed();
-			}, nativeFrame->lifetime());
+			}, showChatName->lifetime());
 		}
-	}
 
-	builder.addSkip();
+		const auto showAccountName = (Core::App().domain().accountsAuthedCount() > 1)
+			? builder.addCheckbox({
+				.id = u"advanced/title_account_name"_q,
+				.title = tr::lng_settings_title_account_name(),
+				.checked = !content().hideAccountName,
+				.keywords = { u"title"_q, u"account"_q, u"name"_q },
+			})
+			: nullptr;
+		if (showAccountName) {
+			showAccountName->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked == content().hideAccountName);
+			}) | rpl::on_next([=](bool checked) {
+				auto updated = content();
+				updated.hideAccountName = !checked;
+				settings->setWindowTitleContent(updated);
+				Core::App().saveSettingsDelayed();
+			}, showAccountName->lifetime());
+		}
+
+		const auto showTotalUnread = builder.addCheckbox({
+			.id = u"advanced/title_total_unread"_q,
+			.title = tr::lng_settings_title_total_count(),
+			.checked = !content().hideTotalUnread,
+			.keywords = { u"title"_q, u"unread"_q, u"count"_q, u"badge"_q },
+		});
+		if (showTotalUnread) {
+			showTotalUnread->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked == content().hideTotalUnread);
+			}) | rpl::on_next([=](bool checked) {
+				auto updated = content();
+				updated.hideTotalUnread = !checked;
+				settings->setWindowTitleContent(updated);
+				Core::App().saveSettingsDelayed();
+			}, showTotalUnread->lifetime());
+		}
+
+		if (Ui::Platform::NativeWindowFrameSupported()) {
+			const auto nativeFrame = builder.addCheckbox({
+				.id = u"advanced/native_frame"_q,
+				.title = Platform::IsWayland()
+					? tr::lng_settings_qt_frame()
+					: tr::lng_settings_native_frame(),
+				.checked = settings->nativeWindowFrame(),
+				.keywords = { u"frame"_q, u"native"_q, u"window"_q, u"border"_q },
+			});
+			if (nativeFrame) {
+				nativeFrame->checkedChanges(
+				) | rpl::filter([](bool checked) {
+					return (checked != Core::App().settings().nativeWindowFrame());
+				}) | rpl::on_next([=](bool checked) {
+					Core::App().settings().setNativeWindowFrame(checked);
+					Core::App().saveSettingsDelayed();
+				}, nativeFrame->lifetime());
+			}
+		}
+
+		builder.addSkip();
+	});
+
 }
 
 #if !defined Q_OS_WIN && !defined Q_OS_MAC
@@ -509,322 +521,325 @@ void BuildSystemIntegrationSection(SectionBuilder &builder) {
 		.keywords = { u"system"_q, u"tray"_q, u"startup"_q, u"autostart"_q },
 	});
 
-	using WorkMode = Core::Settings::WorkMode;
+	builder.group([&] {
+		using WorkMode = Core::Settings::WorkMode;
 
-	if (Platform::TrayIconSupported()) {
-		const auto trayEnabled = [=] {
-			const auto workMode = settings->workMode();
-			return (workMode == WorkMode::TrayOnly)
-				|| (workMode == WorkMode::WindowAndTray);
-		};
-		const auto tray = builder.addCheckbox({
-			.id = u"advanced/tray"_q,
-			.title = tr::lng_settings_workmode_tray(),
-			.checked = trayEnabled(),
-			.keywords = { u"tray"_q, u"icon"_q, u"system"_q },
-		});
+		if (Platform::TrayIconSupported()) {
+			const auto trayEnabled = [=] {
+				const auto workMode = settings->workMode();
+				return (workMode == WorkMode::TrayOnly)
+					|| (workMode == WorkMode::WindowAndTray);
+			};
+			const auto tray = builder.addCheckbox({
+				.id = u"advanced/tray"_q,
+				.title = tr::lng_settings_workmode_tray(),
+				.checked = trayEnabled(),
+				.keywords = { u"tray"_q, u"icon"_q, u"system"_q },
+			});
 
-		const auto taskbarEnabled = [=] {
-			const auto workMode = settings->workMode();
-			return (workMode == WorkMode::WindowOnly)
-				|| (workMode == WorkMode::WindowAndTray);
-		};
-		const auto taskbar = Platform::SkipTaskbarSupported()
-			? builder.addCheckbox({
-				.id = u"advanced/taskbar"_q,
-				.title = tr::lng_settings_workmode_window(),
-				.checked = taskbarEnabled(),
-				.keywords = { u"taskbar"_q, u"window"_q },
-			})
-			: nullptr;
+			const auto taskbarEnabled = [=] {
+				const auto workMode = settings->workMode();
+				return (workMode == WorkMode::WindowOnly)
+					|| (workMode == WorkMode::WindowAndTray);
+			};
+			const auto taskbar = Platform::SkipTaskbarSupported()
+				? builder.addCheckbox({
+					.id = u"advanced/taskbar"_q,
+					.title = tr::lng_settings_workmode_window(),
+					.checked = taskbarEnabled(),
+					.keywords = { u"taskbar"_q, u"window"_q },
+				})
+				: nullptr;
 
-		const auto monochrome = Platform::HasMonochromeSetting()
-			? builder.addCheckbox({
-				.id = u"advanced/monochrome_icon"_q,
-				.title = tr::lng_settings_monochrome_icon(),
-				.checked = settings->trayIconMonochrome(),
-				.keywords = { u"monochrome"_q, u"icon"_q, u"tray"_q },
-				.shown = tray
-					? tray->checkedValue()
-					: rpl::single(trayEnabled()),
-			})
-			: nullptr;
+			const auto monochrome = Platform::HasMonochromeSetting()
+				? builder.addCheckbox({
+					.id = u"advanced/monochrome_icon"_q,
+					.title = tr::lng_settings_monochrome_icon(),
+					.checked = settings->trayIconMonochrome(),
+					.keywords = { u"monochrome"_q, u"icon"_q, u"tray"_q },
+					.shown = tray
+						? tray->checkedValue()
+						: rpl::single(trayEnabled()),
+				})
+				: nullptr;
 
-		if (monochrome) {
-			monochrome->checkedChanges(
-			) | rpl::filter([=](bool value) {
-				return (value != settings->trayIconMonochrome());
-			}) | rpl::on_next([=](bool value) {
-				settings->setTrayIconMonochrome(value);
+			if (monochrome) {
+				monochrome->checkedChanges(
+				) | rpl::filter([=](bool value) {
+					return (value != settings->trayIconMonochrome());
+				}) | rpl::on_next([=](bool value) {
+					settings->setTrayIconMonochrome(value);
+					Core::App().saveSettingsDelayed();
+				}, monochrome->lifetime());
+			}
+
+			const auto updateWorkmode = [=] {
+				const auto newMode = (tray && tray->checked())
+					? ((!taskbar || taskbar->checked())
+						? WorkMode::WindowAndTray
+						: WorkMode::TrayOnly)
+					: WorkMode::WindowOnly;
+				if ((newMode == WorkMode::WindowAndTray
+					|| newMode == WorkMode::TrayOnly)
+					&& settings->workMode() != newMode) {
+					cSetSeenTrayTooltip(false);
+				}
+				settings->setWorkMode(newMode);
 				Core::App().saveSettingsDelayed();
-			}, monochrome->lifetime());
-		}
+			};
 
-		const auto updateWorkmode = [=] {
-			const auto newMode = (tray && tray->checked())
-				? ((!taskbar || taskbar->checked())
-					? WorkMode::WindowAndTray
-					: WorkMode::TrayOnly)
-				: WorkMode::WindowOnly;
-			if ((newMode == WorkMode::WindowAndTray
-				|| newMode == WorkMode::TrayOnly)
-				&& settings->workMode() != newMode) {
-				cSetSeenTrayTooltip(false);
-			}
-			settings->setWorkMode(newMode);
-			Core::App().saveSettingsDelayed();
-		};
-
-		if (tray) {
-			tray->checkedChanges(
-			) | rpl::filter([=](bool checked) {
-				return (checked != trayEnabled());
-			}) | rpl::on_next([=](bool checked) {
-				if (!checked && taskbar && !taskbar->checked()) {
-					taskbar->setChecked(true);
-				} else {
-					updateWorkmode();
-				}
-			}, tray->lifetime());
-		}
-
-		if (taskbar) {
-			taskbar->checkedChanges(
-			) | rpl::filter([=](bool checked) {
-				return (checked != taskbarEnabled());
-			}) | rpl::on_next([=](bool checked) {
-				if (!checked && tray && !tray->checked()) {
-					tray->setChecked(true);
-				} else {
-					updateWorkmode();
-				}
-			}, taskbar->lifetime());
-		}
-	}
-
-#ifdef Q_OS_MAC
-	const auto warnBeforeQuit = builder.addCheckbox({
-		.id = u"advanced/warn_before_quit"_q,
-		.title = tr::lng_settings_mac_warn_before_quit(
-			lt_text,
-			rpl::single(Platform::ConfirmQuit::QuitKeysString())),
-		.checked = settings->macWarnBeforeQuit(),
-		.keywords = { u"quit"_q, u"warn"_q, u"close"_q },
-	});
-	if (warnBeforeQuit) {
-		warnBeforeQuit->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked != settings->macWarnBeforeQuit());
-		}) | rpl::on_next([=](bool checked) {
-			settings->setMacWarnBeforeQuit(checked);
-			Core::App().saveSettingsDelayed();
-		}, warnBeforeQuit->lifetime());
-	}
-
-	const auto systemReplace = builder.addCheckbox({
-		.id = u"advanced/system_text_replace"_q,
-		.title = tr::lng_settings_system_text_replace(),
-		.checked = settings->systemTextReplace(),
-		.keywords = { u"text"_q, u"replace"_q, u"system"_q },
-	});
-	if (systemReplace) {
-		systemReplace->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked != settings->systemTextReplace());
-		}) | rpl::on_next([=](bool checked) {
-			settings->setSystemTextReplace(checked);
-			Core::App().saveSettingsDelayed();
-		}, systemReplace->lifetime());
-	}
-
-#ifndef OS_MAC_STORE
-	const auto roundIconEnabled = [=] {
-		const auto digest = base::Platform::CurrentCustomAppIconDigest();
-		return digest && (settings->macRoundIconDigest() == digest);
-	};
-	const auto roundIcon = builder.addCheckbox({
-		.id = u"advanced/round_icon"_q,
-		.title = tr::lng_settings_mac_round_icon(),
-		.checked = roundIconEnabled(),
-		.keywords = { u"icon"_q, u"round"_q, u"dock"_q },
-	});
-	if (roundIcon) {
-		roundIcon->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked != roundIconEnabled());
-		}) | rpl::on_next([=](bool checked) {
-			const auto digest = checked
-				? base::Platform::SetCustomAppIcon(IconMacRound())
-				: std::optional<uint64>();
-			if (!checked) {
-				base::Platform::ClearCustomAppIcon();
-			}
-			Window::OverrideApplicationIcon(checked ? IconMacRound() : QImage());
-			Core::App().refreshApplicationIcon();
-			settings->setMacRoundIconDigest(digest);
-			Core::App().saveSettings();
-		}, roundIcon->lifetime());
-	}
-#endif // OS_MAC_STORE
-#elif defined Q_OS_WIN // Q_OS_MAC
-	using Behavior = Core::Settings::CloseBehavior;
-
-	const auto container = builder.container();
-	const auto closeToTaskbarShown = container
-		? container->lifetime().make_state<rpl::variable<bool>>(
-			!Core::App().tray().has())
-		: nullptr;
-
-	if (closeToTaskbarShown) {
-		settings->workModeValue(
-		) | rpl::on_next([=](WorkMode) {
-			*closeToTaskbarShown = !Core::App().tray().has();
-		}, container->lifetime());
-	}
-
-	const auto closeToTaskbar = builder.addCheckbox({
-		.id = u"advanced/close_to_taskbar"_q,
-		.title = tr::lng_settings_close_to_taskbar(),
-		.checked = settings->closeBehavior() == Behavior::CloseToTaskbar,
-		.keywords = { u"close"_q, u"taskbar"_q, u"minimize"_q },
-		.shown = closeToTaskbarShown
-			? closeToTaskbarShown->value()
-			: rpl::single(false),
-	});
-	if (closeToTaskbar) {
-		closeToTaskbar->checkedChanges(
-		) | rpl::map([=](bool checked) {
-			return checked ? Behavior::CloseToTaskbar : Behavior::Quit;
-		}) | rpl::filter([=](Behavior value) {
-			return (settings->closeBehavior() != value);
-		}) | rpl::on_next([=](Behavior value) {
-			settings->setCloseBehavior(value);
-			Local::writeSettings();
-		}, closeToTaskbar->lifetime());
-	}
-#endif // Q_OS_MAC || Q_OS_WIN
-
-	if (Platform::AutostartSupported()) {
-		const auto minimizedToggled = [=] {
-			// Starting hidden must not conceal a verified launch lock.
-			return cStartMinimized()
-				&& controller
-				&& !controller->session().domain().local().hasLocalPasscode();
-		};
-
-		const auto autostart = builder.addCheckbox({
-			.id = u"advanced/autostart"_q,
-			.title = tr::lng_settings_auto_start(),
-			.checked = cAutoStart(),
-			.keywords = { u"autostart"_q, u"startup"_q, u"boot"_q },
-		});
-
-		const auto minimized = builder.addCheckbox({
-			.id = u"advanced/start_minimized"_q,
-			.title = tr::lng_settings_start_min(),
-			.checked = minimizedToggled(),
-			.keywords = { u"minimized"_q, u"startup"_q, u"hidden"_q },
-			.shown = autostart
-				? autostart->checkedValue()
-				: rpl::single(cAutoStart()),
-		});
-
-		if (autostart) {
-			autostart->checkedChanges(
-			) | rpl::filter([](bool checked) {
-				return (checked != cAutoStart());
-			}) | rpl::on_next([=](bool checked) {
-				const auto weak = base::make_weak(controller);
-				cSetAutoStart(checked);
-				Platform::AutostartToggle(checked, crl::guard(autostart, [=](
-						bool enabled) {
-					if (checked && !enabled && weak) {
-						weak->window().showToast(
-							Lang::Hard::AutostartEnableError());
+			if (tray) {
+				tray->checkedChanges(
+				) | rpl::filter([=](bool checked) {
+					return (checked != trayEnabled());
+				}) | rpl::on_next([=](bool checked) {
+					if (!checked && taskbar && !taskbar->checked()) {
+						taskbar->setChecked(true);
+					} else {
+						updateWorkmode();
 					}
-					Ui::PostponeCall(autostart, [=] {
-						autostart->setChecked(enabled);
-					});
-					if (enabled || !minimized || !minimized->checked()) {
-						Local::writeSettings();
-					} else if (minimized) {
-						minimized->setChecked(false);
-					}
-				}));
-			}, autostart->lifetime());
+				}, tray->lifetime());
+			}
 
-			if (controller) {
-				Platform::AutostartRequestStateFromSystem(crl::guard(
-					controller,
-					[=](bool enabled) { autostart->setChecked(enabled); }));
+			if (taskbar) {
+				taskbar->checkedChanges(
+				) | rpl::filter([=](bool checked) {
+					return (checked != taskbarEnabled());
+				}) | rpl::on_next([=](bool checked) {
+					if (!checked && tray && !tray->checked()) {
+						tray->setChecked(true);
+					} else {
+						updateWorkmode();
+					}
+				}, taskbar->lifetime());
 			}
 		}
 
-		if (minimized && controller) {
-			minimized->checkedChanges(
-			) | rpl::filter([=](bool checked) {
-				return (checked != minimizedToggled());
-			}) | rpl::on_next([=](bool checked) {
-				// Refuse a verified launch lock, as the checkbox does.
-				if (controller->session().domain().local().hasLocalPasscode()) {
-					minimized->setChecked(false);
-					controller->show(Ui::MakeInformBox(
-						tr::lng_error_start_minimized_passcoded()));
-				} else {
-					cSetStartMinimized(checked);
-					Local::writeSettings();
-				}
-			}, minimized->lifetime());
-
-			controller->session().domain().local().localPasscodeChanged(
-			) | rpl::on_next([=] {
-				minimized->setChecked(minimizedToggled());
-			}, minimized->lifetime());
-		}
-	}
-
-	const auto restoreWindows = builder.addCheckbox({
-		.id = u"advanced/restore_windows"_q,
-		.title = tr::lng_settings_restore_windows(),
-		.checked = Core::App().savedWindows()->restoreOnLaunch(),
-		.keywords = {
-			u"restore"_q,
-			u"windows"_q,
-			u"launch"_q,
-			u"startup"_q,
-			u"reopen"_q,
-			u"session"_q,
-		},
-	});
-	if (restoreWindows) {
-		restoreWindows->checkedChanges(
-		) | rpl::filter([=](bool checked) {
-			return (checked != Core::App().savedWindows()->restoreOnLaunch());
-		}) | rpl::on_next([=](bool checked) {
-			Core::App().savedWindows()->setRestoreOnLaunch(checked);
-		}, restoreWindows->lifetime());
-	}
-
-	if (Platform::IsWindows() && !Platform::IsWindowsStoreBuild()) {
-		const auto sendto = builder.addCheckbox({
-			.id = u"advanced/sendto"_q,
-			.title = tr::lng_settings_add_sendto(),
-			.checked = cSendToMenu(),
-			.keywords = { u"sendto"_q, u"send"_q, u"menu"_q, u"context"_q },
+	#ifdef Q_OS_MAC
+		const auto warnBeforeQuit = builder.addCheckbox({
+			.id = u"advanced/warn_before_quit"_q,
+			.title = tr::lng_settings_mac_warn_before_quit(
+				lt_text,
+				rpl::single(Platform::ConfirmQuit::QuitKeysString())),
+			.checked = settings->macWarnBeforeQuit(),
+			.keywords = { u"quit"_q, u"warn"_q, u"close"_q },
 		});
-		if (sendto) {
-			sendto->checkedChanges(
-			) | rpl::filter([](bool checked) {
-				return (checked != cSendToMenu());
-			}) | rpl::on_next([](bool checked) {
-				cSetSendToMenu(checked);
-				psSendToMenu(checked);
+		if (warnBeforeQuit) {
+			warnBeforeQuit->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked != settings->macWarnBeforeQuit());
+			}) | rpl::on_next([=](bool checked) {
+				settings->setMacWarnBeforeQuit(checked);
+				Core::App().saveSettingsDelayed();
+			}, warnBeforeQuit->lifetime());
+		}
+
+		const auto systemReplace = builder.addCheckbox({
+			.id = u"advanced/system_text_replace"_q,
+			.title = tr::lng_settings_system_text_replace(),
+			.checked = settings->systemTextReplace(),
+			.keywords = { u"text"_q, u"replace"_q, u"system"_q },
+		});
+		if (systemReplace) {
+			systemReplace->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked != settings->systemTextReplace());
+			}) | rpl::on_next([=](bool checked) {
+				settings->setSystemTextReplace(checked);
+				Core::App().saveSettingsDelayed();
+			}, systemReplace->lifetime());
+		}
+
+	#ifndef OS_MAC_STORE
+		const auto roundIconEnabled = [=] {
+			const auto digest = base::Platform::CurrentCustomAppIconDigest();
+			return digest && (settings->macRoundIconDigest() == digest);
+		};
+		const auto roundIcon = builder.addCheckbox({
+			.id = u"advanced/round_icon"_q,
+			.title = tr::lng_settings_mac_round_icon(),
+			.checked = roundIconEnabled(),
+			.keywords = { u"icon"_q, u"round"_q, u"dock"_q },
+		});
+		if (roundIcon) {
+			roundIcon->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked != roundIconEnabled());
+			}) | rpl::on_next([=](bool checked) {
+				const auto digest = checked
+					? base::Platform::SetCustomAppIcon(IconMacRound())
+					: std::optional<uint64>();
+				if (!checked) {
+					base::Platform::ClearCustomAppIcon();
+				}
+				Window::OverrideApplicationIcon(checked ? IconMacRound() : QImage());
+				Core::App().refreshApplicationIcon();
+				settings->setMacRoundIconDigest(digest);
+				Core::App().saveSettings();
+			}, roundIcon->lifetime());
+		}
+	#endif // OS_MAC_STORE
+	#elif defined Q_OS_WIN // Q_OS_MAC
+		using Behavior = Core::Settings::CloseBehavior;
+
+		const auto container = builder.container();
+		const auto closeToTaskbarShown = container
+			? container->lifetime().make_state<rpl::variable<bool>>(
+				!Core::App().tray().has())
+			: nullptr;
+
+		if (closeToTaskbarShown) {
+			settings->workModeValue(
+			) | rpl::on_next([=](WorkMode) {
+				*closeToTaskbarShown = !Core::App().tray().has();
+			}, container->lifetime());
+		}
+
+		const auto closeToTaskbar = builder.addCheckbox({
+			.id = u"advanced/close_to_taskbar"_q,
+			.title = tr::lng_settings_close_to_taskbar(),
+			.checked = settings->closeBehavior() == Behavior::CloseToTaskbar,
+			.keywords = { u"close"_q, u"taskbar"_q, u"minimize"_q },
+			.shown = closeToTaskbarShown
+				? closeToTaskbarShown->value()
+				: rpl::single(false),
+		});
+		if (closeToTaskbar) {
+			closeToTaskbar->checkedChanges(
+			) | rpl::map([=](bool checked) {
+				return checked ? Behavior::CloseToTaskbar : Behavior::Quit;
+			}) | rpl::filter([=](Behavior value) {
+				return (settings->closeBehavior() != value);
+			}) | rpl::on_next([=](Behavior value) {
+				settings->setCloseBehavior(value);
 				Local::writeSettings();
-			}, sendto->lifetime());
+			}, closeToTaskbar->lifetime());
 		}
-	}
+	#endif // Q_OS_MAC || Q_OS_WIN
 
-	builder.addSkip();
+		if (Platform::AutostartSupported()) {
+			const auto minimizedToggled = [=] {
+				// Starting hidden must not conceal a verified launch lock.
+				return cStartMinimized()
+					&& controller
+					&& !controller->session().domain().local().hasLocalPasscode();
+			};
+
+			const auto autostart = builder.addCheckbox({
+				.id = u"advanced/autostart"_q,
+				.title = tr::lng_settings_auto_start(),
+				.checked = cAutoStart(),
+				.keywords = { u"autostart"_q, u"startup"_q, u"boot"_q },
+			});
+
+			const auto minimized = builder.addCheckbox({
+				.id = u"advanced/start_minimized"_q,
+				.title = tr::lng_settings_start_min(),
+				.checked = minimizedToggled(),
+				.keywords = { u"minimized"_q, u"startup"_q, u"hidden"_q },
+				.shown = autostart
+					? autostart->checkedValue()
+					: rpl::single(cAutoStart()),
+			});
+
+			if (autostart) {
+				autostart->checkedChanges(
+				) | rpl::filter([](bool checked) {
+					return (checked != cAutoStart());
+				}) | rpl::on_next([=](bool checked) {
+					const auto weak = base::make_weak(controller);
+					cSetAutoStart(checked);
+					Platform::AutostartToggle(checked, crl::guard(autostart, [=](
+							bool enabled) {
+						if (checked && !enabled && weak) {
+							weak->window().showToast(
+								Lang::Hard::AutostartEnableError());
+						}
+						Ui::PostponeCall(autostart, [=] {
+							autostart->setChecked(enabled);
+						});
+						if (enabled || !minimized || !minimized->checked()) {
+							Local::writeSettings();
+						} else if (minimized) {
+							minimized->setChecked(false);
+						}
+					}));
+				}, autostart->lifetime());
+
+				if (controller) {
+					Platform::AutostartRequestStateFromSystem(crl::guard(
+						controller,
+						[=](bool enabled) { autostart->setChecked(enabled); }));
+				}
+			}
+
+			if (minimized && controller) {
+				minimized->checkedChanges(
+				) | rpl::filter([=](bool checked) {
+					return (checked != minimizedToggled());
+				}) | rpl::on_next([=](bool checked) {
+					// Refuse a verified launch lock, as the checkbox does.
+					if (controller->session().domain().local().hasLocalPasscode()) {
+						minimized->setChecked(false);
+						controller->show(Ui::MakeInformBox(
+							tr::lng_error_start_minimized_passcoded()));
+					} else {
+						cSetStartMinimized(checked);
+						Local::writeSettings();
+					}
+				}, minimized->lifetime());
+
+				controller->session().domain().local().localPasscodeChanged(
+				) | rpl::on_next([=] {
+					minimized->setChecked(minimizedToggled());
+				}, minimized->lifetime());
+			}
+		}
+
+		const auto restoreWindows = builder.addCheckbox({
+			.id = u"advanced/restore_windows"_q,
+			.title = tr::lng_settings_restore_windows(),
+			.checked = Core::App().savedWindows()->restoreOnLaunch(),
+			.keywords = {
+				u"restore"_q,
+				u"windows"_q,
+				u"launch"_q,
+				u"startup"_q,
+				u"reopen"_q,
+				u"session"_q,
+			},
+		});
+		if (restoreWindows) {
+			restoreWindows->checkedChanges(
+			) | rpl::filter([=](bool checked) {
+				return (checked != Core::App().savedWindows()->restoreOnLaunch());
+			}) | rpl::on_next([=](bool checked) {
+				Core::App().savedWindows()->setRestoreOnLaunch(checked);
+			}, restoreWindows->lifetime());
+		}
+
+		if (Platform::IsWindows() && !Platform::IsWindowsStoreBuild()) {
+			const auto sendto = builder.addCheckbox({
+				.id = u"advanced/sendto"_q,
+				.title = tr::lng_settings_add_sendto(),
+				.checked = cSendToMenu(),
+				.keywords = { u"sendto"_q, u"send"_q, u"menu"_q, u"context"_q },
+			});
+			if (sendto) {
+				sendto->checkedChanges(
+				) | rpl::filter([](bool checked) {
+					return (checked != cSendToMenu());
+				}) | rpl::on_next([](bool checked) {
+					cSetSendToMenu(checked);
+					psSendToMenu(checked);
+					Local::writeSettings();
+				}, sendto->lifetime());
+			}
+		}
+
+		builder.addSkip();
+	});
+
 }
 
 #ifdef DESKTOP_APP_USE_ANGLE
@@ -1414,7 +1429,7 @@ const auto kDataStorageMeta = BuildHelper({
 	if (Platform::IsWindows() || builder.container()) {
 		BuildDataStorageSection(builder);
 		BuildAutoDownloadSection(builder);
-		if (builder.groupedLayout()) {
+		if (builder.groupedLayout() && !Core::Telega::UseMaterial3Style()) {
 			builder.group([&] { BuildConnectionRow(builder); });
 		}
 		BuildExportSection(builder);
@@ -1452,6 +1467,9 @@ const auto kMeta = BuildHelper({
 	.title = &tr::lng_settings_advanced,
 	.icon = &st::menuIconManage,
 }, [](SectionBuilder &builder) {
+	if (Core::Telega::UseMaterial3Style() || Core::Telega::UseWindows11Style()) {
+		builder.enableGroupedLayout();
+	}
 	const auto autoUpdate = cAutoUpdate();
 
 	if (!autoUpdate) {
