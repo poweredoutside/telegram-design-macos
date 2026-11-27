@@ -259,6 +259,8 @@ private:
 	[[nodiscard]] bool communityOverlaysShown() const;
 	void updateFrozenAccountBar();
 	void updateControlsVisibility(bool fast = false);
+	[[nodiscard]] bool chatFiltersShownInCurrentView() const;
+	void updateChatFiltersVisibility();
 	void updateLockUnlockVisibility(
 		anim::type animated = anim::type::instant);
 	void updateLoadMoreChatsVisibility();
@@ -274,7 +276,8 @@ private:
 	void changeOpenedSubsection(
 		FnMut<void()> change,
 		bool fromRight,
-		anim::type animated);
+		anim::type animated,
+		bool folderCarousel = false);
 	void changeOpenedFolder(Data::Folder *folder, anim::type animated);
 	void changeOpenedForum(Data::Forum *forum, anim::type animated);
 	void changeOpenedCommunity(

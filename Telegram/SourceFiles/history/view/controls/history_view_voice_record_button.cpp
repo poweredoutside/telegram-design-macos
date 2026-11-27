@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/controls/history_view_voice_record_button.h"
 
+#include "core/core_telega_preferences.h"
 #include "lottie/lottie_icon.h"
 #include "ui/paint/blobs.h"
 #include "ui/painter.h"
@@ -26,6 +27,10 @@ constexpr auto kLevelDuration = 100. + 500. * 0.33;
 constexpr auto kBlobsScaleEnterDuration = crl::time(250);
 constexpr auto kVoiceIconIndex = 0;
 constexpr auto kRoundIconIndex = 1;
+
+[[nodiscard]] int MacRecordRadius() {
+	return st::historySendMac.sendFillSize.height() / 2;
+}
 
 auto Blobs() {
 	return std::vector<Ui::Paint::Blobs::BlobData>{
@@ -60,7 +65,9 @@ VoiceRecordButton::VoiceRecordButton(
 	Blobs(),
 	kLevelDuration,
 	kMaxLevel))
-, _center(_blobs->maxRadius()) {
+, _center(Core::Telega::UseMacOSStyle()
+	? st::historySendSize.width() / 2
+	: _blobs->maxRadius()) {
 	resize(_center * 2, _center * 2);
 	init();
 }
@@ -68,10 +75,15 @@ VoiceRecordButton::VoiceRecordButton(
 VoiceRecordButton::~VoiceRecordButton() = default;
 
 void VoiceRecordButton::requestPaintLevel(quint16 level) {
-	if (_blobsHideLastTime) {
+	if (_blobsHideLastTime || (_unigramVoice && _state.current() == Type::Send)) {
 		 return;
 	}
 	_blobs->setLevel(level);
+	update();
+}
+
+void VoiceRecordButton::setUnigramVoice(bool unigram) {
+	_unigramVoice = unigram;
 	update();
 }
 
@@ -92,6 +104,7 @@ void VoiceRecordButton::init() {
 		}
 	}, lifetime());
 
+	const auto mac = Core::Telega::UseMacOSStyle();
 	const auto &mainRadiusMin = st::historyRecordMainBlobMinRadius;
 	const auto mainRadiusDiff = st::historyRecordMainBlobMaxRadius
 		- mainRadiusMin;
@@ -111,17 +124,36 @@ void VoiceRecordButton::init() {
 
 		p.translate(_center, _center);
 		PainterHighQualityEnabler hq(p);
-		const auto brush = QBrush(anim::color(
-			st::historyRecordVoiceFgInactive,
-			st::historyRecordVoiceFgActive,
-			_colorProgress));
-
-		_blobs->paint(p, brush, showProgress * hideProgress);
-
-		const auto radius = (mainRadiusMin
-			+ (mainRadiusDiff * _blobs->currentLevel())) * showProgress;
+		const auto unigramSend = _unigramVoice && (*currentState == Type::Send);
+		const auto brush = QBrush(unigramSend
+			? st::historySendIconFg->c
+			: anim::color(st::historyRecordVoiceFgInactive,
+				st::historyRecordVoiceFgActive, _colorProgress));
+		const auto radius = (mac
+			? MacRecordRadius()
+			: unigramSend
+			? style::ConvertScale(35)
+			: mainRadiusMin + mainRadiusDiff * _blobs->currentLevel())
+			* showProgress;
 
 		p.setPen(Qt::NoPen);
+		if (mac) {
+			auto halo = brush.color();
+			halo.setAlphaF(.20 * showProgress);
+			p.setBrush(halo);
+			const auto outer = radius
+				+ (_center - MacRecordRadius() - 1)
+				* _blobs->currentLevel() * showProgress;
+			p.drawEllipse(QPointF(), outer, outer);
+		} else if (unigramSend) {
+			auto halo = brush.color();
+			halo.setAlphaF(.26 * showProgress);
+			p.setBrush(halo);
+			const auto outerRadius = radius + style::ConvertScale(7) * showProgress;
+			p.drawEllipse(QPointF(), outerRadius, outerRadius);
+		} else {
+			_blobs->paint(p, brush, showProgress * hideProgress);
+		}
 		p.setBrush(brush);
 		p.drawEllipse(QPointF(), radius, radius);
 
@@ -138,8 +170,10 @@ void VoiceRecordButton::init() {
 			}
 			const auto state = *currentState;
 			if (state == Type::Send) {
-				const auto icon = st::historySendIcon;
-				const auto position = st::historyRecordSendIconPosition;
+				const auto icon = mac
+					? st::historySendMac.inner.icon
+					: st::historySendIcon;
+				const auto position = mac ? QPoint() : st::historyRecordSendIconPosition;
 				icon.paint(
 					p,
 					-icon.width() / 2 + position.x(),
@@ -168,9 +202,11 @@ void VoiceRecordButton::init() {
 			_animation.stop();
 			return false;
 		}
-		_blobs->updateLevel(now - _lastUpdateTime);
+		if (!_unigramVoice || *currentState != Type::Send) {
+			_blobs->updateLevel(now - _lastUpdateTime);
+			update();
+		}
 		_lastUpdateTime = now;
-		update();
 		return true;
 	});
 
@@ -250,7 +286,9 @@ rpl::producer<> VoiceRecordButton::clicks() const {
 }
 
 bool VoiceRecordButton::inCircle(const QPoint &localPos) const {
-	const auto &radii = st::historyRecordMainBlobMaxRadius;
+	const auto radii = Core::Telega::UseMacOSStyle()
+		? MacRecordRadius()
+		: st::historyRecordMainBlobMaxRadius;
 	const auto dx = std::abs(localPos.x() - _center);
 	if (dx > radii) {
 		return false;

@@ -30,7 +30,18 @@ constexpr auto kSerializeVersion = 1;
 constexpr auto kCloudLangPackName = "tdesktop"_cs;
 constexpr auto kCustomLanguage = "#custom"_cs;
 constexpr auto kLangValuesLimit = 20000;
-constexpr auto kChangePhoneErrorKey = "lng_change_phone_error";
+constexpr auto kOfficialTelegramKeys = std::array{
+	"lng_change_phone_error",
+	"lng_settings_events_joined",
+	"lng_settings_faq",
+	"lng_settings_features",
+};
+
+[[nodiscard]] bool UsesOfficialTelegramName(const QByteArray &key) {
+	return ranges::any_of(kOfficialTelegramKeys, [&](const char *name) {
+		return key == name;
+	});
+}
 
 QString BrandDisplayText(QString text, bool officialTelegram) {
 	if (officialTelegram) {
@@ -68,8 +79,10 @@ QString BrandDisplayText(QString text, bool officialTelegram) {
 }
 
 QString BrandedOriginalValue(ushort key) {
-	static const auto phoneError = GetKeyIndex(QLatin1String(kChangePhoneErrorKey));
-	return BrandDisplayText(GetOriginalValue(key), key == phoneError);
+	static const auto keys = kOfficialTelegramKeys | ranges::views::transform(
+		[](const char *name) { return GetKeyIndex(QLatin1String(name)); }
+	) | ranges::to_vector;
+	return BrandDisplayText(GetOriginalValue(key), ranges::contains(keys, key));
 }
 
 std::vector<QString> PrepareDefaultValues() {
@@ -769,7 +782,7 @@ QString Instance::getNonDefaultValue(const QByteArray &key) const {
 	if (i != end(_nonDefaultValues)) {
 		return BrandDisplayText(
 			QString::fromUtf8(i->second),
-			key == kChangePhoneErrorKey);
+			UsesOfficialTelegramName(key));
 	}
 	return _base ? _base->getNonDefaultValue(key) : QString();
 }
@@ -777,7 +790,7 @@ QString Instance::getNonDefaultValue(const QByteArray &key) const {
 void Instance::applyValue(const QByteArray &key, const QByteArray &value) {
 	const auto branded = BrandDisplayText(
 		QString::fromUtf8(value),
-		key == kChangePhoneErrorKey).toUtf8();
+		UsesOfficialTelegramName(key)).toUtf8();
 	_nonDefaultValues[key] = value;
 	ParseKeyValue(key, branded, [&](ushort key, QString &&value) {
 		_nonDefaultSet[key] = 1;

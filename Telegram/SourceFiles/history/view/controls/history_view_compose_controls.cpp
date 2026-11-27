@@ -187,16 +187,22 @@ constexpr auto kCommonModifiers = 0
 		}
 	}
 	const auto &regular = override ? *override : st::defaultComposeControls;
-	if (!Core::Telega::UseWindows11Style()
-		&& !(Core::Telega::UseMaterial3Style()
-			&& style::MaterialDesign().floatingField)) {
+	const auto material = Controls::UseMaterialComposeField();
+	if (!Core::Telega::UseWindows11Style() && !material) {
 		return regular;
 	}
-	const auto rounded = [](const style::ComposeControls &base) {
+	const auto rounded = [=](const style::ComposeControls &base) {
 		auto result = base;
 		result.radius = style::ConvertScale(22);
 		result.field.textBg = st::transparent;
 		result.field.textBgActive = st::transparent;
+		result.emoji.bg = st::transparent;
+		if (material) {
+			result.padding.setLeft(Controls::MaterialComposeInset());
+			result.padding.setRight(Controls::MaterialComposeInset());
+			result.fieldLeft = Controls::MaterialComposeInset();
+			result.send = Controls::MaterialComposeSendStyle();
+		}
 		return result;
 	};
 	if (!override || override == &st::defaultComposeControls) {
@@ -227,10 +233,89 @@ using SetHistoryArgs = ComposeControls::SetHistoryArgs;
 using VoiceRecordBar = Controls::VoiceRecordBar;
 using ForwardPanel = Controls::ForwardPanel;
 
+void PaintMaterialSurface(
+		QPainter &p,
+		QRect area,
+		style::color bg,
+		int radius,
+		qreal tone) {
+	if (area.isEmpty()) {
+		return;
+	}
+	p.save();
+	{
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(style::MaterialTone(bg->c, st::windowActiveTextFg->c, tone));
+		p.drawRoundedRect(area, radius, radius);
+	}
+	p.restore();
+}
+
 } // namespace
 
 namespace Controls {
+
 const char kOptionMacCmdReplyImmediately[] = "mac-cmd-reply-immediately";
+
+bool UseMaterialComposeField() {
+	return Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().floatingField;
+}
+
+int MaterialComposeInset() {
+	return style::ConvertScale(8);
+}
+
+int MaterialComposeVerticalInset() {
+	return style::ConvertScale(4);
+}
+
+const style::SendButton &MaterialComposeSendStyle() {
+	static const auto result = [] {
+		auto result = st::historySend;
+		result.inner.icon = st::aiComposeSendButton.inner.icon;
+		result.inner.iconOver = st::aiComposeSendButton.inner.iconOver;
+		const auto icon = result.inner.icon.size();
+		result.sendIconPosition = QPoint(
+			(result.inner.width - icon.width()) / 2,
+			(result.inner.height - icon.height()) / 2);
+		result.sendIconFg = st::activeButtonFg;
+		result.sendIconFillPadding = style::ConvertScale(8);
+		return result;
+	}();
+	return result;
+}
+
+bool MaterialComposeHasSeparateSend(const Ui::SendButton &send) {
+	return send.type() == Ui::SendButton::Type::Send;
+}
+
+void PaintMaterialComposeHeader(QPainter &p, QRect area, style::color bg) {
+	const auto inset = MaterialComposeInset();
+	area = area.marginsRemoved({ inset, MaterialComposeVerticalInset(), inset, 0 });
+	PaintMaterialSurface(p, area, bg, style::ConvertScale(16), .18);
+}
+
+void PaintMaterialComposeField(
+		QPainter &p,
+		QRect area,
+		style::color bg,
+		const Ui::SendButton &send) {
+	const auto inset = MaterialComposeInset();
+	const auto vertical = MaterialComposeVerticalInset();
+	area = area.marginsRemoved({ inset, vertical, inset, vertical });
+	if (!send.isHidden() && MaterialComposeHasSeparateSend(send)) {
+		if (rtl()) {
+			area.setLeft(send.geometry().right() + 1 + vertical);
+		} else {
+			area.setRight(send.x() - 1 - vertical);
+		}
+	}
+	const auto radius = std::min(style::ConvertScale(28), area.height() / 2);
+	PaintMaterialSurface(p, area, bg, radius, .14);
+}
+
 } // namespace Controls
 
 const ChatHelpers::PauseReason kDefaultPanelsLevel
@@ -2967,11 +3052,22 @@ void ComposeControls::init() {
 
 	_wrap->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
+		const auto floating = usesFloatingInput();
+		if (floating
+			&& !_voiceRecordBar->isHidden()
+			&& !_voiceRecordBar->isListenState()) {
+			return;
+		}
 		auto p = QPainter(_wrap.get());
-		if (usesFloatingInput() && !_recording.current()) {
+		if (floating && !_recording.current()) {
 			paintFloatingInput(p, clip);
 		} else {
-			paintBackground(p, _wrap->rect(), clip);
+			if (_voiceRecordBar->isActive()
+				&& _voiceRecordBar->usesUnigramRecordingStyle()) {
+				p.setClipRect(clip.intersected(QRect(
+					0, 0, _wrap->width(), _voiceRecordBar->y())));
+			}
+			paintBackground(p, _wrap->rect(), clip, true);
 		}
 	}, _wrap->lifetime());
 
@@ -5068,6 +5164,7 @@ bool ComposeControls::canReplyToForward() const {
 void ComposeControls::updateSendButtonType() {
 	using Type = Ui::SendButton::Type;
 	const auto wasInField = sendButtonInField();
+	const auto wasSeparate = Controls::MaterialComposeHasSeparateSend(*_send);
 	const auto type = showStopButton()
 		? Type::Stop
 		: computeSendButtonType();
@@ -5133,6 +5230,9 @@ void ComposeControls::updateSendButtonType() {
 	updateSendLockBadge();
 	if (wasInField != sendButtonInField()) {
 		updateControlsGeometry(_wrap->size());
+		_wrap->update();
+	} else if (Controls::UseMaterialComposeField()
+		&& wasSeparate != Controls::MaterialComposeHasSeparateSend(*_send)) {
 		_wrap->update();
 	}
 }
@@ -5215,7 +5315,11 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	}
 
 	const auto buttonsTop = size.height() - _st.attach.height
-		- (usesFloatingInput() ? _st.padding.bottom() : 0);
+		- (usesFloatingInput()
+			? _st.padding.bottom()
+			: Controls::UseMaterialComposeField() && _st.field.textBg == st::transparent
+			? Controls::MaterialComposeVerticalInset()
+			: 0);
 
 	auto left = 0;
 	if (commentsShown) {
@@ -5255,9 +5359,16 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		_fieldDisabled->moveToLeft(left, fieldTop);
 	}
 
-	_header->resizeToWidth(size.width());
+	const auto fluentHeader = Core::Telega::UseWindows11Style()
+		&& _st.field.textBg == st::transparent;
+	const auto headerLeft = (fluentHeader && commentsShown)
+		? (_commentsShown->width() + _st.commentsSkip)
+		: 0;
+	const auto headerRight = fluentHeader ? (style::ConvertScale(6)
+		+ (_starsReaction ? (_starsReaction->width() + _st.starsSkip) : 0)) : 0;
+	_header->resizeToWidth(std::max(0, size.width() - headerLeft - headerRight));
 	_header->moveToLeft(
-		0,
+		headerLeft,
 		fieldTop - _st.padding.top() - _header->height());
 
 	auto right = 0;
@@ -5341,7 +5452,9 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	_voiceRecordBar->resizeToWidth(size.width());
 	_voiceRecordBar->moveToLeft(
 		0,
-		size.height() - _voiceRecordBar->height());
+		usesFloatingInput()
+			? _send->y() + (_send->height() - _voiceRecordBar->height()) / 2
+			: size.height() - _voiceRecordBar->height());
 }
 
 void ComposeControls::updateControlsVisibility() {
@@ -5894,6 +6007,18 @@ bool ComposeControls::sendButtonInField() const {
 }
 
 bool ComposeControls::paintFloatingHeader(QPainter &painter) {
+	if (Core::Telega::UseWindows11Style()
+		&& _backgroundRect
+		&& _st.field.textBg == st::transparent
+		&& !_recording.current()) {
+		return true;
+	}
+	if (Controls::UseMaterialComposeField()
+		&& _st.field.textBg == st::transparent
+		&& !_recording.current()) {
+		Controls::PaintMaterialComposeHeader(painter, _header->rect(), _st.bg);
+		return true;
+	}
 	const auto glass = Window::Theme::GlassStyle();
 	if (!usesFloatingInput() || !glass.enabled || !_regularWindow || !_header) {
 		return false;
@@ -5988,12 +6113,16 @@ void ComposeControls::paintFloatingInput(QPainter &p, QRect clip) {
 	}
 }
 
-void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
+void ComposeControls::paintBackground(
+		QPainter &p,
+		QRect full,
+		QRect clip,
+		bool composing) {
 	if (_backgroundRect) {
 		auto hq = PainterHighQualityEnabler(p);
-		const auto material = Core::Telega::UseMaterial3Style()
-			&& style::MaterialDesign().floatingField
+		const auto material = Controls::UseMaterialComposeField()
 			&& _st.field.textBg == st::transparent;
+		const auto floating = material && composing && !_recording.current();
 		const auto fluent = Core::Telega::UseWindows11Style()
 			&& _st.field.textBg == st::transparent;
 		p.setBrush(material
@@ -6004,20 +6133,37 @@ void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 		const auto r = _st.radius;
 		if (_commentsShown && !_commentsShown->isHidden()) {
 			p.drawRoundedRect(_commentsShown->geometry(), r, r);
-			full.setLeft(full.left()
-				+ _commentsShown->width()
-				+ _st.commentsSkip);
+			const auto skip = _commentsShown->width() + _st.commentsSkip;
+			if ((floating || fluent) && rtl()) {
+				full.setRight(full.right() - skip);
+			} else {
+				full.setLeft(full.left() + skip);
+			}
 		}
 		if (_starsReaction) {
-			full.setWidth(full.width()
-				- _starsReaction->width()
-				- _st.starsSkip);
+			const auto skip = _starsReaction->width() + _st.starsSkip;
+			if ((floating || fluent) && rtl()) {
+				full.setLeft(full.left() + skip);
+			} else {
+				full.setWidth(full.width() - skip);
+			}
+		}
+		if (floating) {
+			if (_header->isDisplayed()) {
+				full.setTop(_header->geometry().bottom() + 1);
+			}
+			Controls::PaintMaterialComposeField(p, full, _st.bg, *_send);
+			return;
 		}
 		if (material || fluent) {
 			const auto inset = style::ConvertScale(fluent ? 6 : 4);
 			full = full.marginsRemoved({ inset, inset, inset, inset });
 		}
-		const auto radius = fluent ? full.height() / 2. : _st.radius;
+		const auto radius = fluent
+			? (_header->isDisplayed()
+				? style::ConvertScale(24)
+				: full.height() / 2.)
+			: _st.radius;
 		p.drawRoundedRect(full, radius, radius);
 	} else {
 		p.fillRect(clip, _st.bg);

@@ -301,7 +301,9 @@ void BuildAutoDownloadSection(SectionBuilder &builder) {
 		}
 		const auto [toggle, checkView] = AddSeparatedToggle(
 			row,
-			st::settingsButton,
+			(builder.groupedLayout() && Core::Telega::UseMaterial3Style())
+				? row->st()
+				: st::settingsButton,
 			shouldBeChecked(source));
 		state->changes.events() | rpl::on_next([=] {
 			checkView->setChecked(shouldBeChecked(source), anim::type::normal);
@@ -1165,159 +1167,6 @@ void SubscribeToUpdateChecker(
 	}, options->lifetime());
 }
 
-void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
-	if (!HasUpdate()) {
-		return;
-	}
-	const auto container = builder.container();
-
-	if (!atTop) {
-		builder.addDivider();
-	}
-	builder.addSkip();
-	builder.addSubsectionTitle({
-		.id = u"advanced/version"_q,
-		.title = tr::lng_settings_version_info(),
-		.keywords = { u"version"_q, u"update"_q, u"check"_q },
-	});
-
-	const auto version = tr::lng_settings_current_version(
-		tr::now,
-		lt_version,
-		currentVersionText());
-
-	const auto texts = container
-		? Ui::CreateChild<rpl::event_stream<QString>>(container)
-		: nullptr;
-	const auto downloading = container
-		? Ui::CreateChild<rpl::event_stream<bool>>(container)
-		: nullptr;
-
-	const auto toggle = builder.addButton({
-		.id = u"advanced/auto_update"_q,
-		.title = tr::lng_settings_update_automatically(),
-		.st = &st::settingsUpdateToggle,
-		.toggled = rpl::single(cAutoUpdate()),
-		.keywords = { u"update"_q, u"automatic"_q, u"version"_q },
-	});
-
-	if (toggle) {
-		const auto label = Ui::CreateChild<Ui::FlatLabel>(
-			toggle,
-			texts->events(),
-			st::settingsUpdateState);
-
-		rpl::combine(
-			toggle->widthValue(),
-			label->widthValue()
-		) | rpl::on_next([=] {
-			label->moveToLeft(
-				st::settingsUpdateStatePosition.x(),
-				st::settingsUpdateStatePosition.y());
-		}, label->lifetime());
-		label->setAttribute(Qt::WA_TransparentForMouseEvents);
-	}
-
-	auto optionsShown = rpl::producer<bool>(nullptr);
-	if (toggle) {
-		Core::UpdateChecker checker;
-		optionsShown = rpl::combine(
-			toggle->toggledValue(),
-			downloading->events_starting_with(
-				checker.state() == Core::UpdateChecker::State::Download)
-		) | rpl::map([](bool check, bool downloading) {
-			return check && !downloading;
-		});
-	}
-	auto options = (Ui::SlideWrap<Ui::VerticalLayout>*)nullptr;
-	auto install = (Ui::SettingsButton*)nullptr;
-	auto check = (Ui::SettingsButton*)nullptr;
-	builder.scope([&] {
-		install = (cAlphaVersion()
-			|| Core::BuildIsCanary
-			|| Core::Updates::UsesMacosDesignFeed()
-			|| KSandbox::isInside())
-			? nullptr
-			: builder.addButton({
-				.id = u"advanced/install_beta"_q,
-				.title = tr::lng_settings_install_beta(),
-				.st = &st::settingsButtonNoIcon,
-				.toggled = rpl::single(cInstallBetaVersion()),
-				.keywords = { u"beta"_q, u"update"_q, u"version"_q },
-			});
-
-		check = builder.addButton({
-			.id = u"advanced/check_update"_q,
-			.title = tr::lng_settings_check_now(),
-			.st = &st::settingsButtonNoIcon,
-			.onClick = [] {
-				Core::UpdateChecker checker;
-				cSetLastUpdateCheck(0);
-				checker.start();
-			},
-			.keywords = { u"check"_q, u"update"_q, u"version"_q },
-		});
-	}, std::move(optionsShown), [&](auto wrap) {
-		options = wrap;
-	});
-
-	if (check && container) {
-		const auto update = Ui::CreateChild<Ui::SettingsButton>(
-			check,
-			tr::lng_update_telegram(),
-			st::settingsUpdate);
-		update->hide();
-		check->widthValue() | rpl::on_next([=](int width) {
-			update->resizeToWidth(width);
-			update->moveToLeft(0, 0);
-		}, update->lifetime());
-
-		toggle->toggledValue(
-		) | rpl::filter([](bool toggled) {
-			return (toggled != cAutoUpdate());
-		}) | rpl::on_next([=](bool toggled) {
-			cSetAutoUpdate(toggled);
-			Local::writeSettings();
-			Core::UpdateChecker checker;
-			if (cAutoUpdate()) {
-				checker.start();
-			} else {
-				checker.stop();
-				SetDefaultStatus(checker, texts, downloading, update, version);
-			}
-		}, toggle->lifetime());
-
-		if (install) {
-			install->toggledValue(
-			) | rpl::filter([](bool toggled) {
-				return (toggled != cInstallBetaVersion());
-			}) | rpl::on_next([=](bool toggled) {
-				cSetInstallBetaVersion(toggled);
-				Core::Launcher::Instance().writeInstallBetaVersionsSetting();
-				Core::UpdateChecker checker;
-				checker.stop();
-				if (toggled) {
-					cSetLastUpdateCheck(0);
-				}
-				checker.start();
-			}, toggle->lifetime());
-		}
-
-		Core::UpdateChecker checker;
-		SubscribeToUpdateChecker(checker, options, texts, downloading, update);
-		SetDefaultStatus(checker, texts, downloading, update, version);
-
-		update->setClickedCallback([] {
-			Core::RestartToInstallUpdate();
-		});
-	}
-
-	builder.addSkip();
-	if (atTop) {
-		builder.addDivider();
-	}
-}
-
 void BuildExportSection(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto session = builder.session();
@@ -1449,7 +1298,7 @@ bool DataStorage::paintOuter(
 		not_null<QWidget*> outer,
 		int maxVisibleHeight,
 		QRect clip) {
-	if (!Platform::IsWindows()) {
+	if (!Platform::IsWindows() || Core::Telega::UseWindows11Style()) {
 		return false;
 	}
 	auto p = QPainter(outer);
@@ -1470,11 +1319,6 @@ const auto kMeta = BuildHelper({
 	if (Core::Telega::UseMaterial3Style() || Core::Telega::UseWindows11Style()) {
 		builder.enableGroupedLayout();
 	}
-	const auto autoUpdate = cAutoUpdate();
-
-	if (!autoUpdate) {
-		BuildUpdateSection(builder, true);
-	}
 	if (!Platform::IsWindows() || builder.container()) {
 		BuildDataStorageSection(builder);
 		BuildAutoDownloadSection(builder);
@@ -1487,9 +1331,6 @@ const auto kMeta = BuildHelper({
 	BuildPerformanceSection(builder);
 	BuildSpellcheckerSection(builder);
 	BuildScreenReaderSection(builder);
-	if (autoUpdate) {
-		BuildUpdateSection(builder, false);
-	}
 	if (!Platform::IsWindows() || builder.container()) {
 		BuildExportSection(builder);
 	}

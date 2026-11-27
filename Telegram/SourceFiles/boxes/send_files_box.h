@@ -43,6 +43,7 @@ class InputField;
 struct GroupMediaLayout;
 struct PreparedBundle;
 class EmojiButton;
+class SendButton;
 class AlbumPreview;
 class VerticalLayout;
 class FlatLabel;
@@ -248,6 +249,8 @@ private:
 	[[nodiscard]] QImage preparePriceTagBg(QSize size) const;
 
 	void refreshButtons();
+	void refreshCompactButtons();
+	[[nodiscard]] int compactFooterHeight() const;
 	void refreshControls(bool initial = false);
 	void setupSendWayControls();
 	void setupCaption();
@@ -318,6 +321,7 @@ private:
 
 	const std::shared_ptr<ChatHelpers::Show> _show;
 	const style::ComposeControls &_st;
+	const bool _compact;
 	const Api::SendType _sendType = Api::SendType();
 
 	QString _titleText;
@@ -377,6 +381,8 @@ private:
 	base::unique_qptr<Ui::PopupMenu> _menu;
 
 	QPointer<Ui::RoundButton> _send;
+	object_ptr<Ui::SendButton> _compactSend = { nullptr };
+	bool _compactArchiveMenu = false;
 	QPointer<Ui::RoundButton> _addFile;
 
 	rpl::event_stream<TextWithTags> _textWithTagsRequests;

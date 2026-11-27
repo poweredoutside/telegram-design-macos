@@ -115,6 +115,12 @@ materialSettingsPageHeader: FlatLabel(macSettingsPageHeader) {
 		font: font(13px);
 	}
 }
+unigramSettingsPageHeader: FlatLabel(macSettingsPageHeader) {
+	textFg: windowBoldFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(14px semibold);
+	}
+}
 macSettingsPageRightLabel: FlatLabel(defaultSettingsRightLabel) {
 	textFg: windowSubTextFg;
 	style: TextStyle(defaultTextStyle) {

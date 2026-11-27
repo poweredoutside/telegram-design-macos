@@ -6597,13 +6597,16 @@ QRect Message::countGeometry() const {
 	const auto outbg = hasOutLayout();
 	const auto useMoreSpace = (delegate()->elementChatMode()
 		== ElementChatMode::Narrow);
-	const auto wideSkip = useMoreSpace
-		? st::msgMargin.left()
+	const auto leftSkip = (Core::Telega::UseWindows11Style() && !hasFromPhoto())
+		? style::ConvertScale(12)
+		: st::msgMargin.left();
+	const auto wideSkip = (useMoreSpace || Core::Telega::UseWindows11Style())
+		? leftSkip
 		: st::msgMargin.right();
 	const auto availableWidth = width()
-		- st::msgMargin.left()
-		- (centeredView ? st::msgMargin.left() : wideSkip);
-	auto contentLeft = hasRightLayout() ? wideSkip : st::msgMargin.left();
+		- leftSkip
+		- (centeredView ? leftSkip : wideSkip);
+	auto contentLeft = hasRightLayout() ? wideSkip : leftSkip;
 	auto contentWidth = availableWidth;
 	if (hasFromPhoto()) {
 		contentLeft += st::msgPhotoSkip;
@@ -6672,6 +6675,10 @@ Ui::BubbleRounding Message::countMessageRounding() const {
 			&& !edges.infoBelow
 			&& (rich->article.edgeBlocks().bottom == Block::VisualMedia);
 	};
+	if (Core::Telega::UseWindows11Style()) {
+		using Corner = Ui::BubbleCornerRounding;
+		return { Corner::Large, Corner::Large, Corner::Large, Corner::Large };
+	}
 	const auto skipTail = smallBottom
 		|| Core::Telega::HideBubbleTails()
 		|| (media && media->skipBubbleTail())
@@ -6745,12 +6752,14 @@ int Message::resizeContentGetHeight(int newWidth) {
 		|| isCommentsRootView();
 	const auto useMoreSpace = (delegate()->elementChatMode()
 		== ElementChatMode::Narrow);
-	const auto wideSkip = useMoreSpace
-		? st::msgMargin.left()
+	const auto leftSkip = (Core::Telega::UseWindows11Style() && !hasFromPhoto())
+		? style::ConvertScale(12)
+		: st::msgMargin.left();
+	const auto wideSkip = (useMoreSpace || Core::Telega::UseWindows11Style())
+		? leftSkip
 		: st::msgMargin.right();
-	auto contentWidth = newWidth
-		- st::msgMargin.left()
-		- (centeredView ? st::msgMargin.left() : wideSkip);
+	auto contentWidth = newWidth - leftSkip
+		- (centeredView ? leftSkip : wideSkip);
 	if (hasFromPhoto()) {
 		if (const auto size = rightActionSize()) {
 			contentWidth -= size->width() + (st::msgPhotoSkip - st::historyFastShareSize);

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/PrivacyPolicy.cs -->
+<defs>
+<linearGradient id="LinearGradientBrush" gradientUnits="userSpaceOnUse" x1="0.033" y1="-78.646" x2="0.783" y2="79.789"><stop offset="0" stop-color="#c8ced4" stop-opacity="1"/><stop offset="1" stop-color="#899097" stop-opacity="1"/></linearGradient>
+</defs>
+<g transform="translate(100 100)">
+<path d="M 2.774 -79.16 C 1.094 -80.28 -1.094 -80.28 -2.773 -79.16 C -22.155 -66.239 -43.117 -58.177 -65.707 -54.95 C -68.17 -54.598 -70 -52.488 -70 -50 L -70 -5 C -70 33.913 -46.93 62.307 -1.795 79.667 C -0.64 80.111 0.64 80.111 1.795 79.667 C 46.93 62.307 70 33.913 70 -5 L 70 -50 C 70 -52.488 68.17 -54.598 65.707 -54.95 C 43.117 -58.177 22.155 -66.239 2.774 -79.16 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush)" fill-opacity="1"/>
+</g>
+<g transform="translate(105 100)">
+<path d="M -30 0 L -10 20 L 30 -20" fill-rule="evenodd" fill="none" fill-opacity="1" stroke="#ffffff" stroke-opacity="1" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M -30 0 L -10 20 L 30 -20" fill-rule="evenodd" fill="none" fill-opacity="1" stroke="#ffffff" stroke-opacity="1" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</svg>

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/unread_badge.h"
 
+#include "api/api_telega_badges.h"
 #include "data/data_emoji_statuses.h"
 #include "data/data_peer.h"
 #include "data/data_user.h"
@@ -16,10 +17,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
+#include "ui/telega_badge.h"
 #include "ui/power_saving.h"
 #include "ui/text/text_custom_emoji.h"
 #include "ui/unread_badge_paint.h"
 #include "styles/style_dialogs.h"
+
+#include <QtGui/QPainterPath>
 
 namespace Ui {
 namespace {
@@ -112,6 +116,65 @@ bool ScaledBotVerifiedEmoji::readyInDefaultState() {
 }
 
 } // namespace
+
+void PaintTelegaBadge(
+		QPainter &p,
+		QRect area,
+		Api::TelegaBadges::Type type,
+		QColor color) {
+	p.save();
+	{
+		auto quality = PainterHighQualityEnabler(p);
+		p.translate(area.topLeft());
+		p.scale(area.width() / 24., area.height() / 24.);
+		if (type == Api::TelegaBadges::Type::Developer) {
+			auto sparkle = QPainterPath(QPointF(19.4, 0.8));
+			sparkle.quadTo(20.2, 3.6, 23.7, 3.8);
+			sparkle.quadTo(20.7, 4.8, 20.5, 7.9);
+			sparkle.quadTo(19.4, 5, 16.5, 4.6);
+			sparkle.quadTo(19.3, 3.7, 19.4, 0.8);
+			sparkle.closeSubpath();
+			auto clearScreen = QPainterPath();
+			clearScreen.addRect(QRectF(0, 0, 24, 24));
+			auto gap = QPainterPath();
+			gap.addEllipse(QRectF(16, 0, 8, 9));
+			p.save();
+			p.setClipPath(clearScreen.subtracted(gap), Qt::IntersectClip);
+			p.translate(11, 12);
+			p.rotate(-9);
+			p.translate(-11, -12);
+			auto fill = color;
+			fill.setAlphaF(color.alphaF() * 0.4);
+			p.setBrush(fill);
+			p.setPen(QPen(color, 2.3, Qt::SolidLine,
+				Qt::RoundCap, Qt::RoundJoin));
+			p.drawRoundedRect(QRectF(2.4, 4.4, 18.2, 12.4), 2.5, 2.5);
+			p.drawLine(QPointF(11.5, 17.2), QPointF(11.5, 20.6));
+			p.drawLine(QPointF(7.8, 20.6), QPointF(15.2, 20.6));
+			const auto cursor = QPolygonF{
+				QPointF(6.1, 8.5), QPointF(8.6, 10.8), QPointF(6.1, 13.1),
+			};
+			p.drawPolyline(cursor);
+			auto prompt = color;
+			prompt.setAlphaF(color.alphaF() * 0.38);
+			p.setPen(QPen(prompt, 2.3, Qt::SolidLine, Qt::RoundCap));
+			p.drawLine(QPointF(11.5, 13), QPointF(15.5, 13));
+			p.restore();
+			p.fillPath(sparkle, color);
+		} else {
+			p.setPen(QPen(color, 1.6, Qt::SolidLine,
+				Qt::RoundCap, Qt::RoundJoin));
+			p.setBrush(Qt::NoBrush);
+			auto heart = QPainterPath(QPointF(12, 22));
+			heart.cubicTo(9, 19.5, 2, 14.2, 2, 8.8);
+			heart.cubicTo(2, 3.2, 8.6, 1.2, 12, 5.8);
+			heart.cubicTo(15.4, 1.2, 22, 3.2, 22, 8.8);
+			heart.cubicTo(22, 14.2, 15, 19.5, 12, 22);
+			p.drawPath(heart);
+		}
+	}
+	p.restore();
+}
 
 std::unique_ptr<Text::CustomEmoji> CreateBotVerifiedEmoji(
 		DocumentId iconId,

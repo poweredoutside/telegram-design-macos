@@ -109,6 +109,7 @@ public:
 	[[nodiscard]] bool isLockPresent() const;
 	[[nodiscard]] bool isListenState() const;
 	[[nodiscard]] bool isActive() const;
+	[[nodiscard]] bool usesUnigramRecordingStyle() const;
 	[[nodiscard]] bool isRecordingByAnotherBar() const;
 	[[nodiscard]] bool isTTLButtonShown() const;
 
@@ -129,11 +130,14 @@ private:
 	void initLockGeometry();
 	void initLevelGeometry();
 
+	[[nodiscard]] QRect macRecordingSurface() const;
+	[[nodiscard]] int recordingControlRight(int width) const;
 	void updateMessageGeometry();
 	void updateLockGeometry();
 	void updateTTLGeometry(TTLAnimationType type, float64 progress);
 
 	void recordUpdated(quint16 level, int samples);
+	void updateUnigramDuration(crl::time now);
 	void checkTipRequired();
 
 	void stop(bool send);
@@ -220,6 +224,8 @@ private:
 	rpl::variable<bool> _inField = false;
 	rpl::variable<bool> _lockShowing = false;
 	int _recordingSamples = 0;
+	crl::time _recordingSampleTime = 0;
+	int _displayedCentiseconds = 0;
 	float64 _redCircleProgress = 0.;
 
 	rpl::event_stream<> _recordingTipRequests;

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mainwindow.h"
 
+#include "base/platform/base_platform_info.h"
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "data/data_document_media.h"
@@ -113,7 +114,7 @@ MainWindow::MainWindow(not_null<Window::Controller*> controller)
 
 void MainWindow::initHook() {
 	Platform::MainWindow::initHook();
-	if (Platform::ScreenshotProtectionSupported()) {
+	if (!Platform::IsWindows() && Platform::ScreenshotProtectionSupported()) {
 		Core::App().screenshotProtection().addContentReason(
 			this,
 			Core::Telega::ProtectMainWindowValue(),

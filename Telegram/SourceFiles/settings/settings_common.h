@@ -79,6 +79,7 @@ using Button = Ui::SettingsButton;
 void FinishGroupedSettingsRows(
 	not_null<Ui::VerticalLayout*> group,
 	const style::color *background = nullptr);
+void AddSettingsNavigationArrow(not_null<Ui::SettingsButton*> button);
 [[nodiscard]] bool IsGroupedSettingsContent(not_null<QWidget*> widget);
 [[nodiscard]] not_null<Ui::FlatLabel*> AddGroupedSettingsHeader(
 	not_null<Ui::VerticalLayout*> container,

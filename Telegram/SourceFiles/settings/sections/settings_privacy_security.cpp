@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_privacy_security.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "settings/settings_common_session.h"
 
 #include "api/api_authorizations.h"
@@ -513,19 +515,20 @@ namespace {
 
 using namespace Builder;
 
-void BuildSecuritySection(
+void GroupPrivacyRows(SectionBuilder &builder, FnMut<void()> build) {
+	if (Core::Telega::UseMaterial3Style()) {
+		builder.group(std::move(build));
+	} else {
+		build();
+	}
+}
+
+void BuildSecurityRows(
 		SectionBuilder &builder,
 		rpl::producer<> updateTrigger) {
 	const auto controller = builder.controller();
 	const auto showOther = builder.showOther();
 	const auto session = builder.session();
-
-	builder.addSkip(st::settingsPrivacySkip);
-	builder.addSubsectionTitle({
-		.id = u"security/section"_q,
-		.title = tr::lng_settings_security(),
-		.keywords = { u"security"_q, u"password"_q, u"passcode"_q },
-	});
 
 	using State = Core::CloudPasswordState;
 	enum class PasswordState {
@@ -790,21 +793,27 @@ void BuildSecuritySection(
 		}, ctx.container->lifetime());
 		return SectionBuilder::WidgetToAdd{};
 	});
+}
 
+void BuildSecuritySection(
+		SectionBuilder &builder,
+		rpl::producer<> updateTrigger) {
+	builder.addSkip(st::settingsPrivacySkip);
+	builder.addSubsectionTitle({
+		.id = u"security/section"_q,
+		.title = tr::lng_settings_security(),
+		.keywords = { u"security"_q, u"password"_q, u"passcode"_q },
+	});
+	GroupPrivacyRows(builder, [&] {
+		BuildSecurityRows(builder, std::move(updateTrigger));
+	});
 	builder.addSkip();
 	builder.addDividerText(tr::lng_settings_sessions_about());
 }
 
-void BuildPrivacySection(SectionBuilder &builder) {
+void BuildPrivacyRows(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto session = builder.session();
-
-	builder.addSkip(st::settingsPrivacySkip);
-	builder.addSubsectionTitle({
-		.id = u"privacy/section"_q,
-		.title = tr::lng_settings_privacy_title(),
-		.keywords = { u"privacy"_q, u"visibility"_q },
-	});
 
 	using Key = Privacy::Key;
 
@@ -951,7 +960,16 @@ void BuildPrivacySection(SectionBuilder &builder) {
 	});
 
 	session->api().userPrivacy().reload(Privacy::Key::AddedByPhone);
+}
 
+void BuildPrivacySection(SectionBuilder &builder) {
+	builder.addSkip(st::settingsPrivacySkip);
+	builder.addSubsectionTitle({
+		.id = u"privacy/section"_q,
+		.title = tr::lng_settings_privacy_title(),
+		.keywords = { u"privacy"_q, u"visibility"_q },
+	});
+	GroupPrivacyRows(builder, [&] { BuildPrivacyRows(builder); });
 	builder.addSkip(st::settingsPrivacySecurityPadding);
 	builder.addDivider();
 }
@@ -976,22 +994,24 @@ void BuildArchiveAndMuteSection(SectionBuilder &builder) {
 			.keywords = { u"unknown"_q, u"archive"_q, u"mute"_q },
 		});
 
-		const auto toggle = builder.addButton({
-			.id = u"privacy/archive_and_mute"_q,
-			.title = tr::lng_settings_auto_archive(),
-			.st = &st::settingsButtonNoIcon,
-			.toggled = privacy->archiveAndMute(),
-			.keywords = { u"archive"_q, u"mute"_q, u"unknown"_q },
-		});
+		GroupPrivacyRows(builder, [&] {
+			const auto toggle = builder.addButton({
+				.id = u"privacy/archive_and_mute"_q,
+				.title = tr::lng_settings_auto_archive(),
+				.st = &st::settingsButtonNoIcon,
+				.toggled = privacy->archiveAndMute(),
+				.keywords = { u"archive"_q, u"mute"_q, u"unknown"_q },
+			});
 
-		if (toggle) {
-			toggle->toggledChanges(
-			) | rpl::filter([=](bool toggled) {
-				return toggled != privacy->archiveAndMuteCurrent();
-			}) | rpl::on_next([=](bool toggled) {
-				privacy->updateArchiveAndMute(toggled);
-			}, toggle->lifetime());
-		}
+			if (toggle) {
+				toggle->toggledChanges(
+				) | rpl::filter([=](bool toggled) {
+					return toggled != privacy->archiveAndMuteCurrent();
+				}) | rpl::on_next([=](bool toggled) {
+					privacy->updateArchiveAndMute(toggled);
+				}, toggle->lifetime());
+			}
+		});
 
 		builder.addSkip();
 		builder.addDividerText(tr::lng_settings_auto_archive_about());
@@ -1012,14 +1032,16 @@ void BuildBotsAndWebsitesSection(SectionBuilder &builder) {
 		.keywords = { u"bots"_q, u"payment"_q, u"websites"_q },
 	});
 
-	builder.addButton({
-		.id = u"privacy/bots_payment"_q,
-		.title = tr::lng_settings_clear_payment_info(),
-		.st = &st::settingsButtonNoIcon,
-		.onClick = [=] {
-			controller->show(ClearPaymentInfoBox(session));
-		},
-		.keywords = { u"payment"_q, u"bots"_q, u"clear"_q },
+	GroupPrivacyRows(builder, [&] {
+		builder.addButton({
+			.id = u"privacy/bots_payment"_q,
+			.title = tr::lng_settings_clear_payment_info(),
+			.st = &st::settingsButtonNoIcon,
+			.onClick = [=] {
+				controller->show(ClearPaymentInfoBox(session));
+			},
+			.keywords = { u"payment"_q, u"bots"_q, u"clear"_q },
+		});
 	});
 
 	builder.addSkip();
@@ -1036,28 +1058,30 @@ void BuildTopPeersSection(SectionBuilder &builder) {
 		.keywords = { u"suggest"_q, u"contacts"_q, u"frequent"_q },
 	});
 
-	const auto toggle = builder.addButton({
-		.id = u"privacy/top_peers_toggle"_q,
-		.title = tr::lng_settings_top_peers_suggest(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(
-			rpl::empty
-		) | rpl::then(
-			session->topPeers().updates()
-		) | rpl::map([=] {
-			return !session->topPeers().disabled();
-		}),
-		.keywords = { u"suggest"_q, u"contacts"_q },
-	});
+	GroupPrivacyRows(builder, [&] {
+		const auto toggle = builder.addButton({
+			.id = u"privacy/top_peers_toggle"_q,
+			.title = tr::lng_settings_top_peers_suggest(),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = rpl::single(
+				rpl::empty
+			) | rpl::then(
+				session->topPeers().updates()
+			) | rpl::map([=] {
+				return !session->topPeers().disabled();
+			}),
+			.keywords = { u"suggest"_q, u"contacts"_q },
+		});
 
-	if (toggle) {
-		toggle->toggledChanges(
-		) | rpl::filter([=](bool enabled) {
-			return enabled == session->topPeers().disabled();
-		}) | rpl::on_next([=](bool enabled) {
-			session->topPeers().toggleDisabled(!enabled);
-		}, toggle->lifetime());
-	}
+		if (toggle) {
+			toggle->toggledChanges(
+			) | rpl::filter([=](bool enabled) {
+				return enabled == session->topPeers().disabled();
+			}) | rpl::on_next([=](bool enabled) {
+				session->topPeers().toggleDisabled(!enabled);
+			}, toggle->lifetime());
+		}
+	});
 
 	builder.addSkip();
 	builder.addDividerText(tr::lng_settings_top_peers_about());
@@ -1076,28 +1100,30 @@ void BuildSelfDestructionSection(
 		.keywords = { u"delete"_q, u"destroy"_q, u"inactive"_q, u"account"_q },
 	});
 
-	builder.add([session, updateTrigger = std::move(updateTrigger)](const WidgetContext &ctx) mutable {
-		std::move(updateTrigger) | rpl::on_next([=] {
-			session->api().selfDestruct().reload();
-		}, ctx.container->lifetime());
-		return SectionBuilder::WidgetToAdd{};
-	});
+	GroupPrivacyRows(builder, [&] {
+		builder.add([session, updateTrigger = std::move(updateTrigger)](const WidgetContext &ctx) mutable {
+			std::move(updateTrigger) | rpl::on_next([=] {
+				session->api().selfDestruct().reload();
+			}, ctx.container->lifetime());
+			return SectionBuilder::WidgetToAdd{};
+		});
 
-	auto label = session->api().selfDestruct().daysAccountTTL(
-	) | rpl::map(SelfDestructionBox::DaysLabel);
+		auto label = session->api().selfDestruct().daysAccountTTL(
+		) | rpl::map(SelfDestructionBox::DaysLabel);
 
-	builder.addButton({
-		.id = u"privacy/self_destruct_button"_q,
-		.title = tr::lng_settings_destroy_if(),
-		.st = &st::settingsButtonNoIcon,
-		.label = std::move(label),
-		.onClick = [=] {
-			controller->show(Box<SelfDestructionBox>(
-				session,
-				SelfDestructionBox::Type::Account,
-				session->api().selfDestruct().daysAccountTTL()));
-		},
-		.keywords = { u"delete"_q, u"destroy"_q, u"inactive"_q },
+		builder.addButton({
+			.id = u"privacy/self_destruct_button"_q,
+			.title = tr::lng_settings_destroy_if(),
+			.st = &st::settingsButtonNoIcon,
+			.label = std::move(label),
+			.onClick = [=] {
+				controller->show(Box<SelfDestructionBox>(
+					session,
+					SelfDestructionBox::Type::Account,
+					session->api().selfDestruct().daysAccountTTL()));
+			},
+			.keywords = { u"delete"_q, u"destroy"_q, u"inactive"_q },
+		});
 	});
 
 	builder.addSkip();
@@ -1119,14 +1145,16 @@ void BuildConfirmationExtensions(SectionBuilder &builder) {
 		.keywords = { u"extensions"_q, u"files"_q, u"confirmations"_q },
 	});
 
-	builder.addButton({
-		.id = u"privacy/file_confirmations_button"_q,
-		.title = tr::lng_settings_edit_extensions(),
-		.st = &st::settingsButtonNoIcon,
-		.onClick = [=] {
-			controller->show(Box(OpenFileConfirmationsBox));
-		},
-		.keywords = { u"extensions"_q, u"files"_q, u"confirmations"_q },
+	GroupPrivacyRows(builder, [&] {
+		builder.addButton({
+			.id = u"privacy/file_confirmations_button"_q,
+			.title = tr::lng_settings_edit_extensions(),
+			.st = &st::settingsButtonNoIcon,
+			.onClick = [=] {
+				controller->show(Box(OpenFileConfirmationsBox));
+			},
+			.keywords = { u"extensions"_q, u"files"_q, u"confirmations"_q },
+		});
 	});
 
 	builder.addSkip();
@@ -1134,6 +1162,9 @@ void BuildConfirmationExtensions(SectionBuilder &builder) {
 }
 
 void BuildPrivacySecuritySectionContent(SectionBuilder &builder) {
+	if (Core::Telega::UseMaterial3Style()) {
+		builder.enableGroupedLayout();
+	}
 	auto updateOnTick = rpl::single(
 	) | rpl::then(base::timer_each(kUpdateTimeout));
 	const auto trigger = [&] {

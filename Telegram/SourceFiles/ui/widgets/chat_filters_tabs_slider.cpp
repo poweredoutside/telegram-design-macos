@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/chat_filters_tabs_slider.h"
 
 #include "ui/effects/ripple_animation.h"
+#include "ui/painter.h"
 #include "ui/widgets/side_bar_button.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_widgets.h"
@@ -18,13 +19,19 @@ namespace Ui {
 
 ChatsFiltersTabs::ChatsFiltersTabs(
 	not_null<Ui::RpWidget*> parent,
-	const style::SettingsSlider &st)
+	const style::SettingsSlider &st,
+	bool macFolders)
 : Ui::SettingsSlider(parent, st)
 , _st(st)
-, _unreadSt([&] {
-	auto st = Ui::UnreadBadgeStyle();
-	st.align = style::al_left;
-	return st;
+, _macFolders(macFolders)
+, _unreadSt([=] {
+	auto result = Ui::UnreadBadgeStyle();
+	result.align = style::al_left;
+	if (macFolders) {
+		result.size = style::ConvertScale(16);
+		result.padding = style::ConvertScale(4);
+	}
+	return result;
 }())
 , _unreadMaxString(u"99+"_q)
 , _unreadSkip(st::lineWidth * 5)
@@ -46,7 +53,7 @@ ChatsFiltersTabs::ChatsFiltersTabs(
 	style::PaletteChanged(
 	) | rpl::on_next([=] {
 		for (auto &[index, unread] : _unreadCounts) {
-			unread.cache = cacheUnreadCount(unread.count, unread.muted);
+			refreshUnreadBadge(unread);
 		}
 		update();
 	}, lifetime());
@@ -123,7 +130,11 @@ int ChatsFiltersTabs::badgeExtraWidth(int index) const {
 	if (it == _unreadCounts.end()) {
 		return 0;
 	}
-	const auto count = int(it->second.count);
+	if (_macFolders) {
+		return it->second.cache.deviceIndependentSize().toSize().width()
+			+ _unreadSkip;
+	}
+	const auto count = it->second.count;
 	const auto widthIndex = (count < 10) ? 0 : (count < 100) ? 1 : 2;
 	return _cachedBadgeWidths[widthIndex] + _unreadSkip;
 }
@@ -158,28 +169,29 @@ void ChatsFiltersTabs::fitWidthToSections() {
 
 void ChatsFiltersTabs::setUnreadCount(int index, int unreadCount, bool mute) {
 	const auto it = _unreadCounts.find(index);
-	if (it == _unreadCounts.end()) {
-		if (unreadCount) {
-			_unreadCounts.emplace(index, Unread{
-				.cache = cacheUnreadCount(unreadCount, mute),
-				.count = ushort(std::clamp(
-					unreadCount,
-					0,
-					int(std::numeric_limits<ushort>::max()))),
-				.muted = mute,
-			});
-			update();
+	if (unreadCount <= 0) {
+		if (it == _unreadCounts.end()) {
+			return;
 		}
-	} else if (!unreadCount) {
 		_unreadCounts.erase(it);
-		update();
-	} else if (it->second.count != unreadCount || it->second.muted != mute) {
-		it->second.count = unreadCount;
-		it->second.muted = mute;
-		it->second.cache = cacheUnreadCount(unreadCount, mute);
-		update();
+	} else {
+		auto &unread = _unreadCounts[index];
+		if (unread.count == unreadCount && unread.muted == mute) {
+			return;
+		}
+		unread.count = unreadCount;
+		unread.muted = mute;
+		refreshUnreadBadge(unread);
 	}
 	updateSectionsContentWidths();
+	update();
+}
+
+void ChatsFiltersTabs::refreshUnreadBadge(Unread &unread) const {
+	unread.cache = cacheUnreadCount(unread.count, unread.muted);
+	unread.selectedCache = (_macFolders && unread.muted)
+		? cacheUnreadCount(unread.count, false)
+		: QImage();
 }
 
 int ChatsFiltersTabs::calculateLockedFromX() const {
@@ -214,17 +226,29 @@ void ChatsFiltersTabs::setLockedFrom(int index) {
 }
 
 QImage ChatsFiltersTabs::cacheUnreadCount(int count, bool muted) const {
-	const auto widthIndex = (count < 10) ? 0 : (count < 100) ? 1 : 2;
-	auto image = QImage(
-		QSize(_cachedBadgeWidths[widthIndex], _cachedBadgeHeight)
-			* style::DevicePixelRatio(),
-		QImage::Format_ARGB32_Premultiplied);
-	image.setDevicePixelRatio(style::DevicePixelRatio());
-	image.fill(Qt::transparent);
 	const auto string = (count > 999)
 		? _unreadMaxString
 		: QString::number(count);
-	{
+	const auto widthIndex = (count < 10) ? 0 : (count < 100) ? 1 : 2;
+	const auto size = _macFolders
+		? Ui::CountUnreadBadgeSize(string, _unreadSt)
+		: QSize(_cachedBadgeWidths[widthIndex], _cachedBadgeHeight);
+	const auto ratio = style::DevicePixelRatio();
+	auto image = QImage(size * ratio, QImage::Format_ARGB32_Premultiplied);
+	image.setDevicePixelRatio(ratio);
+	image.fill(Qt::transparent);
+	if (_macFolders) {
+		auto p = QPainter(&image);
+		const auto hq = PainterHighQualityEnabler(p);
+		const auto rect = QRect(QPoint(), size);
+		p.setPen(Qt::NoPen);
+		p.setBrush(muted ? st::dialogsUnreadBgMuted : st::dialogsUnreadBg);
+		const auto radius = size.height() / 2.;
+		p.drawRoundedRect(rect, radius, radius);
+		p.setFont(_unreadSt.font);
+		p.setPen(st::dialogsUnreadFg);
+		p.drawText(rect, Qt::AlignCenter, string);
+	} else {
 		auto p = QPainter(&image);
 		if (muted) {
 			auto copy = _unreadSt;
@@ -321,13 +345,20 @@ void ChatsFiltersTabs::paintEvent(QPaintEvent *e) {
 			{
 				const auto it = _unreadCounts.find(index);
 				if (it != _unreadCounts.end()) {
+					const auto &unread = it->second;
+					const auto &badge = (index == activeIndex
+						&& !unread.selectedCache.isNull())
+						? unread.selectedCache
+						: unread.cache;
+					const auto left = labelLeft + iconExtra + labelWidth
+						+ _unreadSkip;
+					const auto top = _st.labelTop + (_macFolders
+						? (_st.labelStyle.font->height - _unreadSt.size) / 2
+						: 0);
 					p.drawImage(
-						labelLeft
-							+ iconExtra
-							+ labelWidth
-							+ _unreadSkip,
-						_st.labelTop,
-						it->second.cache);
+						myrtlrect(left, top, badge.deviceIndependentSize()
+							.toSize().width(), _unreadSt.size).topLeft(),
+						badge);
 				}
 			}
 			if (locked) {

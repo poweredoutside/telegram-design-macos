@@ -10,6 +10,7 @@
 #include "base/flags.h"
 #include "ui/layers/layer_widget.h"
 #include "ui/layers/box_content.h"
+#include "ui/layers/box_background.h"
 #include "ui/round_rect.h"
 #include "ui/rp_widget.h"
 
@@ -38,6 +39,9 @@ public:
 		not_null<LayerStackDelegate*> delegate,
 		object_ptr<BoxContent> content);
 	~BoxLayerWidget();
+
+	void allowCustomBackgroundWithScroll();
+	[[nodiscard]] bool usesCustomBackground() const;
 
 	void parentResized() override;
 
@@ -137,12 +141,14 @@ private:
 	rpl::variable<int> _contentHeightMax;
 	int _fullHeight = 0;
 	bool _layerType = false;
+	bool _allowCustomBackgroundWithScroll = false;
 
 	bool _noContentMargin = false;
 	int _maxContentHeight = 0;
 	int _minimalTopSkip = 0;
 	object_ptr<BoxContent> _content;
 
+	const BoxBackground _background;
 	RoundRect _roundRect;
 	object_ptr<FlatLabel> _title = { nullptr };
 	Fn<TextWithEntities()> _titleFactory;

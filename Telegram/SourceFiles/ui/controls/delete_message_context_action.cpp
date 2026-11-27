@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "lang/lang_keys.h"
 #include "base/call_delayed.h"
+#include "core/core_telega_preferences.h"
 #include "base/unixtime.h"
 #include "base/timer.h"
 #include "styles/style_chat.h"
@@ -237,15 +238,27 @@ base::unique_qptr<Menu::ItemBase> DeleteMessageContextAction(
 		TimeId destroyAt,
 		Fn<void()> destroyByTimerCallback) {
 	if (destroyAt <= 0) {
+		const auto unigram = Core::Telega::UseWindows11Style();
+		const auto &itemStyle = [&]() -> const style::Menu& {
+			if (!unigram) {
+				return menu->st();
+			}
+			const auto attention = menu->lifetime().make_state<style::Menu>(
+				menu->st());
+			attention->itemFg = st::attentionButtonFg;
+			attention->itemFgOver = st::attentionButtonFgOver;
+			return *attention;
+		}();
+		const auto icon = unigram ? &st::menuIconDeleteAttention : &st::menuIconDelete;
 		return base::make_unique_q<Menu::Action>(
 			menu,
-			menu->st(),
+			itemStyle,
 			Menu::CreateAction(
 				menu,
 				tr::lng_context_delete_msg(tr::now),
 				std::move(callback)),
-			&st::menuIconDelete,
-			&st::menuIconDelete);
+			icon,
+			icon);
 	}
 	return base::make_unique_q<ActionWithTimer>(
 		menu,

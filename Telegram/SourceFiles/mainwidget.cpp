@@ -84,6 +84,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/update_checker.h"
 #include "core/shortcuts.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "core/click_handler_types.h"
 #include "core/changelogs.h"
 #include "core/mime_type.h"
@@ -2019,11 +2020,23 @@ Window::SectionSlideParams MainWidget::prepareShowAnimation(
 Window::SectionSlideParams MainWidget::prepareMainSectionAnimation(
 		Window::SectionWidget *section,
 		bool fromBottom) {
-	return prepareShowAnimation(section->hasTopBarShadow(), fromBottom);
+	auto result = prepareShowAnimation(section->hasTopBarShadow(), fromBottom);
+	if (!fromBottom && Core::Telega::UseWindows11Style()) {
+		const auto before = dynamic_cast<Info::SectionWidget*>(_mainSection.data());
+		const auto after = dynamic_cast<Info::SectionWidget*>(section);
+		result.profileTransition = (after && after->isProfilePage())
+			|| (before && before->isProfilePage());
+	}
+	return result;
 }
 
 Window::SectionSlideParams MainWidget::prepareHistoryAnimation(PeerId historyPeerId) {
-	return prepareShowAnimation(historyPeerId != 0, false);
+	auto result = prepareShowAnimation(historyPeerId != 0, false);
+	if (Core::Telega::UseWindows11Style()) {
+		const auto before = dynamic_cast<Info::SectionWidget*>(_mainSection.data());
+		result.profileTransition = before && before->isProfilePage();
+	}
+	return result;
 }
 
 void MainWidget::showNewSection(
@@ -2180,6 +2193,12 @@ void MainWidget::showNewSection(
 void MainWidget::checkMainSectionToLayer() {
 	if (!_mainSection || macSettingsShown()) {
 		return;
+	}
+	if (Core::Telega::UseWindows11Style()) {
+		if (const auto info = dynamic_cast<Info::SectionWidget*>(_mainSection.data())
+			; info && info->isProfilePage()) {
+			return;
+		}
 	}
 	Ui::FocusPersister persister(this);
 	if (auto layer = _mainSection->moveContentToLayer(rect())) {

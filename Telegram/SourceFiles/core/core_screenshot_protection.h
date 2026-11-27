@@ -20,6 +20,8 @@ public:
 	ScreenshotProtection();
 	~ScreenshotProtection();
 
+	void setStreamerMode(bool enabled);
+
 	// The window shows protected content itself.
 	void addContentReason(
 		not_null<QWidget*> window,
@@ -41,6 +43,8 @@ private:
 	void apply(not_null<QWidget*> window, bool force = false);
 	[[nodiscard]] bool activeFor(not_null<QWidget*> window) const;
 
+	class StreamerWindowFilter;
+
 	struct Reason {
 		QPointer<QWidget> window;
 		bool active = false;
@@ -52,6 +56,7 @@ private:
 	base::flat_map<uint64, Reason> _reasons;
 	uint64 _lastReasonId = 0;
 	base::flat_map<not_null<QWidget*>, Applied> _applied;
+	std::unique_ptr<StreamerWindowFilter> _streamerWindowFilter;
 
 };
 

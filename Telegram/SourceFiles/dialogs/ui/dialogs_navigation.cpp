@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/ui/dialogs_navigation.h"
 
+#include "core/core_telega_preferences.h"
 #include "lang/lang_keys.h"
 #include "lottie/lottie_icon.h"
 #include "ui/style/style_core_scale.h"
@@ -51,17 +52,17 @@ namespace {
 		st::dialogsNavigationBarHeight);
 }
 
-[[nodiscard]] QRectF SelectionGeometry(QRect bar, float64 position) {
+[[nodiscard]] QRectF SelectionGeometry(QRect bar, int count, float64 position) {
 	const auto inset = st::dialogsNavigationInnerInset;
 	const auto available = std::max(0, bar.width() - 2 * inset);
-	position = std::clamp(position, 0., 3.);
+	position = std::clamp(position, 0., float64(count - 1));
 	const auto lower = int(std::floor(position));
-	const auto upper = std::min(lower + 1, 3);
+	const auto upper = std::min(lower + 1, count - 1);
 	const auto progress = position - lower;
-	const auto left = available * lower / 4;
-	const auto nextLeft = available * upper / 4;
-	const auto width = available * (lower + 1) / 4 - left;
-	const auto nextWidth = available * (upper + 1) / 4 - nextLeft;
+	const auto left = available * lower / count;
+	const auto nextLeft = available * upper / count;
+	const auto width = available * (lower + 1) / count - left;
+	const auto nextWidth = available * (upper + 1) / count - nextLeft;
 	return QRectF(
 		bar.x() + inset + left + (nextLeft - left) * progress,
 		bar.y() + inset,
@@ -262,25 +263,60 @@ NavigationBar::NavigationBar(
 			QObject::connect(button, &QWidget::customContextMenuRequested,
 				button, [=] { menu(); });
 		}
-		sizeValue() | rpl::on_next([=](QSize size) {
-			const auto bar = BarGeometry(size);
-			const auto inset = st::dialogsNavigationInnerInset;
-			const auto width = std::max(0, bar.width() - 2 * inset);
-			const auto index = int(action);
-			const auto left = bar.x() + inset + width * index / 4;
-			const auto right = bar.x() + inset + width * (index + 1) / 4;
-			button->resize(right - left, std::max(0, bar.height() - 2 * inset));
-			button->move(left, bar.y() + inset);
-		}, button->lifetime());
+		return button;
 	};
-	add(NavigationAction::Contacts, tr::lng_menu_contacts(), st::macContactsIcon,
+	const auto contacts = add(
+		NavigationAction::Contacts, tr::lng_menu_contacts(), st::macContactsIcon,
 		u":/animations/macos/tab_contacts.tgs"_q);
-	add(NavigationAction::Calls, tr::lng_menu_calls(), st::macCallsIcon,
+	const auto calls = add(
+		NavigationAction::Calls, tr::lng_menu_calls(), st::macCallsIcon,
 		u":/animations/macos/tab_calls.tgs"_q);
-	add(NavigationAction::Chats, tr::lng_recent_chats(), st::macChatsIcon,
-		u":/animations/macos/tab_chats.tgs"_q);
-	add(NavigationAction::Settings, tr::lng_menu_settings(), st::macSettingsIcon,
-		u":/animations/macos/tab_settings.tgs"_q);
+	const auto buttons = std::array{
+		contacts,
+		calls,
+		add(NavigationAction::Chats, tr::lng_recent_chats(), st::macChatsIcon,
+			u":/animations/macos/tab_chats.tgs"_q),
+		add(NavigationAction::Settings, tr::lng_menu_settings(), st::macSettingsIcon,
+			u":/animations/macos/tab_settings.tgs"_q),
+	};
+	const auto layoutButtons = [=](QSize size) {
+		const auto bar = BarGeometry(size);
+		const auto count = int(_visibleActions.size());
+		for (auto index = 0; index != count; ++index) {
+			buttons[int(_visibleActions[index])]->setGeometry(
+				SelectionGeometry(bar, count, index).toRect());
+		}
+	};
+	using Option = Core::Telega::DisplayOption;
+	rpl::combine(
+		Core::Telega::DisplayValue(Option::HideMacNavigationContacts),
+		Core::Telega::DisplayValue(Option::HideMacNavigationCalls)
+	) | rpl::on_next([=](bool hideContacts, bool hideCalls) {
+		cancelSelection(false);
+		_selection.stop();
+		_visibleActions.clear();
+		if (!hideContacts) {
+			_visibleActions.push_back(NavigationAction::Contacts);
+		}
+		if (!hideCalls) {
+			_visibleActions.push_back(NavigationAction::Calls);
+		}
+		_visibleActions.push_back(NavigationAction::Chats);
+		_visibleActions.push_back(NavigationAction::Settings);
+		const auto activeHidden = (actionIndex(_active.current()) < 0);
+		if (activeHidden) {
+			_active = NavigationAction::Chats;
+			_preview = NavigationAction::Chats;
+		}
+		layoutButtons(size());
+		contacts->setVisible(!hideContacts);
+		calls->setVisible(!hideCalls);
+		update();
+		if (activeHidden) {
+			_activate(NavigationAction::Chats);
+		}
+	}, lifetime());
+	sizeValue() | rpl::on_next(layoutButtons, lifetime());
 	paintRequest() | rpl::on_next([=](QRect clip) {
 		const auto bar = BarGeometry(size());
 		if (!clip.intersects(bar)) {
@@ -301,6 +337,7 @@ NavigationBar::NavigationBar(
 			&_backdropCache);
 		const auto selection = SelectionGeometry(
 			bar,
+			int(_visibleActions.size()),
 			selectionPosition());
 		auto color = st::windowFg->c;
 		color.setAlphaF(st::windowBg->c.lightnessF() < .5 ? .12 : .08);
@@ -325,7 +362,7 @@ void NavigationBar::setActive(NavigationAction action) {
 	_active = action;
 	_preview = action;
 	_iconAnimations.fire_copy(action);
-	animateSelection(from, int(action));
+	animateSelection(from, actionIndex(action));
 	update();
 }
 
@@ -347,19 +384,25 @@ float64 NavigationBar::selectionPosition() const {
 		? _gesture->position
 		: _selection.value(_gesture
 			? _gesture->position
-			: int(_active.current()));
+			: actionIndex(_active.current()));
+}
+
+int NavigationBar::actionIndex(NavigationAction action) const {
+	const auto i = std::find(_visibleActions.begin(), _visibleActions.end(), action);
+	return (i == _visibleActions.end()) ? -1 : int(i - _visibleActions.begin());
 }
 
 float64 NavigationBar::positionAt(float64 x) const {
 	const auto bar = BarGeometry(size());
-	for (auto index = 0; index != 3; ++index) {
-		const auto first = SelectionGeometry(bar, index).center().x();
-		const auto second = SelectionGeometry(bar, index + 1).center().x();
+	const auto count = int(_visibleActions.size());
+	for (auto index = 0; index + 1 < count; ++index) {
+		const auto first = SelectionGeometry(bar, count, index).center().x();
+		const auto second = SelectionGeometry(bar, count, index + 1).center().x();
 		if (x < second) {
 			return index + std::clamp((x - first) / std::max(1., second - first), 0., 1.);
 		}
 	}
-	return 3.;
+	return count - 1;
 }
 
 void NavigationBar::cancelSelection(bool animated) {
@@ -377,7 +420,7 @@ void NavigationBar::cancelSelection(bool animated) {
 	_tracking = false;
 	_preview = _active.current();
 	if (animated) {
-		animateSelection(from, int(_active.current()));
+		animateSelection(from, actionIndex(_active.current()));
 		if (previewChanged) {
 			_iconAnimations.fire_copy(_active.current());
 		}
@@ -405,22 +448,24 @@ bool NavigationBar::eventFilter(QObject *watched, QEvent *e) {
 		cancelSelection(true);
 	} else if (e->type() == QEvent::MouseButtonPress) {
 		const auto mouse = static_cast<QMouseEvent*>(e);
-		if (mouse->button() == Qt::LeftButton) {
-			const auto index = watched->property("navigationAction").toInt();
+		const auto action = NavigationAction(watched->property("navigationAction").toInt());
+		const auto index = actionIndex(action);
+		if (mouse->button() == Qt::LeftButton && index >= 0) {
 			const auto point = mapFromGlobal(mouse->globalPosition().toPoint());
 			const auto from = selectionPosition();
 			cancelSelection(false);
+			const auto center = SelectionGeometry(
+				BarGeometry(size()), int(_visibleActions.size()), index).center().x();
 			_gesture = SelectionGesture{
-				point, SelectionGeometry(BarGeometry(size()), index).center().x(),
-				float64(index), false };
+				point, center, float64(index), false };
 			_grabber = static_cast<QWidget*>(watched);
 			_grabber->setFocus(Qt::MouseFocusReason);
 			_grabber->grabMouse();
 			_tracking = true;
-			const auto previewChanged = (_preview.current() != NavigationAction(index));
-			_preview = NavigationAction(index);
+			const auto previewChanged = (_preview.current() != action);
+			_preview = action;
 			if (previewChanged) {
-				_iconAnimations.fire_copy(NavigationAction(index));
+				_iconAnimations.fire_copy(action);
 			}
 			animateSelection(from, index);
 			return true;
@@ -432,7 +477,7 @@ bool NavigationBar::eventFilter(QObject *watched, QEvent *e) {
 		if (_gesture->dragging || std::abs(delta) >= style::ConvertScale(3)) {
 			_gesture->dragging = true;
 			_gesture->position = positionAt(_gesture->center + delta);
-			const auto action = NavigationAction(int(std::round(_gesture->position)));
+			const auto action = _visibleActions[int(std::round(_gesture->position))];
 			const auto previewChanged = (_preview.current() != action);
 			_preview = action;
 			if (previewChanged) {
@@ -451,7 +496,8 @@ bool NavigationBar::eventFilter(QObject *watched, QEvent *e) {
 			_gesture->position = positionAt(_gesture->center + delta);
 		}
 		const auto from = selectionPosition();
-		const auto action = NavigationAction(int(std::round(_gesture->position)));
+		const auto index = int(std::round(_gesture->position));
+		const auto action = _visibleActions[index];
 		const auto play = _gesture->dragging && action != _active.current();
 		_active = action;
 		cancelSelection(false);
@@ -459,7 +505,7 @@ bool NavigationBar::eventFilter(QObject *watched, QEvent *e) {
 		if (play) {
 			_iconAnimations.fire_copy(action);
 		}
-		animateSelection(from, int(action));
+		animateSelection(from, index);
 		_activate(action);
 		return true;
 	}

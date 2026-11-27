@@ -23,10 +23,12 @@ AbstractSingleFilePreview::AbstractSingleFilePreview(
 	QWidget *parent,
 	const style::ComposeControls &st,
 	AttachControls::Type type,
-	const Text::MarkedContext &captionContext)
+	const Text::MarkedContext &captionContext,
+	bool macFileRow)
 : AbstractSinglePreview(parent)
 , _st(st)
 , _type(type)
+, _macFileRow(macFileRow)
 , _captionContext(captionContext)
 , _editMedia(this, _st.files.buttonFile)
 , _deleteMedia(this, _st.files.buttonFile)
@@ -158,16 +160,22 @@ void AbstractSingleFilePreview::prepareThumbFor(
 void AbstractSingleFilePreview::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 
-	const auto w = width()
-		- st::boxPhotoPadding.left()
-		- st::boxPhotoPadding.right();
-	const auto &st = !isThumbedLayout(_data)
-		? st::attachPreviewLayout
-		: st::attachPreviewThumbLayout;
+	const auto margins = rowMargins();
+	const auto &st = fileLayout(_data);
 	const auto nameleft = st.thumbSize + st.thumbSkip;
 	const auto nametop = st.nameTop;
 	const auto statustop = st.statusTop;
-	const auto x = (width() - w) / 2, y = 0;
+	const auto x = margins.left();
+	const auto y = margins.top();
+
+	if (_macFileRow) {
+		const auto inset = style::ConvertScale(12);
+		const auto radius = style::ConvertScale(12);
+		PainterHighQualityEnabler hq(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::windowBgOver);
+		p.drawRoundedRect(rect().adjusted(inset, 0, -inset, 0), radius, radius);
+	}
 
 	if (!isThumbedLayout(_data)) {
 		QRect inner(
@@ -175,11 +183,21 @@ void AbstractSingleFilePreview::paintEvent(QPaintEvent *e) {
 		p.setPen(Qt::NoPen);
 
 		if (_data.fileIsAudio && !_data.fileThumb.isNull()) {
-			p.drawPixmap(inner.topLeft(), _data.fileThumb);
+			if (_macFileRow) {
+				p.drawPixmap(inner, _data.fileThumb);
+			} else {
+				p.drawPixmap(inner.topLeft(), _data.fileThumb);
+			}
 		} else {
-			p.setBrush(_st.files.iconBg);
 			PainterHighQualityEnabler hq(p);
-			p.drawEllipse(inner);
+			if (_macFileRow) {
+				const auto radius = style::ConvertScale(8);
+				p.setBrush(st::windowBg);
+				p.drawRoundedRect(inner, radius, radius);
+			} else {
+				p.setBrush(_st.files.iconBg);
+				p.drawEllipse(inner);
+			}
 		}
 		const auto &icon = _data.fileIsAudio
 			? (_data.fileThumb.isNull()
@@ -188,7 +206,11 @@ void AbstractSingleFilePreview::paintEvent(QPaintEvent *e) {
 			: _data.fileIsImage
 			? _st.files.iconImage
 			: _st.files.iconDocument;
-		icon.paintInCenter(p, inner);
+		if (_macFileRow && !_data.fileIsAudio) {
+			icon.paintInCenter(p, inner, st::windowActiveTextFg->c);
+		} else {
+			icon.paintInCenter(p, inner);
+		}
 	} else {
 		QRect rthumb(
 			style::rtlrect(x, y, st.thumbSize, st.thumbSize, width()));
@@ -207,7 +229,7 @@ void AbstractSingleFilePreview::paintEvent(QPaintEvent *e) {
 	p.drawTextLeft(
 		x + nameleft,
 		y + nametop, width(),
-		_data.name,
+		_data.elidedName,
 		_data.nameWidth);
 
 	p.setFont(st::normalFont);
@@ -238,17 +260,22 @@ void AbstractSingleFilePreview::paintEvent(QPaintEvent *e) {
 }
 
 void AbstractSingleFilePreview::resizeEvent(QResizeEvent *e) {
-	const auto w = width()
-		- st::boxPhotoPadding.left()
-		- st::boxPhotoPadding.right();
-	const auto x = (width() - w) / 2;
-	const auto top = st::sendBoxFileGroupSkipTop;
-	auto right = st::sendBoxFileGroupSkipRight + x;
+	const auto margins = rowMargins();
+	const auto top = _macFileRow
+		? margins.top()
+			+ (fileLayout(_data).thumbSize - _editMedia->height()) / 2
+		: st::sendBoxFileGroupSkipTop;
+	const auto gap = _macFileRow ? 0 : st::sendBoxFileGroupEditInternalSkip;
+	auto right = margins.right()
+		+ (_macFileRow ? 0 : st::sendBoxFileGroupSkipRight);
 	if (_type != AttachControls::Type::EditOnly) {
 		_deleteMedia->moveToRight(right, top);
-		right += st::sendBoxFileGroupEditInternalSkip + _deleteMedia->width();
+		right += gap + _deleteMedia->width();
 	}
 	_editMedia->moveToRight(right, top);
+	if (_macFileRow && e->oldSize().width() != width()) {
+		updateTextWidthFor(_data);
+	}
 }
 
 bool AbstractSingleFilePreview::isThumbedLayout(const Data &data) const {
@@ -256,63 +283,85 @@ bool AbstractSingleFilePreview::isThumbedLayout(const Data &data) const {
 }
 
 void AbstractSingleFilePreview::updateTextWidthFor(Data &data) {
-	const auto &st = !isThumbedLayout(data)
-		? st::attachPreviewLayout
-		: st::attachPreviewThumbLayout;
+	const auto &st = fileLayout(data);
 	const auto buttonsCount = (_type == AttachControls::Type::EditOnly)
 		? 1
 		: (_type == AttachControls::Type::Full)
 		? 2
 		: 0;
-	const auto availableFileWidth = st::sendMediaPreviewSize
-		- st.thumbSize
-		- st.thumbSkip
-		// Right buttons.
-		- _st.files.buttonFile.width * buttonsCount
-		- st::sendBoxAlbumGroupEditInternalSkip * buttonsCount
-		- st::sendBoxAlbumGroupSkipRight;
-	const auto availableCaptionWidth = st::sendMediaPreviewSize
-		- _st.files.buttonFile.width * buttonsCount
-		- st::sendBoxAlbumGroupEditInternalSkip * buttonsCount
-		- st::sendBoxAlbumGroupSkipRight;
-	data.nameWidth = st::semiboldFont->width(data.name);
-	if (data.nameWidth > availableFileWidth) {
-		data.name = st::semiboldFont->elided(
-			data.name,
-			availableFileWidth,
-			Qt::ElideMiddle);
-		data.nameWidth = st::semiboldFont->width(data.name);
+	const auto margins = rowMargins();
+	const auto availableCaptionWidth = _macFileRow
+		? (width() - margins.left() - margins.right()
+			- _st.files.buttonFile.width * buttonsCount - style::ConvertScale(6))
+		: (st::sendMediaPreviewSize
+			- _st.files.buttonFile.width * buttonsCount
+			- st::sendBoxAlbumGroupEditInternalSkip * buttonsCount
+			- st::sendBoxAlbumGroupSkipRight);
+	const auto availableFileWidth = std::max(
+		0,
+		availableCaptionWidth - st.thumbSize - st.thumbSkip);
+	data.elidedName = st::semiboldFont->elided(
+		data.name,
+		availableFileWidth,
+		Qt::ElideMiddle);
+	data.nameWidth = st::semiboldFont->width(data.elidedName);
+	if (_macFileRow) {
+		setToolTip(data.elidedName == data.name
+			? QString()
+			: (u"<qt>"_q + data.name.toHtmlEscaped() + u"</qt>"_q));
 	}
 	data.statusWidth = st::normalFont->width(data.statusText);
-	data.captionAvailableWidth = availableCaptionWidth;
+	data.captionAvailableWidth = std::max(0, availableCaptionWidth);
 }
 
 void AbstractSingleFilePreview::updateDataGeometry() {
-	const auto &st = !isThumbedLayout(_data)
-		? st::attachPreviewLayout
-		: st::attachPreviewThumbLayout;
-	const auto height = st.thumbSize + (_data.caption.isEmpty()
-		? 0
-		: (st::attachPreviewCaptionTopOffset + _data.caption.lineHeight()));
+	const auto &st = fileLayout(_data);
+	const auto margins = rowMargins();
+	const auto height = margins.top() + st.thumbSize + margins.bottom()
+		+ (_data.caption.isEmpty()
+			? 0
+			: (st::attachPreviewCaptionTopOffset + _data.caption.lineHeight()));
 	resize(width(), height);
+}
+
+QMargins AbstractSingleFilePreview::rowMargins() const {
+	const auto horizontal = _macFileRow
+		? style::ConvertScale(22)
+		: (st::boxPhotoPadding.left() + st::boxPhotoPadding.right()) / 2;
+	const auto vertical = _macFileRow ? style::ConvertScale(8) : 0;
+	return { horizontal, vertical, horizontal, vertical };
+}
+
+const style::HistoryFileLayout &AbstractSingleFilePreview::fileLayout(
+		const Data &data) const {
+	if (isThumbedLayout(data)) {
+		return st::attachPreviewThumbLayout;
+	} else if (!_macFileRow) {
+		return st::attachPreviewLayout;
+	}
+	static const auto mac = [] {
+		auto result = st::attachPreviewLayout;
+		result.thumbSize = style::ConvertScale(36);
+		result.thumbSkip = style::ConvertScale(10);
+		const auto textHeight = st::semiboldFont->height + st::normalFont->height;
+		result.nameTop = (result.thumbSize - textHeight) / 2;
+		result.statusTop = result.nameTop + st::semiboldFont->height;
+		return result;
+	}();
+	return mac;
 }
 
 QRect AbstractSingleFilePreview::captionRect() const {
 	if (_data.caption.isEmpty()) {
 		return {};
 	}
-	const auto w = width()
-		- st::boxPhotoPadding.left()
-		- st::boxPhotoPadding.right();
-	const auto &st = !isThumbedLayout(_data)
-		? st::attachPreviewLayout
-		: st::attachPreviewThumbLayout;
-	const auto x = (width() - w) / 2;
+	const auto margins = rowMargins();
+	const auto &st = fileLayout(_data);
 	const auto captionLineHeight = _data.caption.lineHeight();
-	const auto top = st.thumbSize
+	const auto top = margins.top() + st.thumbSize
 		+ st::attachPreviewCaptionTopOffset;
 	return QRect(
-		x,
+		margins.left(),
 		top,
 		_data.captionAvailableWidth,
 		captionLineHeight) + st::attachPreviewCaptionRepaintMargin;
@@ -353,18 +402,11 @@ void AbstractSingleFilePreview::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 QRect AbstractSingleFilePreview::nameRect() const {
-	const auto w = width()
-		- st::boxPhotoPadding.left()
-		- st::boxPhotoPadding.right();
-	const auto &st = !isThumbedLayout(_data)
-		? st::attachPreviewLayout
-		: st::attachPreviewThumbLayout;
-	const auto nameleft = st.thumbSize + st.thumbSkip;
-	const auto nametop = st.nameTop;
-	const auto x = (width() - w) / 2, y = 0;
+	const auto margins = rowMargins();
+	const auto &st = fileLayout(_data);
 	return style::rtlrect(
-		x + nameleft,
-		y + nametop,
+		margins.left() + st.thumbSize + st.thumbSkip,
+		margins.top() + st.nameTop,
 		_data.nameWidth,
 		st::semiboldFont->height,
 		width());

@@ -44,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "ui/text/text_utilities.h"
+#include "core/core_telega_menu.h"
 #include "platform/platform_specific.h"
 
 #include <QtGui/QWindow>
@@ -1677,6 +1678,9 @@ void Manager::maybePlaySound(Fn<void()> playSound) {
 }
 
 void NativeManager::doShowNotification(NotificationFields &&fields) {
+	if (Core::Telega::StreamerModeEnabled()) {
+		return;
+	}
 	const auto pollVote = !fields.pollVoteOption.isEmpty();
 	const auto type = fields.reactionFrom
 		? (pollVote

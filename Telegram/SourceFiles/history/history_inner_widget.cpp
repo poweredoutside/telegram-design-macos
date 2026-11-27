@@ -558,7 +558,7 @@ HistoryInner::HistoryInner(
 
 	controller->adaptive().chatWideValue(
 	) | rpl::on_next([=](bool wide) {
-		_isChatWide = wide;
+		_isChatWide = wide && !Core::Telega::UseWindows11Style();
 		if (_overlayHost) {
 			_overlayHost->hide();
 		}
@@ -3053,7 +3053,11 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_dragStateItem ? _dragStateItem->fullId() : FullMsgId()));
 		return;
 	}
-	_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
+	_menu = base::make_unique_q<Ui::PopupMenu>(
+		this,
+		linkUserpicPeerId
+			? st::popupMenuWithIcons
+			: HistoryView::MessageContextMenuStyle());
 	if (linkUserpicPeerId) {
 		_widget->fillSenderUserpicMenu(
 			_menu.get(),
@@ -3089,6 +3093,24 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		return;
 	}
 	const auto controller = _controller;
+	const auto unigram = Core::Telega::UseWindows11Style();
+	auto deferredTextActions = std::vector<Fn<void()>>();
+	const auto addTextAction = [&](
+			QString text,
+			Fn<void()> callback,
+			const style::icon *icon) {
+		if (unigram) {
+			deferredTextActions.push_back(
+				[menu = _menu.get(),
+				 text = std::move(text),
+				 callback = std::move(callback),
+				 icon]() mutable {
+					menu->addAction(text, std::move(callback), icon);
+				});
+		} else {
+			_menu->addAction(text, std::move(callback), icon);
+		}
+	};
 	const auto canViewMessageStats = [&](HistoryItem *item) {
 		if (!item
 			|| item->isService()
@@ -3810,7 +3832,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					const auto hasRestriction = hasCopyRestriction(item);
 					if (!hasRestriction
 						&& (view->hasVisibleText() || mediaHasTextForCopy)) {
-						_menu->addAction(
+						addTextAction(
 							tr::lng_context_copy_text(tr::now),
 							[=] { copyContextText(itemId); },
 							&st::menuIconCopy);
@@ -3826,7 +3848,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 							: item->originalText();
 						if (!translate.text.isEmpty()
 							&& !Ui::SkipTranslate(translate)) {
-							_menu->addAction(tr::lng_context_translate(tr::now), [=] {
+							addTextAction(tr::lng_context_translate(tr::now), [=] {
 								_controller->show(Box(
 									Ui::TranslateBox,
 									peer,
@@ -3970,6 +3992,14 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		}
 	}
 
+	if (!deferredTextActions.empty()) {
+		if (!_menu->empty()) {
+			_menu->addSeparator();
+		}
+		for (const auto &add : deferredTextActions) {
+			add();
+		}
+	}
 	if (_dragStateItem) {
 		const auto view = viewByItem(_dragStateItem);
 		const auto textItem = view ? view->textItem() : _dragStateItem;
@@ -4065,11 +4095,12 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		_menu = nullptr;
 		return;
 	}
-	HistoryView::AttachPollOptionTabs(_menu.get(), desiredPosition);
-	if (attached == AttachSelectorResult::Attached) {
-		_menu->popupPrepared();
-	} else {
-		_menu->popup(desiredPosition);
+	if (!HistoryView::ShowMessageContextMenu(
+			_menu.get(),
+			desiredPosition,
+			attached == AttachSelectorResult::Attached)) {
+		_menu = nullptr;
+		return;
 	}
 	e->accept();
 }

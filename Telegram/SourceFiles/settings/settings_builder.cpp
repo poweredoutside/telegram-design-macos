@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
+#include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 
 namespace Settings::Builder {
@@ -157,6 +158,9 @@ std::vector<SearchEntry> BuildHelper::index(
 
 SectionBuilder::SectionBuilder(BuildContext context)
 : _context(std::move(context)) {
+	if (Core::Telega::UseWindows11Style()) {
+		enableGroupedLayout();
+	}
 }
 
 void SectionBuilder::enableGroupedLayout() {
@@ -298,6 +302,8 @@ Ui::RpWidget *SectionBuilder::addControl(ControlArgs &&args) {
 
 Ui::SettingsButton *SectionBuilder::addButton(ButtonArgs &&args) {
 	const auto &original = args.st ? *args.st : st::settingsButton;
+	const auto arrow = Core::Telega::UseWindows11Style()
+		&& !args.toggled && (args.onClick || args.label);
 	const auto wctx = std::get_if<WidgetContext>(&_context);
 	const auto &st = wctx
 		? ResolveButtonStyle(
@@ -315,6 +321,9 @@ Ui::SettingsButton *SectionBuilder::addButton(ButtonArgs &&args) {
 			std::move(args.icon));
 		if (button && args.onClick) {
 			button->addClickHandler(std::move(args.onClick));
+		}
+		if (arrow) {
+			AddSettingsNavigationArrow(button.data());
 		}
 		if (args.label) {
 			CreateRightLabel(
@@ -409,11 +418,31 @@ Ui::SettingsButton *SectionBuilder::addPremiumButton(PremiumButtonArgs &&args) {
 Ui::SettingsButton *SectionBuilder::addPrivacyButton(PrivacyButtonArgs &&args) {
 	const auto controller = this->controller();
 	const auto session = this->session();
+	const auto icon = Core::Telega::UseWindows11Style()
+		? [&]() -> const style::icon* {
+			using Key = Api::UserPrivacy::Key;
+			switch (args.key) {
+			case Key::PhoneNumber: return &st::menuIconPhone;
+			case Key::LastSeen: return &st::menuIconWhenOnline;
+			case Key::ProfilePhoto: return &st::menuIconProfile;
+			case Key::Forwards: return &st::menuIconForward;
+			case Key::Calls: return &st::menuIconPhone;
+			case Key::Voices: return &st::menuIconSoundOn;
+			case Key::Birthday: return &st::menuIconGiftPremium;
+			case Key::GiftsAutoSave: return &st::menuIconRatingGifts;
+			case Key::About: return &st::menuIconInfo;
+			case Key::SavedMusic: return &st::menuIconSoundSelect;
+			case Key::Invites: return &st::menuIconInvite;
+			default: return &st::menuIconLock;
+			}
+		}()
+		: nullptr;
 
 	const auto button = addButton({
 		.id = args.id,
 		.title = rpl::duplicate(args.title),
-		.st = &st::settingsButtonNoIcon,
+		.st = icon ? &st::settingsButton : &st::settingsButtonNoIcon,
+		.icon = { icon },
 		.label = PrivacyButtonLabel(session, args.key),
 		.keywords = args.keywords,
 	});

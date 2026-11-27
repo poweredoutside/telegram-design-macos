@@ -100,6 +100,7 @@ struct SectionSlideParams {
 	bool withTabs = false;
 	bool withFade = false;
 	bool fromBottom = false;
+	bool profileTransition = false;
 
 	explicit operator bool() const {
 		return !oldContentCache.isNull();

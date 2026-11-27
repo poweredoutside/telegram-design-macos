@@ -31,6 +31,7 @@ public:
 	void setTopSkip(int skip);
 	void setTopBarMask(const QPixmap &mask);
 	void setWithFade(bool withFade);
+	void setProfileTransition(bool enabled);
 	void setDuration(crl::time duration);
 
 	using RepaintCallback = Fn<void()>;
@@ -52,6 +53,7 @@ private:
 	int _topSkip = 0;
 	bool _topBarShadowEnabled = false;
 	bool _withFade = false;
+	bool _profileTransition = false;
 	crl::time _duration = 0;
 
 	mutable Ui::Animations::Simple _animation;

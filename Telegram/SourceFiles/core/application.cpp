@@ -80,6 +80,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/system_media_controls_manager.h"
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
+#include "window/themes/window_theme_glass.h"
 #include "ui/widgets/tooltip.h"
 #include "ui/gl/gl_detection.h"
 #include "ui/text/text_options.h"
@@ -209,6 +210,7 @@ Application::Application()
 , _setupEmailLock(false)
 , _autoLockTimer([=] { checkAutoLock(); }) {
 	Ui::Integration::Set(&_private->uiIntegration);
+	Window::Theme::InitGlassDialogs();
 	_private->proxyRotation = std::make_unique<ProxyRotationManager>();
 
 	_platformIntegration->init();
@@ -339,6 +341,14 @@ void Application::run() {
 	_notifications = std::make_unique<Window::Notifications::System>();
 
 	startLocalStorage();
+	if constexpr (Platform::IsWindows()) {
+		Telega::ProtectMainWindowValue() | rpl::on_next([=](bool enabled) {
+			_screenshotProtection->setStreamerMode(enabled);
+			if (enabled) {
+				_notifications->clearAll();
+			}
+		}, _lifetime);
+	}
 	Telega::InitApplicationIconAppearance();
 	Window::InitCustomApplicationIcon();
 #ifdef Q_OS_WIN

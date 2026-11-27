@@ -7,6 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_context_menu.h"
 
+#include "ui/effects/liquid_glass.h"
+#include "ui/platform/ui_platform_utility.h"
+#include "window/themes/window_theme_glass.h"
+
 #include "api/api_attached_stickers.h"
 #include "api/api_editing.h"
 #include "api/api_global_privacy.h"
@@ -114,6 +118,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/core_telega_preferences.h"
 #include "core/file_location.h"
 #include "api/api_gemini_chat.h"
+#include "history/view/history_view_transcribe_button.h"
 #include "data/data_document_media.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
@@ -1909,6 +1914,24 @@ void FillContextMenuItems(
 		|| !request.selectedText.empty();
 	const auto hasWhoReactedItem = item
 		&& Api::WhoReactedExists(item, Api::WhoReactedList::All);
+	const auto unigram = Core::Telega::UseWindows11Style();
+	auto deferredTextActions = std::vector<Fn<void()>>();
+	const auto addTextAction = [&](
+			QString text,
+			Fn<void()> callback,
+			const style::icon *icon) {
+		if (unigram) {
+			deferredTextActions.push_back(
+				[result,
+				 text = std::move(text),
+				 callback = std::move(callback),
+				 icon]() mutable {
+					result->addAction(text, std::move(callback), icon);
+				});
+		} else {
+			result->addAction(text, std::move(callback), icon);
+		}
+	};
 
 	if (item && !hasSelection) {
 		AddMessageEditHistoryAction(result, list->controller(), item);
@@ -2019,7 +2042,7 @@ void FillContextMenuItems(
 		if (!link && (view->hasVisibleText() || mediaHasTextForCopy)) {
 			if (!list->hasCopyRestriction(view->data())) {
 				const auto asGroup = (request.pointState != PointState::GroupPart);
-				result->addAction(tr::lng_context_copy_text(tr::now), [=] {
+				addTextAction(tr::lng_context_copy_text(tr::now), [=] {
 					if (const auto item = owner->message(itemId)) {
 						if (!list->showCopyRestriction(item)) {
 							if (asGroup) {
@@ -2045,7 +2068,7 @@ void FillContextMenuItems(
 			if ((!item->translation() || !item->history()->translatedTo())
 				&& !translate.text.isEmpty()
 				&& !Ui::SkipTranslate(translate)) {
-				result->addAction(tr::lng_context_translate(tr::now), [=] {
+				addTextAction(tr::lng_context_translate(tr::now), [=] {
 					if (const auto item = owner->message(itemId)) {
 						list->controller()->show(Box(
 							Ui::TranslateBox,
@@ -2064,6 +2087,14 @@ void FillContextMenuItems(
 
 	AddCopyLinkAction(result, link);
 	AddMessageActions(result, request, list);
+	if (!deferredTextActions.empty()) {
+		if (!result->empty()) {
+			result->addSeparator();
+		}
+		for (const auto &add : deferredTextActions) {
+			add();
+		}
+	}
 
 	const auto wasAmount = result->actions().size();
 	if (const auto textItem = view ? view->textItem() : item) {
@@ -2164,6 +2195,70 @@ void AddTelegaQuickActionRow(not_null<Ui::PopupMenu*> menu) {
 	}
 }
 
+namespace {
+
+const style::PopupMenu &GlassMessageContextMenuStyle() {
+	static const auto result = [] {
+		auto result = st::popupMenuWithIcons;
+		result.radius = style::ConvertScale(14);
+		result.menu.itemBg = st::transparent;
+		return result;
+	}();
+	return result;
+}
+
+void SetupMessageMenuGlass(not_null<Ui::PopupMenu*> menu) {
+	const auto tint = st::popupMenuWithIcons.menu.itemBg->c;
+	const auto glass = Window::Theme::GlassStyle();
+	const auto area = menu->inner();
+	const auto backdrop = glass.opacity < 100
+		? Ui::CaptureLiquidGlassBackdrop(
+			*menu->parentWidget()->window(),
+			QRect(menu->mapToGlobal(area.topLeft()), area.size()),
+			tint)
+		: QImage();
+	const auto layer = Ui::CreateChild<Ui::RpWidget>(menu.get());
+	const auto cache = layer->lifetime().make_state<Ui::LiquidGlassBackdropCache>();
+	layer->setAttribute(Qt::WA_TransparentForMouseEvents);
+	menu->sizeValue() | rpl::on_next([=](QSize size) {
+		layer->resize(size);
+	}, layer->lifetime());
+	layer->paintRequest() | rpl::on_next([=] {
+		auto painter = QPainter(layer);
+		Ui::PaintLiquidGlass(
+			painter, menu->inner(), backdrop, tint, glass, menu->st().radius, cache);
+	}, layer->lifetime());
+	layer->show();
+	layer->lower();
+}
+
+} // namespace
+
+const style::PopupMenu &MessageContextMenuStyle() {
+	if (Ui::Platform::TranslucentWindowsSupported()
+		&& Window::Theme::GlassStyle().enabled) {
+		return GlassMessageContextMenuStyle();
+	}
+	if (!Core::Telega::UseWindows11Style()) {
+		return st::popupMenuWithIcons;
+	}
+	static const auto result = [] {
+		auto result = st::popupMenuWithIcons;
+		const auto scale = [](int value) { return style::ConvertScale(value); };
+		result.radius = scale(10);
+		result.scrollPadding = style::margins(0, scale(4), 0, scale(4));
+		result.menu.itemBg = st::boxBg;
+		result.menu.itemBgOver = st::windowBgOver;
+		result.menu.itemIconPosition = QPoint(scale(12), scale(4));
+		result.menu.itemPadding = style::margins(
+			scale(43), scale(7), scale(14), scale(7));
+		result.menu.widthMin = scale(200);
+		result.menu.separator.padding = style::margins(0, scale(3), 0, scale(3));
+		return result;
+	}();
+	return result;
+}
+
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		not_null<ListWidget*> list,
 		const ContextMenuRequest &request) {
@@ -2177,7 +2272,7 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 
 	auto result = base::make_unique_q<Ui::PopupMenu>(
 		list,
-		st::popupMenuWithIcons);
+		MessageContextMenuStyle());
 
 	// Build the full message menu.
 	FillContextMenuItems(result, list, request, hasPollOption);
@@ -2449,7 +2544,7 @@ void FillPollOptionPage(
 	}
 }
 
-void AttachPollOptionTabs(
+static void AttachPollOptionTabs(
 		not_null<Ui::PopupMenu*> menu,
 		QPoint desiredPosition) {
 	if (!menu->hasStashedContent()) {
@@ -2531,6 +2626,21 @@ void AttachPollOptionTabs(
 			reposition();
 		}
 	}, tabs->lifetime());
+}
+
+bool ShowMessageContextMenu(
+		not_null<Ui::PopupMenu*> menu,
+		QPoint desiredPosition,
+		bool prepared) {
+	AttachPollOptionTabs(menu, desiredPosition);
+	if (!prepared && !menu->prepareGeometryFor(desiredPosition)) {
+		return false;
+	}
+	if (&menu->st() == &GlassMessageContextMenuStyle()) {
+		SetupMessageMenuGlass(menu);
+	}
+	menu->popupPrepared();
+	return true;
 }
 
 void AddGiftMessageAction(
@@ -2826,6 +2936,24 @@ void AddTelegaRecordingTranscription(
 		not_null<HistoryItem*> item,
 		not_null<Window::SessionController*> controller) {
 	namespace Gemini = Api::GeminiChat;
+	if (!Gemini::HasKey()) {
+		return;
+	}
+	if (Api::Transcribes::geminiVoiceAvailable(item)) {
+		const auto title = Lang::GetInstance().id().startsWith(u"ru"_q)
+			? u"Расшифровать через Gemini"_q
+			: u"Transcribe with Gemini"_q;
+		const auto id = item->fullId();
+		const auto weak = base::make_weak(controller.get());
+		menu->addAction(title, [=] {
+			if (const auto strong = weak.get()) {
+				if (const auto item = strong->session().data().message(id)) {
+					ShowGeminiVoiceTranscription(item, strong);
+				}
+			}
+		}, &st::menuIconCopy);
+		return;
+	}
 	const auto eligible = [](not_null<HistoryItem*> message) -> DocumentData* {
 		if (!message->isRegular() || message->isLocal() || !message->allowsForward()
 			|| message->isEphemeral() || ItemHasTtl(message)) {
@@ -2833,18 +2961,14 @@ void AddTelegaRecordingTranscription(
 		}
 		const auto media = message->media();
 		const auto document = media ? media->document() : nullptr;
-		return (document && ((document->isVoiceMessage()
-				&& Gemini::Preference("transcribeVoice", 0))
-			|| (document->isVideoMessage()
-				&& Gemini::Preference("transcribeRoundVideo", 0))))
+		return (document && document->isVideoMessage()
+			&& Gemini::Preference("transcribeRoundVideo", 0))
 			? document
 			: nullptr;
 	};
-	const auto selected = Gemini::HasKey() ? eligible(item) : nullptr;
-	if (!selected) {
+	if (!eligible(item)) {
 		return;
 	}
-	const auto round = selected->isVideoMessage();
 	const auto text = [russian = Lang::GetInstance().id().startsWith(u"ru"_q)](
 			QString russianText, QString englishText) {
 		return russian ? std::move(russianText) : std::move(englishText);
@@ -2858,11 +2982,9 @@ void AddTelegaRecordingTranscription(
 			return;
 		}
 		strong->show(Ui::MakeConfirmBox({
-			.text = rpl::single(round ? text(
+			.text = rpl::single(text(
 				u"Отправить этот видеокружок целиком (видео и звук) в Google Gemini для расшифровки?"_q,
-				u"Send this entire round video (picture and audio) to Google Gemini for transcription?"_q) : text(
-				u"Отправить эту голосовую запись в Google Gemini для расшифровки?"_q,
-				u"Send this voice recording to Google Gemini for transcription?"_q)),
+				u"Send this entire round video (picture and audio) to Google Gemini for transcription?"_q)),
 			.confirmed = [=](Fn<void()> &&close) {
 				close();
 				const auto strong = weak.get();
@@ -2871,7 +2993,7 @@ void AddTelegaRecordingTranscription(
 				}
 				const auto item = strong->session().data().message(messageId);
 				const auto document = item ? eligible(item) : nullptr;
-				if (!document || document->isVideoMessage() != round) {
+				if (!document) {
 					return;
 				}
 				auto bytes = document->createMediaView()->bytes();
@@ -2891,14 +3013,13 @@ void AddTelegaRecordingTranscription(
 						u"Download the recording first. It must be 8 MiB or smaller."_q));
 					return;
 				}
-				if (round ? (bytes.mid(4, 4) != "ftyp") : !bytes.startsWith("OggS")) {
+				if (bytes.mid(4, 4) != "ftyp") {
 					strong->showToast(text(u"Этот формат записи не поддерживается."_q,
 						u"This recording format is not supported."_q));
 					return;
 				}
-				Gemini::Transcribe(std::move(bytes), round
-					? Gemini::Recording::RoundVideo
-					: Gemini::Recording::Voice, [=](QString result, bool ok) {
+				Gemini::Transcribe(std::move(bytes), Gemini::Recording::RoundVideo,
+					[=](QString result, bool ok) {
 					if (const auto strong = weak.get()) {
 						if (!ok) {
 							strong->showToast(text(u"Gemini не смог расшифровать запись."_q,

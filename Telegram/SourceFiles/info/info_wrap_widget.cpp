@@ -64,6 +64,11 @@ namespace Info {
 namespace {
 
 const style::InfoTopBar &TopBarStyle(Wrap wrap, bool settings) {
+	if (settings && Core::Telega::UseWindows11Style()) {
+		return (wrap == Wrap::Layer)
+			? st::infoUnigramSettingsLayerTopBar
+			: st::infoUnigramSettingsTopBar;
+	}
 	if (Core::Telega::UseMacOSStyle() && settings) {
 		return (wrap == Wrap::Layer)
 			? st::infoSettingsLayerTopBar
@@ -463,7 +468,7 @@ void WrapWidget::createTopBar() {
 	_topBar.create(
 		this,
 		_controller.get(),
-		TopBarStyle(wrapValue, settings),
+		TopBarStyle(wrapValue, _controller->section().type() == Section::Type::Settings),
 		std::move(selectedItems));
 	_topBar->selectionActionRequests(
 	) | rpl::on_next([=](SelectionAction action) {

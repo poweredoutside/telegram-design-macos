@@ -9,4 +9,9 @@ namespace Window::Theme {
 void SetGlassStyle(Ui::LiquidGlassStyle style);
 [[nodiscard]] rpl::producer<Ui::LiquidGlassStyle> GlassStyleValue();
 
+[[nodiscard]] bool GlassDialogsEnabled();
+void SetGlassDialogsEnabled(bool enabled);
+[[nodiscard]] rpl::producer<bool> GlassDialogsEnabledValue();
+void InitGlassDialogs();
+
 } // namespace Window::Theme

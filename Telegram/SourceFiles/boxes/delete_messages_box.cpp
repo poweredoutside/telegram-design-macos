@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_histories.h"
@@ -24,6 +25,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "menu/menu_ttl_validator.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/layers/generic_box.h"
+#include "ui/painter.h"
+#include "ui/rect_part.h"
 #include "ui/text/text_utilities.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
@@ -37,6 +40,35 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace {
 
 constexpr auto kDeleteMessagesBoxAnimationDuration = crl::time(80);
+constexpr auto kUnigramDeleteWidth = 320;
+constexpr auto kUnigramDeleteFooterHeight = 80;
+constexpr auto kUnigramDeleteButtonHeight = 32;
+constexpr auto kUnigramDeleteButtonSkip = 8;
+
+[[nodiscard]] style::Check UnigramDeleteCheck() {
+	static const auto red = style::owned_color(QColor(211, 47, 53));
+	auto result = st::defaultCheck;
+	result.toggledFg = red.color();
+	return result;
+}
+
+[[nodiscard]] style::RoundButton UnigramDeleteButton(bool confirm) {
+	static const auto red = style::owned_color(QColor(211, 47, 53));
+	static const auto redOver = style::owned_color(QColor(184, 39, 45));
+	static const auto white = style::owned_color(QColor(Qt::white));
+	auto result = st::defaultActiveButton;
+	result.height = style::ConvertScale(kUnigramDeleteButtonHeight);
+	result.width = (style::ConvertScale(kUnigramDeleteWidth)
+		- st::boxPadding.left()
+		- st::boxPadding.right()
+		- style::ConvertScale(kUnigramDeleteButtonSkip)) / 2;
+	result.textTop = (result.height - result.style.font->height) / 2;
+	result.radius = style::ConvertScale(5);
+	result.textBg = confirm ? red.color() : st::windowBgOver;
+	result.textBgOver = confirm ? redOver.color() : st::windowBgRipple;
+	result.textFg = result.textFgOver = confirm ? white.color() : st::boxTextFg;
+	return result;
+}
 
 } // namespace
 
@@ -82,6 +114,13 @@ crl::time DeleteMessagesBox::layerAnimationDuration() const {
 }
 
 void DeleteMessagesBox::prepare() {
+	const auto unigram = Core::Telega::UseWindows11Style() && !_wipeHistoryPeer;
+	const auto boxWidth = unigram
+		? style::ConvertScale(kUnigramDeleteWidth)
+		: st::boxWidth;
+	const auto check = unigram
+		? lifetime().make_state<style::Check>(UnigramDeleteCheck())
+		: &st::defaultCheck;
 	auto details = TextWithEntities();
 	const auto appendDetails = [&](TextWithEntities &&text) {
 		details.append(u"\n\n"_q).append(std::move(text));
@@ -196,7 +235,8 @@ void DeleteMessagesBox::prepare() {
 					this,
 					revoke->checkbox,
 					revokeByDefault,
-					st::defaultBoxCheckbox);
+					st::defaultBoxCheckbox,
+					*check);
 				_revokeRemember.create(
 					this,
 					object_ptr<Ui::Checkbox>(
@@ -213,7 +253,9 @@ void DeleteMessagesBox::prepare() {
 				}, _revokeRemember->lifetime());
 				_revokeRemember->heightValue(
 				) | rpl::on_next([=](int h) {
-					setDimensions(st::boxWidth, _fullHeight + h);
+					if (_fullHeight) {
+						setDimensions(boxWidth, _fullHeight + h);
+					}
 				}, lifetime());
 				appendDetails(std::move(revoke->description));
 			} else if (peer->isChannel()) {
@@ -241,7 +283,7 @@ void DeleteMessagesBox::prepare() {
 		}
 	}
 	_text.create(this, rpl::single(std::move(details)), st::boxLabel);
-	_text->resizeToWidth(st::boxWidth - rect::m::sum::h(st::boxPadding));
+	_text->resizeToWidth(boxWidth - rect::m::sum::h(st::boxPadding));
 
 	if (_wipeHistoryJustClear && _wipeHistoryPeer) {
 		const auto validator = TTLMenu::TTLValidator(
@@ -261,7 +303,36 @@ void DeleteMessagesBox::prepare() {
 		}
 	}
 
-	if (canDelete) {
+	if (unigram && canDelete) {
+		auto box = lifetime().make_state<style::Box>(getDelegate()->style());
+		box->buttonHeight = 0;
+		box->buttonPadding = {};
+		box->title.style.font = style::font(
+			style::ConvertScale(20),
+			st::boxTitleFont->flags(),
+			st::boxTitleFont->family());
+		setStyle(*box);
+		setNoContentMargin(true);
+		setCustomCornersFilling(RectPart::FullBottom);
+		setTitle(rpl::single((_ids.size() == 1)
+			? tr::lng_delete_title_message_one(tr::now)
+			: tr::lng_delete_title_message_many(
+				tr::now,
+				lt_count,
+				int(_ids.size()))));
+		const auto confirm = lifetime().make_state<style::RoundButton>(
+			UnigramDeleteButton(true));
+		const auto cancel = lifetime().make_state<style::RoundButton>(
+			UnigramDeleteButton(false));
+		_confirm.create(this, deleteText->value(), *confirm);
+		_cancel.create(this, tr::lng_cancel(), *cancel);
+		_confirm->setTextTransform(Ui::RoundButtonTextTransform::NoTransform);
+		_cancel->setTextTransform(Ui::RoundButtonTextTransform::NoTransform);
+		_confirm->setClickedCallback([=] { deleteAndClear(); });
+		_cancel->setClickedCallback([=] { closeBox(); });
+		_confirm->show();
+		_cancel->show();
+	} else if (canDelete) {
 		addButton(
 			deleteText->value(),
 			[=] { deleteAndClear(); },
@@ -289,8 +360,12 @@ void DeleteMessagesBox::prepare() {
 				+ _autoDeleteSettings->height()
 				+ st::boxLittleSkip;
 		}
-		setDimensions(st::boxWidth, fullHeight);
+		if (_confirm) {
+			fullHeight += style::ConvertScale(kUnigramDeleteFooterHeight);
+		}
 		_fullHeight = fullHeight;
+		setDimensions(boxWidth,
+			fullHeight + (_revokeRemember ? _revokeRemember->height() : 0));
 	}, lifetime());
 }
 
@@ -433,8 +508,28 @@ auto DeleteMessagesBox::revokeText(not_null<PeerData*> peer) const
 	return std::nullopt;
 }
 
+void DeleteMessagesBox::paintEvent(QPaintEvent *e) {
+	BoxContent::paintEvent(e);
+	if (!_confirm) {
+		return;
+	}
+	const auto footerHeight = style::ConvertScale(kUnigramDeleteFooterHeight);
+	const auto top = height() - footerHeight;
+	const auto footer = QRect(0, top, width(), footerHeight);
+	const auto radius = st::boxRadius;
+	auto p = Painter(this);
+	p.setClipRect(footer, Qt::IntersectClip);
+	const auto hq = PainterHighQualityEnabler(p);
+	p.setPen(Qt::NoPen);
+	p.setBrush(st::windowBg);
+	p.drawRoundedRect(footer.adjusted(0, -radius, 0, 0), radius, radius);
+}
+
 void DeleteMessagesBox::resizeEvent(QResizeEvent *e) {
 	BoxContent::resizeEvent(e);
+	if (!_text) {
+		return;
+	}
 
 	const auto &padding = st::boxPadding;
 	_text->moveToLeft(padding.left(), padding.top());
@@ -453,6 +548,12 @@ void DeleteMessagesBox::resizeEvent(QResizeEvent *e) {
 	if (_autoDeleteSettings) {
 		top += st::boxMediumSkip - st::boxLittleSkip;
 		_autoDeleteSettings->moveToLeft(padding.left(), top);
+	}
+	if (_confirm) {
+		const auto footer = style::ConvertScale(kUnigramDeleteFooterHeight);
+		const auto buttonTop = height() - (footer + _confirm->height()) / 2;
+		_confirm->moveToLeft(padding.left(), buttonTop);
+		_cancel->moveToRight(padding.right(), buttonTop);
 	}
 }
 

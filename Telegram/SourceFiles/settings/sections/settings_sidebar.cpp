@@ -33,8 +33,11 @@
 #include "settings/sections/settings_premium.h"
 #include "settings/sections/settings_privacy_security.h"
 #include "settings/sections/settings_telega.h"
+#include "settings/settings_power_saving.h"
 #include "ui/boxes/peer_qr_box.h"
+#include "ui/basic_click_handlers.h"
 #include "ui/controls/userpic_button.h"
+#include "ui/power_saving.h"
 #include "ui/style/style_core_scale.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
@@ -54,6 +57,7 @@
 #include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QImage>
+#include <QtSvg/QSvgRenderer>
 
 #include "styles/style_dialogs.h"
 #include "styles/style_info.h"
@@ -62,6 +66,44 @@
 
 namespace Settings {
 namespace {
+
+QImage UnigramSettingsIcon(QStringView asset) {
+	using Name = std::pair<QStringView, QStringView>;
+	constexpr Name names[] = {
+		{ u"Icon_SettingsStories", u"Profile" },
+		{ u"Icon_AppearanceSettings", u"Appearance" },
+		{ u"Icon_SettingsSecurity", u"Privacy" },
+		{ u"Icon_SettingsNotifications", u"Notifications" },
+		{ u"Icon_SettingsStorage", u"Data" },
+		{ u"Icon_SettingsFilters", u"Folders" },
+		{ u"Icon_PrivacySettings_ActiveSessions", u"Devices" },
+		{ u"Icon_SettingsLanguage", u"Language" },
+		{ u"Icon_Premium_Settings", u"Premium" },
+		{ u"Icon_Settings_Stars", u"PremiumStars" },
+		{ u"Icon_SettingsBusiness", u"Business" },
+		{ u"Icon_Settings_GiftPremium", u"PremiumGifting" },
+		{ u"Icon_SettingsAskQuestion", u"AskQ" },
+		{ u"Icon_SettingsFaq", u"FAQ" },
+	};
+	if (const auto i = ranges::find(names, asset, &Name::first); i != std::end(names)) {
+		asset = i->second;
+	}
+	auto svg = QSvgRenderer(u":/gui/icons/unigram/"_q + asset.toString() + u".svg"_q);
+	if (!svg.isValid()) {
+		return {};
+	}
+	const auto ratio = style::DevicePixelRatio();
+	const auto size = st::macSettingsIconSize * ratio;
+	auto image = QImage(size, size, QImage::Format_ARGB32_Premultiplied);
+	image.setDevicePixelRatio(ratio);
+	image.fill(Qt::transparent);
+	{
+		auto p = QPainter(&image);
+		p.setRenderHint(QPainter::Antialiasing);
+		svg.render(&p, QRectF(0, 0, st::macSettingsIconSize, st::macSettingsIconSize));
+	}
+	return image;
+}
 
 class SidebarAction final : public Ui::AbstractButton {
 public:
@@ -280,14 +322,18 @@ SidebarRow::SidebarRow(
 : AbstractButton(parent)
 , _icon(icon)
 , _color(color)
-, _image(u":/gui/icons/macos/native-"_q + asset + u".png"_q)
+, _image(Core::Telega::UseWindows11Style()
+	? UnigramSettingsIcon(asset)
+	: QImage(u":/gui/icons/macos/native-"_q + asset + u".png"_q))
 , _premium(asset == u"Icon_Premium_Settings"_q)
 , _keepIcon(asset == u"Icon_Settings_Stars"_q
 	|| asset == u"Icon_Settings_GiftPremium"_q)
 , _labelBadge(labelBadge) {
 	resize(0, st::macSettingsRowHeight);
 	setFocusPolicy(Qt::StrongFocus);
-	_activeImage = _image;
+	if (!Core::Telega::UseWindows11Style()) {
+		_activeImage = _image;
+	}
 	if (!_activeImage.isNull()) {
 		auto p = QPainter(&_activeImage);
 		p.setCompositionMode(QPainter::CompositionMode_SourceIn);
@@ -335,7 +381,11 @@ void SidebarRow::paintEvent(QPaintEvent *e) {
 		}
 	}
 	if (fluent) {
-		_icon.paintInCenter(p, iconRect, _color);
+		if (_image.isNull()) {
+			_icon.paintInCenter(p, iconRect, _color);
+		} else {
+			p.drawImage(iconRect, _image);
+		}
 	} else if (_image.isNull()) {
 		p.setBrush(_color);
 		p.drawRoundedRect(iconRect, s(7), s(7));
@@ -550,18 +600,35 @@ Sidebar::Sidebar(
 		add(ChatId(), localized(u"Appearance"_q, u"Оформление"_q), st::menuIconChatBubble,
 			QColor(48, 176, 199), u"Icon_AppearanceSettings"_q);
 	};
+	const auto addPrivacy = [&] {
+		add(PrivacySecurityId(), tr::lng_settings_section_privacy(), st::menuIconLock,
+			QColor(142, 142, 147), u"Icon_SettingsSecurity"_q);
+	};
+	const auto addFolders = [&] {
+		add(FoldersId(), tr::lng_settings_section_filters(), st::macChatsIcon,
+			QColor(0, 122, 255), u"Icon_SettingsFilters"_q);
+	};
 	if (fluent) {
 		addAppearance();
+		addPrivacy();
 	} else {
 		add(MacGeneralId(), localized(u"General"_q, u"Основные"_q), st::macSettingsIcon,
 			QColor(142, 142, 147), u"Icon_SettingsGeneral"_q);
 	}
 	add(NotificationsId(), tr::lng_settings_section_notify(), st::menuIconNotifications,
 		QColor(255, 69, 58), u"Icon_SettingsNotifications"_q);
-	add(PrivacySecurityId(), tr::lng_settings_section_privacy(), st::menuIconLock,
-		QColor(142, 142, 147), u"Icon_SettingsSecurity"_q);
+	if (!fluent) {
+		addPrivacy();
+	}
 	add(DataStorageId(), tr::lng_settings_data_storage(), st::menuIconStorage,
 		QColor(175, 82, 222), u"Icon_SettingsStorage"_q);
+	if (fluent) {
+		add(nullptr, localized(u"Power saving"_q, u"Энергосбережение"_q),
+			st::menuIconPowerUsage, QColor(224, 143, 0), u"PowerSaving"_q, [=] {
+				controller->show(Box(PowerSavingBox, PowerSaving::Flags()));
+			});
+		addFolders();
+	}
 	add(SessionsId(), tr::lng_settings_sessions_title(), st::menuIconDevices,
 		QColor(0, 122, 255), u"Icon_PrivacySettings_ActiveSessions"_q);
 	if (!fluent) {
@@ -579,11 +646,11 @@ Sidebar::Sidebar(
 			controller->show(Box<StickersBox>(
 				controller->uiShow(), StickersBox::Section::Installed));
 		});
-	add(FoldersId(), tr::lng_settings_section_filters(), st::macChatsIcon,
-		QColor(0, 122, 255), u"Icon_SettingsFilters"_q);
 	if (fluent) {
 		add(AdvancedId(), tr::lng_settings_advanced(), st::macSettingsIcon,
-			QColor(142, 142, 147), QString());
+			QColor(142, 142, 147), u"Advanced"_q);
+	} else {
+		addFolders();
 	}
 	if (controller->session().premiumPossible()) {
 		skip(20);
@@ -613,14 +680,29 @@ Sidebar::Sidebar(
 		}
 	}
 	skip(20);
+	const auto addAskQuestion = [&] {
+		add(nullptr, tr::lng_settings_ask_question(), st::menuIconDiscussion,
+			QColor(0, 122, 255), u"Icon_SettingsAskQuestion"_q, [=] {
+				OpenAskQuestionConfirm(controller);
+			});
+	};
+	if (fluent) {
+		addAskQuestion();
+	}
 	add(nullptr, tr::lng_settings_faq(), st::menuIconFaq,
 		QColor(0, 122, 255), u"Icon_SettingsFaq"_q, [=] {
 			OpenFaq(controller);
 		});
-	add(nullptr, tr::lng_settings_ask_question(), st::menuIconDiscussion,
-		QColor(0, 122, 255), u"Icon_SettingsAskQuestion"_q, [=] {
-			OpenAskQuestionConfirm(controller);
-		});
+	if (fluent) {
+		add(nullptr, tr::lng_settings_features(), st::menuIconInfo,
+			QColor(245, 181, 42), u"Tips"_q, [=] { OpenFeatures(controller); });
+		add(nullptr, localized(u"Privacy Policy"_q, u"Политика конфиденциальности"_q),
+			st::menuIconLock, QColor(142, 142, 147), u"PrivacyPolicy"_q, [] {
+				UrlClickHandler::Open(u"https://telegram.org/privacy"_q);
+			});
+	} else {
+		addAskQuestion();
+	}
 	skip(20);
 	const auto version = currentVersionText();
 	const auto versionRow = content->add(

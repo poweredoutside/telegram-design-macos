@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "api/api_common.h"
+#include "ui/style/style_core.h"
 #include "ui/text/text_entity.h"
 
 namespace Api {
@@ -20,10 +21,31 @@ class GroupCall;
 } // namespace Data
 
 class History;
+class QPainter;
+
+namespace style {
+struct SendButton;
+} // namespace style
+
+namespace Ui {
+class SendButton;
+} // namespace Ui
 
 namespace HistoryView::Controls {
 
 extern const char kOptionMacCmdReplyImmediately[];
+
+[[nodiscard]] bool UseMaterialComposeField();
+[[nodiscard]] int MaterialComposeInset();
+[[nodiscard]] int MaterialComposeVerticalInset();
+[[nodiscard]] const style::SendButton &MaterialComposeSendStyle();
+[[nodiscard]] bool MaterialComposeHasSeparateSend(const Ui::SendButton &send);
+void PaintMaterialComposeHeader(QPainter &p, QRect area, style::color bg);
+void PaintMaterialComposeField(
+	QPainter &p,
+	QRect area,
+	style::color bg,
+	const Ui::SendButton &send);
 
 struct MessageToEdit {
 	FullMsgId fullId;

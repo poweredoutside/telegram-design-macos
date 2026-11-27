@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/peer_list_box.h"
 
+#include "ui/layers/box_background.h"
+
 #include "boxes/peer_list_section_headers.h"
 #include "boxes/peer_list_section_index.h"
 #include "history/history.h" // chatListNameSortKey.
@@ -112,11 +114,20 @@ void PeerListBox::createMultiSelect() {
 	Expects(_select == nullptr);
 
 	auto placeholder = _controller->searchPlaceholder();
+	const auto selectSt = _controller->selectSt()
+		? _controller->selectSt()
+		: &st::defaultMultiSelect;
+	const auto transparent = Ui::BoxUsesCustomBackground(this)
+		? lifetime().make_state<style::MultiSelect>(*selectSt)
+		: nullptr;
+	if (transparent) {
+		transparent->bg = st::transparent;
+		transparent->field.textBg = st::transparent;
+		transparent->field.textBgActive = st::transparent;
+	}
 	auto entity = object_ptr<Ui::MultiSelect>(
 		this,
-		(_controller->selectSt()
-			? *_controller->selectSt()
-			: st::defaultMultiSelect),
+		transparent ? *transparent : *selectSt,
 		placeholder ? std::move(placeholder) : tr::lng_participant_filter());
 	_select.create(this, std::move(entity));
 	_select->heightValue(
@@ -338,6 +349,9 @@ void PeerListBox::resizeEvent(QResizeEvent *e) {
 }
 
 void PeerListBox::paintEvent(QPaintEvent *e) {
+	if (Ui::BoxUsesCustomBackground(this)) {
+		return;
+	}
 	auto p = QPainter(this);
 
 	const auto &bg = _controller->computeListSt().bg;
@@ -1698,7 +1712,7 @@ void PeerListContent::paintEvent(QPaintEvent *e) {
 	const auto yFrom = clip.y() - rowsTopCached;
 	const auto yTo = clip.y() + clip.height() - rowsTopCached;
 	const auto count = shownRowsCount();
-	if (_mode != Mode::Custom) {
+	if (_mode != Mode::Custom && !Ui::BoxUsesCustomBackground(this)) {
 		auto fill = QRegion(clip);
 		if (count > 0 && !sectionsShown()) {
 			const auto [from, to] = Ui::RowsInRange(
@@ -2196,7 +2210,9 @@ void PeerListContent::paintRowContent(
 		}
 	});
 
-	p.fillRect(0, 0, outerWidth, _rowHeight, bg);
+	if (selected || !Ui::BoxUsesCustomBackground(this)) {
+		p.fillRect(0, 0, outerWidth, _rowHeight, bg);
+	}
 	row->paintRipple(p, st, 0, 0, outerWidth);
 	row->paintUserpic(
 		p,

@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "history/history.h"
 #include "core/click_handler_types.h" // kDocumentFilenameTooltipProperty.
+#include "core/core_telega_preferences.h"
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_message.h"
 #include "history/view/history_view_cursor_state.h"
@@ -39,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document_media.h"
 #include "data/data_document_resolver.h"
 #include "data/data_file_click_handler.h"
+#include "api/api_gemini_chat.h"
 #include "api/api_transcribes.h"
 #include "apiwrap.h"
 #include "styles/style_chat.h"
@@ -420,6 +422,11 @@ Document::Document(
 		setDocumentLinks(_data, realParent);
 	}
 
+	if (_data->isVoiceMessage()) {
+		Api::GeminiChat::VoiceTranscriptionChanges() | rpl::on_next([=] {
+			_parent->history()->owner().requestViewResize(_parent);
+		}, _voiceTranscriptionLifetime);
+	}
 	setStatusSize(Ui::FileStatusSizeReady);
 }
 
@@ -498,16 +505,16 @@ QSize Document::countOptimalSize() {
 		const auto history = _realParent->history();
 		const auto session = &history->session();
 		const auto transcribes = &session->api().transcribes();
+		const auto gemini = Api::Transcribes::geminiVoiceAvailable(_realParent);
 		const auto media = _parent->data()->media();
 		if ((media && media->ttlSeconds())
 			|| IsHostedInstantViewMedia(_parent)
 			|| _realParent->isScheduled()
 			|| _realParent->isAdminLogEntry()
-			|| (!session->premium()
-				&& !transcribes->freeFor(_realParent)
-				&& !transcribes->trialsSupport())
-			|| (!session->premium()
-				&& _data->duration() > transcribes->trialsMaxLengthMs())) {
+			|| (!gemini && !session->premium()
+				&& ((!transcribes->freeFor(_realParent)
+						&& !transcribes->trialsSupport())
+					|| _data->duration() > transcribes->trialsMaxLengthMs()))) {
 			voice->transcribe = nullptr;
 			voice->transcribeText = {};
 		} else {
@@ -518,10 +525,14 @@ QSize Document::countOptimalSize() {
 					false);
 			}
 			const auto &entry = transcribes->entry(_realParent);
+			const auto geminiEntry = gemini
+				? &transcribes->geminiVoiceEntry(_realParent)
+				: nullptr;
 			const auto update = [=] { repaint(); };
-			voice->transcribe->setLoading(
-				entry.shown && (entry.requestId || entry.pending));
-			const auto pending = entry.pending;
+			voice->transcribe->setLoading(geminiEntry
+				? geminiEntry->loading
+				: (entry.shown && (entry.requestId || entry.pending)));
+			const auto pending = !gemini && entry.pending;
 			auto descriptor = pending
 				? Lottie::IconDescriptor{
 					.name = u"transcribe_loading"_q,
@@ -530,7 +541,11 @@ QSize Document::countOptimalSize() {
 					.colorizeUsingAlpha = true,
 				}
 				: Lottie::IconDescriptor();
-			auto text = (entry.requestId || !entry.shown)
+			auto text = geminiEntry
+				? TextWithEntities{ geminiEntry->shown
+					? geminiEntry->result
+					: QString() }
+				: (entry.requestId || !entry.shown)
 				? TextWithEntities()
 				: entry.toolong
 				? tr::italic(tr::lng_audio_transcribe_long(tr::now))
@@ -819,6 +834,11 @@ void Document::draw(
 	} else {
 		p.setPen(Qt::NoPen);
 
+		const auto unigram = Core::Telega::UseWindows11Style();
+		const auto unigramFile = unigram
+			&& !_data->isAudioFile()
+			&& !_data->isVoiceMessage()
+			&& !_data->isVideoMessage();
 		const auto hasTtlBadge = _parent->data()->media()
 			&& _parent->data()->media()->ttlSeconds()
 			&& _openl;
@@ -921,8 +941,14 @@ void Document::draw(
 			}
 
 			if (radial && !cornerDownload && !mediaEditor) {
-				QRect rinner(inner.marginsRemoved(QMargins(st::msgFileRadialLine, st::msgFileRadialLine, st::msgFileRadialLine, st::msgFileRadialLine)));
-				_animation->radial.draw(q, rinner, st::msgFileRadialLine, stm->historyFileRadialFg);
+				const auto inset = unigramFile
+					? style::ConvertScale(3)
+					: st::msgFileRadialLine;
+				_animation->radial.draw(
+					q,
+					inner - Margins(inset),
+					st::msgFileRadialLine,
+					stm->historyFileRadialFg);
 			}
 			if (hasTtlBadge) {
 				{
@@ -939,7 +965,7 @@ void Document::draw(
 				stm->historyVoiceMessageTTL.paintInCenter(q, ttlRect);
 			}
 		};
-		if (_data->isSongWithCover() || !usesBubblePattern(context)) {
+		if (unigram || _data->isSongWithCover() || !usesBubblePattern(context)) {
 			paintContent(p);
 		} else {
 			Ui::PaintPatternBubblePart(
@@ -1237,7 +1263,8 @@ void Document::drawCornerDownload(
 	const auto shift = st::historyAudioDownloadShift;
 	const auto size = st::historyAudioDownloadSize;
 	const auto inner = style::rtlrect(st.padding.left() + shift, st.padding.top() - topMinus + shift, size, size, width());
-	const auto bubblePattern = usesBubblePattern(context);
+	const auto bubblePattern = !Core::Telega::UseWindows11Style()
+		&& usesBubblePattern(context);
 	if (bubblePattern) {
 		p.setPen(Qt::NoPen);
 	} else {

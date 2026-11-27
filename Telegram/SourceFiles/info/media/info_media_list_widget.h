@@ -106,6 +106,7 @@ public:
 	};
 
 	void setReorderDescriptor(ReorderDescriptor descriptor);
+	void setProfileStoriesGrid();
 
 	QRect getCurrentSongGeometry();
 	rpl::producer<> checkForHide() const {
@@ -407,6 +408,7 @@ private:
 	bool _globalMediaEmbeddedViewport = false;
 
 	std::unique_ptr<ListZoom> _zoom;
+	bool _profileStoriesGrid = false;
 
 	MouseAction _mouseAction = MouseAction::None;
 	TextSelectType _mouseSelectType = TextSelectType::Letters;

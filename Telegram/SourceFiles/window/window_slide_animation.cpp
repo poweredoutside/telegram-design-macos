@@ -16,7 +16,17 @@ void SlideAnimation::paintContents(QPainter &p) const {
 
 	const auto slideLeft = (_direction == SlideDirection::FromLeft);
 	const auto progress = _animation.value(slideLeft ? 0. : 1.);
-	if (_withFade) {
+	if (_profileTransition) {
+		const auto amount = slideLeft ? (1. - progress) : progress;
+		const auto shift = style::ConvertScale(24) * (slideLeft ? -1 : 1);
+		const auto &oldContent = slideLeft ? _cacheOver : _cacheUnder;
+		const auto &newContent = slideLeft ? _cacheUnder : _cacheOver;
+		p.save();
+		p.drawPixmap(0, 0, oldContent);
+		p.setOpacity(amount);
+		p.drawPixmap(anim::interpolate(shift, 0, amount), 0, newContent);
+		p.restore();
+	} else if (_withFade) {
 		const auto dt = slideLeft
 			? (1. - progress)
 			: progress;
@@ -181,6 +191,10 @@ void SlideAnimation::setWithFade(bool withFade) {
 	_withFade = withFade;
 }
 
+void SlideAnimation::setProfileTransition(bool enabled) {
+	_profileTransition = enabled;
+}
+
 void Window::SlideAnimation::setDuration(crl::time duration) {
 	_duration = duration;
 }
@@ -203,9 +217,12 @@ void SlideAnimation::start() {
 		std::swap(_cacheUnder, _cacheOver);
 	}
 	const auto fromBottom = (_direction == SlideDirection::FromBottom);
-	const auto curve = fromBottom ? anim::easeOutQuint : transition();
-	const auto duration = fromBottom
-		? (st::slideDuration * 2)
+	const auto curve = _profileTransition
+		? anim::easeOutCubic
+		: fromBottom ? anim::easeOutQuint : transition();
+	const auto duration = _profileTransition
+		? crl::time(180)
+		: fromBottom ? (st::slideDuration * 2)
 		: (_duration ? _duration : st::slideDuration);
 	_animation.start(
 		[this] { animationCallback(); },

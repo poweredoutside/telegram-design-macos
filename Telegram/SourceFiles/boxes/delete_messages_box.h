@@ -19,6 +19,7 @@ namespace Ui {
 class Checkbox;
 class FlatLabel;
 class LinkButton;
+class RoundButton;
 template <typename Widget>
 class SlideWrap;
 } // namespace Ui
@@ -48,6 +49,7 @@ protected:
 	void prepare() override;
 
 	void resizeEvent(QResizeEvent *e) override;
+	void paintEvent(QPaintEvent *e) override;
 	void keyPressEvent(QKeyEvent *e) override;
 
 private:
@@ -80,6 +82,8 @@ private:
 	object_ptr<Ui::SlideWrap<Ui::Checkbox>> _revokeRemember = { nullptr };
 	object_ptr<Ui::LinkButton> _autoDeleteSettings = { nullptr };
 
+	object_ptr<Ui::RoundButton> _confirm = { nullptr };
+	object_ptr<Ui::RoundButton> _cancel = { nullptr };
 	int _fullHeight = 0;
 	bool _confirmedDeletePaidSuggestedPosts = false;
 

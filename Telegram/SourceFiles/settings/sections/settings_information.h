@@ -20,6 +20,7 @@ struct UnreadBadgeStyle;
 
 namespace Main {
 class Account;
+class Session;
 } // namespace Main
 
 namespace Window {
@@ -30,13 +31,20 @@ namespace Settings {
 
 [[nodiscard]] Type InformationId();
 
+struct AccountsListOptions {
+	Fn<bool(not_null<Main::Session*>)> showAccount;
+	bool showAddAccount = true;
+};
+
 struct AccountsEvents {
 	rpl::producer<> closeRequests;
 	QPointer<Ui::RpWidget> addAccountButton;
+	rpl::producer<bool> hasRows;
 };
 AccountsEvents SetupAccounts(
 	not_null<Ui::VerticalLayout*> container,
-	not_null<Window::SessionController*> controller);
+	not_null<Window::SessionController*> controller,
+	AccountsListOptions options = {});
 
 void UpdatePhotoLocally(not_null<UserData*> user, const QImage &image);
 

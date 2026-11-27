@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <rpl/variable.h>
 #include <QtGui/QImage>
 #include <optional>
+#include <vector>
 
 namespace Dialogs {
 
@@ -47,6 +48,7 @@ private:
 	bool eventFilter(QObject *watched, QEvent *e) override;
 	void cancelSelection(bool animated);
 	void animateSelection(float64 from, float64 to);
+	[[nodiscard]] int actionIndex(NavigationAction action) const;
 	[[nodiscard]] float64 positionAt(float64 x) const;
 	[[nodiscard]] float64 selectionPosition() const;
 
@@ -58,6 +60,7 @@ private:
 	rpl::event_stream<NavigationAction> _iconAnimations;
 	Ui::Animations::Simple _selection;
 	Ui::LiquidGlassBackdropCache _backdropCache;
+	std::vector<NavigationAction> _visibleActions;
 	std::optional<SelectionGesture> _gesture;
 	QWidget *_grabber = nullptr;
 

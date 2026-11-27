@@ -2,6 +2,7 @@
 
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_telega_preferences.h"
 #include "media/streaming/media_streaming_document.h"
 #include "media/streaming/media_streaming_instance.h"
 #include "media/streaming/media_streaming_loader_local.h"
@@ -35,7 +36,13 @@ constexpr auto kWallpaperEnabled = "telega.wallpaper.videoEnabled";
 
 [[nodiscard]] QString SavedWallpaperId() {
 	return QString::fromLatin1(
-		Core::App().settings().readPref<QByteArray>(kWallpaperId));
+		Core::App().settings().readPref<QByteArray>(
+			Core::Telega::StyleThemePreference(kWallpaperId)));
+}
+
+[[nodiscard]] bool LiveWallpaperEnabled() {
+	return Core::App().settings().readPref<bool>(
+		Core::Telega::StyleThemePreference(kWallpaperEnabled), false);
 }
 
 [[nodiscard]] bool CanRepaint(not_null<QWidget*> widget) {
@@ -82,7 +89,7 @@ LiveWallpaper::LiveWallpaper() {
 		&QGuiApplication::applicationStateChanged,
 		qApp,
 		[=] { repaintTargets(); });
-	if (Core::App().settings().readPref<bool>(kWallpaperEnabled, false)) {
+	if (LiveWallpaperEnabled()) {
 		open(SavedLiveWallpaperPath());
 	}
 }
@@ -135,8 +142,9 @@ void LiveWallpaper::enable(const QString &id) {
 	auto &settings = Core::App().settings();
 	const auto previous = SavedLiveWallpaperPath();
 	const auto next = WallpaperPath(id);
-	settings.writePref<QByteArray>(kWallpaperId, id.toLatin1());
-	settings.writePref<bool>(kWallpaperEnabled, true);
+	settings.writePref<QByteArray>(
+		Core::Telega::StyleThemePreference(kWallpaperId), id.toLatin1());
+	settings.writePref<bool>(Core::Telega::StyleThemePreference(kWallpaperEnabled), true);
 	Core::App().saveSettingsDelayed();
 	open(next);
 	if (!previous.isEmpty() && previous != next) {
@@ -180,12 +188,12 @@ void LiveWallpaper::apply(const QString &path, Fn<void(bool)> done) {
 }
 
 void LiveWallpaper::useStatic() {
-	if (!_video && _pendingId.isEmpty()
-		&& !Core::App().settings().readPref<bool>(kWallpaperEnabled, false)) {
+	if (!_video && _pendingId.isEmpty() && !LiveWallpaperEnabled()) {
 		return;
 	}
 	_pendingId.clear();
-	Core::App().settings().writePref<bool>(kWallpaperEnabled, false);
+	Core::App().settings().writePref<bool>(
+		Core::Telega::StyleThemePreference(kWallpaperEnabled), false);
 	Core::App().saveSettingsDelayed();
 	open({});
 }

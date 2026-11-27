@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/effects/message_sending_text_flight.h"
 
+#include "core/core_telega_preferences.h"
 #include "data/data_session.h"
 #include "history/view/media/history_view_media.h"
 #include "history/view/history_view_element.h"
@@ -36,9 +37,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Ui {
 namespace {
 
-constexpr auto kDuration = crl::time(280);
-constexpr auto kSlideDuration = crl::time(160);
-constexpr auto kFadeDuration = crl::time(110);
+struct FlightTiming {
+	crl::time duration;
+	crl::time slide;
+	crl::time morph;
+};
+
+constexpr auto kDefaultTiming = FlightTiming{ 280, 160, 110 };
+constexpr auto kUnigramTiming = FlightTiming{ 500, 250, 250 };
+
+[[nodiscard]] FlightTiming Timing() {
+	return Core::Telega::UseWindows11Style() ? kUnigramTiming : kDefaultTiming;
+}
 constexpr auto kGiveUpTimeout = crl::time(1000);
 constexpr auto kMorphMaxFieldHeights = 1.5;
 constexpr auto kMorphHiddenLines = 3;
@@ -149,11 +159,14 @@ void ApplyTopFade(QImage &image, not_null<InputField*> field) {
 }
 
 [[nodiscard]] crl::time GiveUpDeadline(crl::time capturedAt) {
-	return capturedAt + kGiveUpTimeout * anim::SlowMultiplier();
+	const auto timeout = kGiveUpTimeout
+		+ (Timing().duration - kDefaultTiming.duration);
+	return capturedAt + timeout * anim::SlowMultiplier();
 }
 
 [[nodiscard]] crl::time StartDeadline(crl::time capturedAt) {
-	return GiveUpDeadline(capturedAt) - kDuration * anim::SlowMultiplier();
+	const auto wait = kGiveUpTimeout - kDefaultTiming.duration;
+	return capturedAt + wait * anim::SlowMultiplier();
 }
 
 [[nodiscard]] float64 RiseProgress(float64 progress) {
@@ -164,7 +177,8 @@ void ApplyTopFade(QImage &image, not_null<InputField*> field) {
 		int height,
 		int lift,
 		int lead,
-		float64 progress) {
+		float64 progress,
+		FlightTiming timing) {
 	const auto rise = RiseProgress(progress);
 	if (lift <= 0) {
 		return anim::interpolate(height, 0, rise);
@@ -174,7 +188,7 @@ void ApplyTopFade(QImage &image, not_null<InputField*> field) {
 	// to keep the message above clear of the flying box.
 	const auto start = height - lift;
 	const auto follow = std::clamp(lead, 0, std::max(start, 0));
-	const auto fade = std::min(progress * kDuration / kFadeDuration, 1.);
+	const auto fade = std::min(progress * timing.duration / timing.morph, 1.);
 	return anim::interpolate(start - follow, 0, rise)
 		+ anim::interpolate(follow, 0, fade);
 }
@@ -628,7 +642,7 @@ auto MessageSendingTextFlight::Prepare(
 		.bubbleRect = bubble,
 		.viewSize = QSize(view->width(), view->height()),
 	};
-	if (source.singleLine && (text.height() < size.height() + line / 2)) {
+	if (source.singleLine && text.height() < size.height() + line / 2) {
 		return result;
 	} else if (TooTallToMorph(bubble.height())) {
 		return Refused();
@@ -694,15 +708,16 @@ MessageSendingTextFlight::MessageSendingTextFlight(
 		crl::time()));
 	_animation.start([=](float64 value) {
 		tick(value);
-	}, 0., 1., kDuration);
+	}, 0., 1., Timing().duration);
 }
 
 MessageSendingReveal MessageSendingTextFlight::reveal() const {
 	const auto lead = _morph ? (_morph->from.y() - _morph->bubble.y()) : 0;
+	const auto timing = Timing();
 	return {
-		.duration = kDuration,
+		.duration = timing.duration,
 		.height = [=](int height, int lift, float64 progress) {
-			return RevealHeight(height, lift, lead, progress);
+			return RevealHeight(height, lift, lead, progress, timing);
 		},
 	};
 }
@@ -732,8 +747,9 @@ void MessageSendingTextFlight::refresh() {
 	if (!_residual) {
 		_residual = _start - target;
 	}
-	const auto elapsed = _progress * kDuration;
-	const auto slide = std::min(elapsed / kSlideDuration, 1.);
+	const auto timing = Timing();
+	const auto elapsed = _progress * timing.duration;
+	const auto slide = std::min(elapsed / timing.slide, 1.);
 	const auto x = 1. - anim::easeOutQuint(1., slide);
 	const auto y = 1. - RiseProgress(_progress);
 	_position = target + QPoint(
@@ -800,8 +816,16 @@ void MessageSendingTextFlight::paintEvent(QPaintEvent *e) {
 	auto p = Painter(this);
 	p.translate(-_bounds.topLeft());
 
-	const auto elapsed = _progress * kDuration;
-	const auto mix = std::min(elapsed / kFadeDuration, 1.);
+	const auto timing = Timing();
+	const auto elapsed = _progress * timing.duration;
+	const auto entry = [&] {
+		if (!Core::Telega::UseWindows11Style() || _bandBottom <= _bandTop) {
+			return 1.;
+		}
+		const auto space = _bandBottom - _position.y() - rect::bottom(_bounds);
+		return std::clamp(space / float64(style::ConvertScale(4)), 0., 1.);
+	}();
+	const auto mix = std::min(elapsed / timing.morph, entry);
 	const auto view = (mix > 0.) ? _toInfo.view() : nullptr;
 	if (!view || !_target) {
 		p.drawImage(_sourceRect.topLeft(), _source);

@@ -29,7 +29,8 @@ class ChatsFiltersTabs final : public Ui::SettingsSlider {
 public:
 	ChatsFiltersTabs(
 		not_null<Ui::RpWidget*> parent,
-		const style::SettingsSlider &st);
+		const style::SettingsSlider &st,
+		bool macFolders = false);
 
 	bool setSectionsAndCheckChanged(
 		std::vector<TextWithEntities> &&sections,
@@ -86,11 +87,15 @@ private:
 	using Index = int;
 	struct Unread final {
 		QImage cache;
-		ushort count = 0;
+		QImage selectedCache;
+		int count = 0;
 		bool muted = false;
 	};
+	void refreshUnreadBadge(Unread &unread) const;
+
 	base::flat_map<Index, Unread> _unreadCounts;
 	const style::SettingsSlider &_st;
+	const bool _macFolders;
 	const UnreadBadgeStyle _unreadSt;
 	const QString _unreadMaxString;
 	const int _unreadSkip;

@@ -4284,11 +4284,16 @@ void InputField::startPlaceholderAnimation() {
 		|| (textLength() > _placeholderAfterSymbols);
 	if (_placeholderShifted != placeholderShifted) {
 		_placeholderShifted = placeholderShifted;
-		_a_placeholderShifted.start(
-			[=] { update(); },
-			_placeholderShifted ? 0. : 1.,
-			_placeholderShifted ? 1. : 0.,
-			_st.duration);
+		if (_st.duration == 0) {
+			_a_placeholderShifted.stop();
+			update();
+		} else {
+			_a_placeholderShifted.start(
+				[=] { update(); },
+				_placeholderShifted ? 0. : 1.,
+				_placeholderShifted ? 1. : 0.,
+				_st.duration);
+		}
 	}
 }
 

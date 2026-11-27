@@ -24,7 +24,7 @@ struct Section {
 
 class SectionStack final {
 public:
-	explicit SectionStack(not_null<Ui::VerticalLayout*> layout);
+	explicit SectionStack(not_null<Ui::VerticalLayout*> layout, bool cards = false);
 
 	void add(Section section);
 	void addPlainSeparator();
@@ -55,6 +55,7 @@ private:
 		const std::vector<bool> &intrinsic);
 
 	const not_null<Ui::VerticalLayout*> _layout;
+	const bool _cards;
 	std::vector<Row> _rows;
 	bool _finalized = false;
 

@@ -27,6 +27,7 @@ AbstractCheckView::AbstractCheckView(int duration, bool checked, Fn<void()> upda
 
 void AbstractCheckView::setChecked(bool checked, anim::type animated) {
 	const auto changed = (_checked != checked);
+	const auto from = currentAnimationValue();
 	_checked = checked;
 	if (animated == anim::type::instant) {
 		finishAnimating();
@@ -36,12 +37,12 @@ void AbstractCheckView::setChecked(bool checked, anim::type animated) {
 	} else if (changed) {
 		_toggleAnimation.start(
 			[=] { if (_updateCallback) _updateCallback(); },
-			_checked ? 0. : 1.,
+			from,
 			_checked ? 1. : 0.,
 			_duration,
 			(style::MaterialDesign().enabled && style::MaterialDesign().expressive)
 				? anim::easeOutQuint
-				: anim::linear);
+				: anim::easeOutCubic);
 	}
 	checkedChangedHook(animated);
 	if (changed) {

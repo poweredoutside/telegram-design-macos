@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/Data.cs -->
+<defs>
+
+</defs>
+<g transform="translate(100 100)">
+<path d="M 0 -20 C 33.137 -20 60 -33.432 60 -50 C 60 -66.568 33.137 -80 0 -80 C -33.137 -80 -60 -66.568 -60 -50 C -60 -33.432 -33.137 -20 0 -20 Z" fill-rule="nonzero" fill="#6ac8f0" fill-opacity="1"/>
+</g>
+<g transform="translate(100 100)">
+<path d="M 46.899 -19.843 C 51.593 -22.19 56.173 -25.177 60 -28.797 L 60 0 C 60 16.568 33.137 30 0 30 C -33.137 30 -60 16.568 -60 0 L -60 -28.797 C -56.173 -25.177 -51.593 -22.19 -46.898 -19.843 C -34.379 -13.583 -17.784 -10 0 -10 C 17.784 -10 34.379 -13.583 46.899 -19.843 Z" fill-rule="nonzero" fill="#4290d9" fill-opacity="1"/>
+</g>
+<g transform="translate(100 100)">
+<path d="M 46.899 30.157 C 51.593 27.81 56.173 24.823 60 21.203 L 60 50 C 60 66.568 33.137 80 0 80 C -33.137 80 -60 66.568 -60 50 L -60 21.203 C -56.173 24.823 -51.593 27.81 -46.898 30.157 C -34.379 36.417 -17.784 40 0 40 C 17.784 40 34.379 36.417 46.899 30.157 Z" fill-rule="nonzero" fill="#27589f" fill-opacity="1"/>
+</g>
+</svg>

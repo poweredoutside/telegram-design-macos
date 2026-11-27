@@ -445,10 +445,32 @@ int Preference(std::string_view name, int fallback) {
 		"telega.gemini." + std::string(name), fallback);
 }
 
+namespace {
+
+rpl::event_stream<> &VoiceTranscriptionChangesStream() {
+	static auto stream = rpl::event_stream<>();
+	return stream;
+}
+
+} // namespace
+
+bool VoiceTranscriptionEnabled() {
+	return Preference("transcribeVoice", 0) != 0;
+}
+
+rpl::producer<> VoiceTranscriptionChanges() {
+	return VoiceTranscriptionChangesStream().events();
+}
+
 void SetPreference(std::string_view name, int value) {
+	const auto voiceChanged = (name == "transcribeVoice")
+		&& (VoiceTranscriptionEnabled() != (value != 0));
 	Core::App().settings().writePref<int>(
 		"telega.gemini." + std::string(name), value);
 	Core::App().saveSettingsDelayed();
+	if (voiceChanged) {
+		VoiceTranscriptionChangesStream().fire({});
+	}
 }
 
 void SetKey(QByteArray key, Provider provider) {

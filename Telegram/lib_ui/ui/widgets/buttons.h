@@ -335,6 +335,7 @@ public:
 	void setToggleLocked(bool locked);
 	void setColorOverride(std::optional<QColor> textColorOverride);
 	void setMaterialSurface();
+	void setCardSurface(int radius, int verticalInset);
 	void setPaddingOverride(style::margins padding);
 	void setAllowTextLines(int lines = 0);
 
@@ -370,6 +371,8 @@ private:
 	std::unique_ptr<Ui::ToggleView> _toggle;
 	std::optional<QColor> _textColorOverride;
 	bool _materialSurface = false;
+	int _cardRadius = 0;
+	int _cardVerticalInset = 0;
 	Text::MarkedContext _context;
 
 };

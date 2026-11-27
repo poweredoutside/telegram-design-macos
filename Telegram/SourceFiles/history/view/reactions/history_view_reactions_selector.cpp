@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/stickers_list_footer.h"
 #include "chat_helpers/stickers_list_widget.h"
 #include "window/window_session_controller.h"
+#include "window/themes/window_theme_glass.h"
 #include "boxes/premium_preview_box.h"
 #include "mainwidget.h"
 #include "apiwrap.h"
@@ -499,6 +500,43 @@ void Selector::initGeometry(int innerTop) {
 	}
 }
 
+QRect Selector::collapsedSurface() const {
+	return _outer.marginsRemoved(marginsForShadow());
+}
+
+void Selector::setupCollapsedGlass(not_null<QWidget*> source) {
+	if (!_useTransparency || !_strip) {
+		return;
+	}
+	_collapsedGlass = Window::Theme::GlassStyle();
+	if (_collapsedGlass.enabled && _collapsedGlass.opacity < 100) {
+		const auto area = collapsedSurface();
+		_glassBackdrop = Ui::CaptureLiquidGlassBackdrop(
+			*source,
+			QRect(mapToGlobal(area.topLeft()), area.size()),
+			_st.bg->c);
+	}
+}
+
+void Selector::paintCollapsedGlass(QPainter &p, QRect area) {
+	if (!_collapsedGlass.enabled) {
+		return;
+	}
+	const auto ratio = _glassBackdrop.devicePixelRatio();
+	const auto croppedWidth = int(std::round(area.width() * ratio));
+	const auto backdrop = croppedWidth < _glassBackdrop.width()
+		? _glassBackdrop.copy(0, 0, croppedWidth, _glassBackdrop.height())
+		: _glassBackdrop;
+	Ui::PaintLiquidGlass(
+		p,
+		area,
+		backdrop,
+		_st.bg->c,
+		_collapsedGlass,
+		st::reactStripHeight / 2,
+		&_glassCache);
+}
+
 void Selector::beforeDestroy() {
 	if (_list) {
 		_list->beforeHiding();
@@ -563,6 +601,9 @@ void Selector::paintAppearing(QPainter &p) {
 	const auto appearedWidth = countAppearedWidth(_appearProgress);
 	const auto fullWidth = _inner.x() + appearedWidth + margins.right();
 	const auto size = QSize(fullWidth, _outer.height());
+	auto glassArea = collapsedSurface().translated(0, -_outer.y());
+	glassArea.setWidth(appearedWidth);
+	paintCollapsedGlass(q, glassArea);
 
 	q.translate(_inner.topLeft() - QPoint(0, _outer.y()));
 	_strip->paint(
@@ -652,6 +693,7 @@ void Selector::paintCollapsed(QPainter &p) {
 			paintBackgroundToBuffer();
 		}
 		p.drawImage(_outer.topLeft(), _paintBuffer);
+		paintCollapsedGlass(p, collapsedSurface());
 	} else {
 		p.fillRect(_outer.marginsRemoved(marginsForShadow()), _st.bg);
 	}
@@ -1356,6 +1398,7 @@ AttachSelectorResult AttachSelectorToMenu(
 		return result.error();
 	}
 	const auto selector = *result;
+	selector->setupCollapsedGlass(menu->parentWidget()->window());
 	const auto itemId = item->fullId();
 
 	selector->chosen() | rpl::on_next([=](ChosenReaction reaction) {

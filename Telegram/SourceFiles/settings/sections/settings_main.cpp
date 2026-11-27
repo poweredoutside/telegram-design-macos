@@ -545,76 +545,102 @@ void BuildPremiumSection(SectionBuilder &builder) {
 		return;
 	}
 
-	builder.addDivider();
-	builder.addSkip();
-
-	builder.group([&] {
-		builder.addPremiumButton({
-			.id = u"main/premium"_q,
-			.title = tr::lng_premium_summary_title(),
-			.onClick = [=] {
-				controller->setPremiumRef("settings");
-				showOther(PremiumId());
-			},
-			.keywords = { u"subscription"_q },
+	using Item = MainSettingsItem;
+	auto premiumShown = MainSettingsItemShownValue(Item::Premium);
+	auto starsShown = MainSettingsItemShownValue(Item::Stars);
+	auto businessShown = MainSettingsItemShownValue(Item::Business);
+	auto giftShown = session->premiumCanBuy()
+		? MainSettingsItemShownValue(Item::SendGift)
+		: rpl::producer<bool>(rpl::single(false));
+	auto tonShown = session->credits().tonBalanceValue(
+	) | rpl::map([](CreditsAmount c) { return !c.empty(); });
+	auto shown = rpl::combine(
+		rpl::duplicate(premiumShown),
+		rpl::duplicate(starsShown),
+		rpl::duplicate(businessShown),
+		rpl::duplicate(giftShown),
+		rpl::duplicate(tonShown),
+		[](bool premium, bool stars, bool business, bool gift, bool ton) {
+			return premium || stars || business || gift || ton;
 		});
 
-		session->credits().load();
-		builder.addPremiumButton({
-			.id = u"main/credits"_q,
-			.title = tr::lng_settings_credits(),
-			.label = session->credits().balanceValue(
-			) | rpl::map([](CreditsAmount c) {
-				return c
-					? Lang::FormatCreditsAmountToShort(c).string
-					: QString();
-			}),
-			.credits = true,
-			.onClick = [=] {
-				controller->setPremiumRef("settings");
-				showOther(CreditsId());
-			},
-			.keywords = { u"stars"_q, u"balance"_q },
-		});
+	builder.scope([&] {
+		builder.addDivider();
+		builder.addSkip();
 
-		session->credits().tonLoad();
-		builder.addButton({
-			.id = u"main/currency"_q,
-			.title = tr::lng_settings_currency(),
-			.icon = { &st::menuIconTon },
-			.label = session->credits().tonBalanceValue(
-			) | rpl::map([](CreditsAmount c) {
-				return c ? Lang::FormatCreditsAmountToShort(c).string : u""_q;
-			}),
-			.onClick = [=] {
-				controller->setPremiumRef("settings");
-				showOther(CurrencyId());
-			},
-			.keywords = { u"ton"_q, u"crypto"_q, u"wallet"_q },
-			.shown = session->credits().tonBalanceValue(
-			) | rpl::map([](CreditsAmount c) { return !c.empty(); }),
-		});
+		builder.group([&] {
+			builder.scope([&] {
+				builder.addPremiumButton({
+					.id = u"main/premium"_q,
+					.title = tr::lng_premium_summary_title(),
+					.onClick = [=] {
+						controller->setPremiumRef("settings");
+						showOther(PremiumId());
+					},
+					.keywords = { u"subscription"_q },
+				});
+			}, std::move(premiumShown));
 
-		builder.addButton({
-			.id = u"main/business"_q,
-			.title = tr::lng_business_title(),
-			.icon = { .icon = &st::menuIconShop },
-			.onClick = [=] { showOther(BusinessId()); },
-			.keywords = { u"work"_q, u"company"_q },
-		});
+			session->credits().load();
+			builder.scope([&] {
+				builder.addPremiumButton({
+					.id = u"main/credits"_q,
+					.title = tr::lng_settings_credits(),
+					.label = session->credits().balanceValue(
+					) | rpl::map([](CreditsAmount c) {
+						return c
+							? Lang::FormatCreditsAmountToShort(c).string
+							: QString();
+					}),
+					.credits = true,
+					.onClick = [=] {
+						controller->setPremiumRef("settings");
+						showOther(CreditsId());
+					},
+					.keywords = { u"stars"_q, u"balance"_q },
+				});
+			}, std::move(starsShown));
 
-		if (session->premiumCanBuy()) {
+			session->credits().tonLoad();
 			builder.addButton({
-				.id = u"main/send-gift"_q,
-				.title = tr::lng_settings_gift_premium(),
-				.icon = { .icon = &st::menuIconGiftPremium, .newBadge = true },
-				.onClick = [=] { Ui::ChooseStarGiftRecipient(controller); },
-				.keywords = { u"present"_q, u"send"_q },
+				.id = u"main/currency"_q,
+				.title = tr::lng_settings_currency(),
+				.icon = { &st::menuIconTon },
+				.label = session->credits().tonBalanceValue(
+				) | rpl::map([](CreditsAmount c) {
+					return c ? Lang::FormatCreditsAmountToShort(c).string : u""_q;
+				}),
+				.onClick = [=] {
+					controller->setPremiumRef("settings");
+					showOther(CurrencyId());
+				},
+				.keywords = { u"ton"_q, u"crypto"_q, u"wallet"_q },
+				.shown = std::move(tonShown),
 			});
-		}
-	});
 
-	builder.addSkip();
+			builder.addButton({
+				.id = u"main/business"_q,
+				.title = tr::lng_business_title(),
+				.icon = { .icon = &st::menuIconShop },
+				.onClick = [=] { showOther(BusinessId()); },
+				.keywords = { u"work"_q, u"company"_q },
+				.shown = std::move(businessShown),
+			});
+
+			if (session->premiumCanBuy()) {
+				builder.addButton({
+					.id = u"main/send-gift"_q,
+					.title = tr::lng_settings_gift_premium(),
+					.icon = { .icon = &st::menuIconGiftPremium, .newBadge = true },
+					.onClick = [=] { Ui::ChooseStarGiftRecipient(controller); },
+					.keywords = { u"present"_q, u"send"_q },
+					.shown = std::move(giftShown),
+				});
+			}
+		});
+
+		builder.addSkip();
+	}, std::move(shown));
 }
 
 class CircleRippleIconButton final : public Ui::IconButton {
@@ -628,63 +654,78 @@ protected:
 };
 
 void BuildHelpSection(SectionBuilder &builder) {
-	builder.addDivider();
-	builder.addSkip();
+	using Item = MainSettingsItem;
+	auto faqShown = MainSettingsItemShownValue(Item::Faq);
+	auto featuresShown = MainSettingsItemShownValue(Item::Features);
+	auto askShown = MainSettingsItemShownValue(Item::AskQuestion);
+	auto shown = rpl::combine(
+		rpl::duplicate(faqShown),
+		rpl::duplicate(featuresShown),
+		rpl::duplicate(askShown),
+		[](bool faq, bool features, bool ask) { return faq || features || ask; });
 
-	builder.group([&] {
-		const auto controller = builder.controller();
-		const auto faq = builder.addButton({
-			.id = u"main/faq"_q,
-			.title = tr::lng_settings_faq(),
-			.icon = { &st::menuIconFaq },
-			.onClick = [=] { OpenFaq(controller); },
-			.keywords = {
-				u"help"_q,
-				u"support"_q,
-				u"questions"_q,
-				u"shortcuts"_q,
-				u"keyboard"_q,
-				u"hotkeys"_q,
-				u"legend"_q,
-				u"gestures"_q,
-			},
-		});
-		if (faq) {
-			const auto legend = Ui::CreateChild<CircleRippleIconButton>(
-				faq,
-				st::settingsFaqKeysLegend);
-			legend->setAccessibleName(tr::lng_keys_legend_title(tr::now));
-			faq->sizeValue(
-			) | rpl::on_next([=](const QSize &size) {
-				const auto right = st::settingsButtonRightSkip
-					- st::settingsFaqKeysLegend.iconPosition.x();
-				legend->moveToRight(
-					right,
-					(size.height() - legend->height()) / 2);
-			}, legend->lifetime());
-			legend->setClickedCallback([=] {
-				ShowKeysLegend(&controller->window());
+	builder.scope([&] {
+		builder.addDivider();
+		builder.addSkip();
+
+		builder.group([&] {
+			const auto controller = builder.controller();
+			const auto faq = builder.addButton({
+				.id = u"main/faq"_q,
+				.title = tr::lng_settings_faq(),
+				.icon = { &st::menuIconFaq },
+				.onClick = [=] { OpenFaq(controller); },
+				.keywords = {
+					u"help"_q,
+					u"support"_q,
+					u"questions"_q,
+					u"shortcuts"_q,
+					u"keyboard"_q,
+					u"hotkeys"_q,
+					u"legend"_q,
+					u"gestures"_q,
+				},
+				.shown = std::move(faqShown),
 			});
-		}
+			if (faq) {
+				const auto legend = Ui::CreateChild<CircleRippleIconButton>(
+					faq,
+					st::settingsFaqKeysLegend);
+				legend->setAccessibleName(tr::lng_keys_legend_title(tr::now));
+				faq->sizeValue(
+				) | rpl::on_next([=](const QSize &size) {
+					const auto right = st::settingsButtonRightSkip
+						- st::settingsFaqKeysLegend.iconPosition.x();
+					legend->moveToRight(
+						right,
+						(size.height() - legend->height()) / 2);
+				}, legend->lifetime());
+				legend->setClickedCallback([=] {
+					ShowKeysLegend(&controller->window());
+				});
+			}
 
-		builder.addButton({
-			.id = u"main/features"_q,
-			.title = tr::lng_settings_features(),
-			.icon = { &st::menuIconEmojiObjects },
-			.onClick = [=] { OpenFeatures(controller); },
-			.keywords = { u"tips"_q, u"tutorial"_q },
+			builder.addButton({
+				.id = u"main/features"_q,
+				.title = tr::lng_settings_features(),
+				.icon = { &st::menuIconEmojiObjects },
+				.onClick = [=] { OpenFeatures(controller); },
+				.keywords = { u"tips"_q, u"tutorial"_q },
+				.shown = std::move(featuresShown),
+			});
+
+			builder.addButton({
+				.id = u"main/ask-question"_q,
+				.title = tr::lng_settings_ask_question(),
+				.icon = { &st::menuIconDiscussion },
+				.onClick = [=] { OpenAskQuestionConfirm(controller); },
+				.keywords = { u"contact"_q, u"feedback"_q },
+				.shown = std::move(askShown),
+			});
 		});
 
-		builder.addButton({
-			.id = u"main/ask-question"_q,
-			.title = tr::lng_settings_ask_question(),
-			.icon = { &st::menuIconDiscussion },
-			.onClick = [=] { OpenAskQuestionConfirm(controller); },
-			.keywords = { u"contact"_q, u"feedback"_q },
-		});
-	});
-
-	builder.addSkip();
+		builder.addSkip();
+	}, std::move(shown));
 }
 
 void BuildValidationSuggestions(SectionBuilder &builder) {

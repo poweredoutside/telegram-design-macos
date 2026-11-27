@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/call_delayed.h"
 #include "base/options.h"
 #include "core/ui_integration.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
 #include "data/data_forum_topic.h"
@@ -56,7 +57,11 @@ TabsHost::TabsHost(not_null<QWidget*> parent, Descriptor descriptor)
 : RpWidget(parent)
 , _context(descriptor.context)
 , _tabs(std::move(descriptor.tabs))
-, _strip(Ui::CreateChild<TabsStrip>(this, st::infoProfileTabsStrip))
+, _strip(Ui::CreateChild<TabsStrip>(this,
+	(Core::Telega::UseWindows11Style()
+		&& (_context.peer->isUser() || _context.peer->isBroadcast()))
+		? st::infoUnigramProfileTabsStrip
+		: st::infoProfileTabsStrip))
 , _stripWeak(_strip)
 , _body(Ui::CreateChild<Ui::RpWidget>(this)) {
 	_strip->setTextContext(Core::TextContext({

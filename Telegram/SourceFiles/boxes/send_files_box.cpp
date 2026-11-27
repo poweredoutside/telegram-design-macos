@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/send_files_box.h"
 
+#include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "storage/localimageloader.h"
 #include "storage/localstorage.h"
@@ -57,7 +58,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/toast/toast.h"
 #include "ui/controls/compose_ai_button_factory.h"
 #include "ui/controls/emoji_button.h"
+#include "ui/controls/send_button.h"
 #include "ui/painter.h"
+#include "ui/style/style_material.h"
+#include "ui/rect_part.h"
 #include "ui/vertical_list.h"
 #include "ui/ui_utility.h"
 #include "lottie/lottie_single_player.h"
@@ -422,6 +426,54 @@ SendFilesCheck DefaultCheckForPeer(
 	};
 }
 
+namespace {
+
+[[nodiscard]] rpl::producer<QString> SendFileCaptionPlaceholder(bool compact) {
+	if (compact) {
+		const auto language = Lang::GetInstance().id();
+		if (language.startsWith(u"ru"_q)) {
+			return rpl::single(u"Добавить подпись…"_q);
+		} else if (language.isEmpty() || language.startsWith(u"en"_q)) {
+			return rpl::single(u"Add a caption…"_q);
+		}
+	}
+	return tr::lng_photo_caption();
+}
+
+[[nodiscard]] style::InputField CompactFileCaptionStyle(
+		const style::InputField &source) {
+	auto result = source;
+	result.textBg = st::transparent;
+	result.textBgActive = st::transparent;
+	result.border = 0;
+	result.borderActive = 0;
+	result.heightMin = style::ConvertScale(40);
+	result.textMargins = style::margins(0, style::ConvertScale(4), 0, 0);
+	result.placeholderShift = 0;
+	result.placeholderScale = 0.;
+	result.placeholderFont = result.style.font;
+	result.placeholderFgActive = result.placeholderFg;
+	result.duration = 0;
+	return result;
+}
+
+[[nodiscard]] style::SendButton CompactFileSendStyle() {
+	auto result = st::historySendMac;
+	const auto size = style::ConvertScale(32);
+	result.inner.width = result.inner.height = size;
+	result.sendFillSize = QSize(size, size);
+	const auto icon = result.inner.icon.size();
+	const auto opticalOffset = Core::Telega::UseWindows11Style()
+		? style::ConvertScale(2)
+		: 0;
+	result.sendIconPosition = QPoint(
+		(size - icon.width()) / 2 + opticalOffset,
+		(size - icon.height()) / 2);
+	return result;
+}
+
+} // namespace
+
 SendFilesBox::Block::Block(
 	not_null<QWidget*> parent,
 	const style::ComposeControls &st,
@@ -736,6 +788,9 @@ SendFilesBox::SendFilesBox(QWidget*, SendFilesBoxDescriptor &&descriptor)
 , _st(descriptor.stOverride
 	? *descriptor.stOverride
 	: st::defaultComposeControls)
+, _compact((Core::Telega::UseWindows11Style() || Core::Telega::UseMacOSStyle())
+	&& descriptor.sendType == Api::SendType::Normal
+	&& !descriptor.toPeer->starsPerMessageChecked())
 , _sendType(descriptor.sendType)
 , _titleHeight(st::boxTitleHeight)
 , _list(std::move(descriptor.list))
@@ -748,9 +803,12 @@ SendFilesBox::SendFilesBox(QWidget*, SendFilesBoxDescriptor &&descriptor)
 , _cancelledCallback(std::move(descriptor.cancelled))
 , _caption(
 	this,
-	_st.files.caption,
+	_compact
+		? *lifetime().make_state<style::InputField>(
+			CompactFileCaptionStyle(_st.files.caption))
+		: _st.files.caption,
 	Ui::InputField::Mode::MultiLine,
-	tr::lng_photo_caption())
+	SendFileCaptionPlaceholder(_compact))
 , _prefilledCaptionText(std::move(descriptor.caption))
 , _scroll(this, st::boxScroll)
 , _inner(
@@ -796,7 +854,7 @@ void SendFilesBox::setReplyTo(FullReplyTo replyTo) {
 		if (_replyHeader) {
 			_replyHeader->hideAnimated();
 		}
-		if (_send) {
+		if (_send || _compactSend) {
 			refreshButtons();
 		}
 	}, _replyHeader->lifetime());
@@ -809,7 +867,7 @@ void SendFilesBox::setReplyTo(FullReplyTo replyTo) {
 			updateControlsGeometry();
 		});
 	}, _replyHeader->lifetime());
-	if (_send) {
+	if (_send || _compactSend) {
 		refreshButtons();
 	}
 }
@@ -926,6 +984,17 @@ void SendFilesBox::enqueueNextPrepare() {
 }
 
 void SendFilesBox::prepare() {
+	if (_compact) {
+		const auto box = lifetime().make_state<style::Box>(
+			getDelegate()->style());
+		box->buttonHeight = 0;
+		box->buttonPadding = {};
+		setStyle(*box);
+		setNoContentMargin(true);
+		if (!Core::Telega::UseWindows11Style()) {
+			setCustomCornersFilling(RectPart::FullBottom);
+		}
+	}
 	initSendWay();
 	setupCaption();
 	setupSendWayControls();
@@ -1249,6 +1318,10 @@ void SendFilesBox::refreshMessagesCount() {
 
 void SendFilesBox::refreshButtons() {
 	clearButtons();
+	if (_compact) {
+		refreshCompactButtons();
+		return;
+	}
 
 	_send = addButton(
 		(_sendType == Api::SendType::Normal
@@ -1286,6 +1359,51 @@ void SendFilesBox::refreshButtons() {
 		}));
 
 	addMenuButton();
+}
+
+void SendFilesBox::refreshCompactButtons() {
+	if (!_compactSend) {
+		const auto &sendStyle = *lifetime().make_state<style::SendButton>(
+			CompactFileSendStyle());
+		_compactSend.create(this, sendStyle);
+		_compactSend->setAccessibleName(tr::lng_send_button(tr::now));
+		_compactSend->setClickedCallback([=] { send({}); });
+		_compactSend->show();
+		SendMenu::SetupMenuAndShortcuts(
+			_compactSend.data(),
+			_show,
+			_sendMenuDetails,
+			_sendMenuCallback,
+			&_st.tabbed.menu,
+			&_st.tabbed.icons);
+	}
+	refreshMessagesCount();
+
+	const auto close = addTopButton(st::boxTitleClose, [=] {
+		requestToTakeTextWithTags();
+		closeBox();
+	});
+	close->setAccessibleName(tr::lng_close(tr::now));
+	const auto add = addTopButton(st::boxTitleClose, [=] {
+		openDialogToAddFileToAlbum();
+	});
+	add->setIconOverride(&st::menuIconAdd, &st::menuIconAdd);
+	add->setIconColorOverride(st::boxTitleCloseFg->c);
+	add->setAccessibleName(tr::lng_stickers_featured_add(tr::now));
+	style::PaletteChanged() | rpl::on_next([=] {
+		add->setIconColorOverride(st::boxTitleCloseFg->c);
+	}, add->lifetime());
+	_compactArchiveMenu = canArchiveAll() || hasArchives();
+	if (_compactArchiveMenu) {
+		addMenuButton();
+	}
+}
+
+int SendFilesBox::compactFooterHeight() const {
+	const auto caption = _caption->isHidden() ? 0 : _caption->height();
+	const auto vertical = style::ConvertScale(
+		Core::Telega::UseWindows11Style() ? 16 : 8);
+	return std::max(style::ConvertScale(48), caption + vertical);
 }
 
 bool SendFilesBox::hasSendMenu(const MenuDetails &details) const {
@@ -1646,9 +1764,12 @@ void SendFilesBox::pushBlock(int from, int till) {
 		_sendWay.current());
 	auto &block = _blocks.back();
 	block.setSelectionMode(hasSelection());
+	const auto bottomSkip = _compact && block.isSingleFile()
+		? style::ConvertScale(8)
+		: 0;
 	const auto widget = _inner->add(
 		block.takeWidget(),
-		QMargins(0, _inner->count() ? st::sendMediaRowSkip : 0, 0, 0));
+		QMargins(0, _inner->count() ? st::sendMediaRowSkip : 0, 0, bottomSkip));
 	struct State {
 		base::unique_qptr<Ui::PopupMenu> menu;
 	};
@@ -2682,13 +2803,25 @@ void SendFilesBox::refreshTitleText() {
 			: (type == Type::Video)
 			? tr::lng_send_video(tr::now)
 			: tr::lng_send_file(tr::now);
+		if (_compact && count == 1 && type != Type::Photo && type != Type::Video) {
+			const auto language = Lang::GetInstance().id();
+			if (language.startsWith(u"ru"_q)) {
+				_titleText = u"Отправить 1 файл"_q;
+			} else if (language.isEmpty() || language.startsWith(u"en"_q)) {
+				_titleText = u"Send 1 file"_q;
+			}
+		}
 	}
-	_titleHeight = st::boxTitleHeight;
+	_titleHeight = _compact
+		? style::ConvertScale(66)
+		: st::boxTitleHeight;
 }
 
 void SendFilesBox::updateBoxSize() {
 	auto footerHeight = 0;
-	if (!_caption->isHidden()) {
+	if (_compact) {
+		footerHeight = compactFooterHeight();
+	} else if (!_caption->isHidden()) {
 		footerHeight += st::boxPhotoCaptionSkip + _caption->height();
 	}
 	footerHeight += _replyHeaderHeight.current();
@@ -2726,7 +2859,35 @@ void SendFilesBox::keyPressEvent(QKeyEvent *e) {
 void SendFilesBox::paintEvent(QPaintEvent *e) {
 	BoxContent::paintEvent(e);
 
-	if (!_titleText.isEmpty()) {
+	if (_compact) {
+		auto p = Painter(this);
+		const auto bottom = height() - compactFooterHeight();
+		const auto footer = QRect(0, bottom, width(), height() - bottom);
+		const auto radius = st::boxRadius;
+		p.save();
+		p.setClipRect(footer, Qt::IntersectClip);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setPen(Qt::NoPen);
+		if (Core::Telega::UseWindows11Style()) {
+			const auto inset = style::ConvertScale(8);
+			p.setBrush(style::MaterialTone(st::boxBg->c, st::windowFg->c, .055));
+			const auto card = footer.marginsRemoved({ inset, 0, inset, inset });
+			const auto rounding = style::ConvertScale(16);
+			p.drawRoundedRect(card, rounding, rounding);
+		} else {
+			p.setBrush(st::windowBg);
+			p.drawRoundedRect(footer.adjusted(0, -radius, 0, 0), radius, radius);
+			p.fillRect(0, bottom, width(), st::lineWidth, st::shadowFg);
+		}
+		p.restore();
+		const auto left = st::boxPhotoTitlePosition.x();
+		const auto available = std::max(0, width() - left
+			- st::boxTitleClose.width * (_compactArchiveMenu ? 3 : 2));
+		p.setFont(st::boxTitleFont);
+		p.setPen(getDelegate()->style().title.textFg);
+		p.drawTextLeft(left, style::ConvertScale(24), width(),
+			st::boxTitleFont->elided(_titleText, available));
+	} else if (!_titleText.isEmpty()) {
 		Painter p(this);
 
 		p.setFont(st::boxTitleFont);
@@ -2746,7 +2907,35 @@ void SendFilesBox::resizeEvent(QResizeEvent *e) {
 
 void SendFilesBox::updateControlsGeometry() {
 	auto bottom = height();
-	if (!_caption->isHidden()) {
+	if (_compact) {
+		const auto footer = compactFooterHeight();
+		bottom -= footer;
+		const auto unigram = Core::Telega::UseWindows11Style();
+		const auto right = style::ConvertScale(unigram ? 14 : 8);
+		const auto center = bottom + (footer - style::ConvertScale(unigram ? 8 : 0)) / 2;
+		const auto left = st::boxPhotoPadding.left();
+		const auto sendWidth = _compactSend ? _compactSend->width() : 0;
+		const auto emojiWidth = _emojiToggle ? _emojiToggle->width() : 0;
+		const auto captionWidth = width() - left - 2 * right
+			- sendWidth - emojiWidth;
+		if (_compactSend) {
+			_compactSend->moveToRight(
+				right,
+				center - _compactSend->height() / 2);
+		}
+		if (!_caption->isHidden() && captionWidth > 0) {
+			_caption->resize(captionWidth, _caption->height());
+			_caption->moveToLeft(left, center - _caption->height() / 2);
+			if (_emojiToggle) {
+				_emojiToggle->moveToRight(2 * right + sendWidth,
+					center - _emojiToggle->height() / 2);
+			}
+			if (_aiButton) {
+				Ui::UpdateCaptionAiButtonGeometry(_aiButton, _caption.data());
+				_aiButton->raise();
+			}
+		}
+	} else if (!_caption->isHidden()) {
 		_caption->resize(st::sendMediaPreviewSize, _caption->height());
 		_caption->moveToLeft(
 			st::boxPhotoPadding.left(),
@@ -2787,7 +2976,7 @@ void SendFilesBox::updateControlsGeometry() {
 	if (_replyHeader) {
 		_replyHeader->setGeometry(0, replyTop, width(), replyH);
 	}
-	_scroll->resize(width(), bottom - replyTop - replyH);
+	_scroll->resize(width(), std::max(0, bottom - replyTop - replyH));
 	_scroll->move(0, replyTop + replyH);
 }
 

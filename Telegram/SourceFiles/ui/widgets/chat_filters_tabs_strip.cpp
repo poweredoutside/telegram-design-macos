@@ -201,6 +201,26 @@ void ShowFiltersListMenu(
 	state->menu->popup(QCursor::pos());
 }
 
+[[nodiscard]] style::SettingsSlider MacFolderTabStyle() {
+	auto result = st::dialogsSearchTabs;
+	result.padding = 0;
+	result.height = style::ConvertScale(30);
+	result.barStroke = style::ConvertScale(3);
+	result.barTop = result.height - result.barStroke;
+	result.barRadius = style::ConvertScale(2);
+	result.barFgActive = st::windowActiveTextFg;
+	result.strictSkip = style::ConvertScale(20);
+	result.labelStyle = st::defaultTextStyle;
+	result.labelTop = std::max(
+		0,
+		(result.height - result.labelStyle.font->height) / 2
+			- style::ConvertScale(3));
+	result.labelFg = st::windowSubTextFg;
+	result.labelFgActive = st::windowFg;
+	result.duration = 200;
+	return result;
+}
+
 } // namespace
 
 not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
@@ -227,12 +247,15 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 		container,
 		st::dialogsTabsScroll,
 		true);
+	const auto macFolders = trackActiveFilterAndUnreadAndReorder
+		&& Core::Telega::UseMacOSStyle();
+	const auto &tabStyle = macFolders
+		? *scroll->lifetime().make_state<style::SettingsSlider>(MacFolderTabStyle())
+		: trackActiveFilterAndUnreadAndReorder
+		? st::dialogsSearchTabs
+		: st::chatsFiltersTabs;
 	const auto slider = scroll->setOwnedWidget(
-		object_ptr<Ui::ChatsFiltersTabs>(
-			parent,
-			trackActiveFilterAndUnreadAndReorder
-				? st::dialogsSearchTabs
-				: st::chatsFiltersTabs));
+		object_ptr<Ui::ChatsFiltersTabs>(parent, tabStyle, macFolders));
 	const auto state = wrap->lifetime().make_state<State>();
 	const auto reassignUnreadValue = [=] {
 		state->reorderLifetime.destroy();
@@ -394,7 +417,11 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 				const auto &filter = list[index];
 				auto title = filter.title();
 				return title.text.empty()
-					? TextWithEntities{ tr::lng_filters_all_short(tr::now) }
+					? TextWithEntities{
+						macFolders
+							? tr::lng_filters_all(tr::now)
+							: tr::lng_filters_all_short(tr::now),
+					}
 					: title.isStatic
 					? Data::ForceCustomEmojiStatic(title.text)
 					: title.text;

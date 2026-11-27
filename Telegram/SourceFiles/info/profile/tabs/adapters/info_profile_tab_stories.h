@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Info::Profile {
 
 [[nodiscard]] MediaTabDescriptor MakeStoriesTabDescriptor(
-	not_null<PeerData*> peer);
+	not_null<PeerData*> peer,
+	bool archive = false);
 
 } // namespace Info::Profile

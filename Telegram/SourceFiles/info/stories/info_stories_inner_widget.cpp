@@ -9,6 +9,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "apiwrap.h"
 #include "boxes/share_box.h"
+#include "core/core_telega_menu.h"
+#include "core/core_telega_preferences.h"
+#include "core/ui_integration.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "data/data_stories.h"
@@ -24,11 +27,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_top_bar.h"
 #include "info/profile/info_profile_values.h"
 #include "info/profile/info_profile_widget.h"
+#include "info/profile/tabs/adapters/info_profile_tab_peer_lists.h"
+#include "info/profile/tabs/adapters/info_profile_tab_stories.h"
+#include "info/profile/tabs/info_profile_tabs_strip.h"
 #include "info/saved/info_saved_music_widget.h"
 #include "info/stories/info_stories_albums.h"
 #include "info/stories/info_stories_widget.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
+#include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "mtproto/sender.h"
@@ -36,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/confirm_box.h"
 #include "ui/controls/sub_tabs.h"
 #include "ui/layers/generic_box.h"
+#include "ui/style/style_material.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
@@ -51,6 +59,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_profile.h"
 #include "styles/style_settings.h"
 
 namespace Info::Stories {
@@ -256,7 +265,14 @@ void InnerWidget::preloadArchiveCount() {
 }
 
 void InnerWidget::setupAlbums() {
-	_albumsWrap = _top->add(object_ptr<Ui::BoxContentDivider>(_top));
+	if (Core::Telega::UseWindows11Style() && _peer->isSelf()) {
+		const auto wrap = _top->add(object_ptr<Ui::SlideWrap<Ui::RpWidget>>(
+			_top, object_ptr<Ui::RpWidget>(_top)));
+		wrap->toggleOn(_profilePosts.value(), anim::type::instant);
+		_albumsWrap = wrap->entity();
+	} else {
+		_albumsWrap = _top->add(object_ptr<Ui::BoxContentDivider>(_top));
+	}
 
 	_peer->owner().stories().albumsListValue(
 		_peer->id
@@ -305,7 +321,10 @@ void InnerWidget::createProfileTop() {
 	startTop();
 
 	using namespace Profile;
-	auto stack = SectionStack(_top);
+	const auto unigram = Core::Telega::UseWindows11Style();
+	const auto material = Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().grouped;
+	auto stack = SectionStack(_top, unigram || material);
 	BuildProfileDetailsSections(
 		stack,
 		_controller,
@@ -315,8 +334,73 @@ void InnerWidget::createProfileTop() {
 		{ v::null });
 
 	stack.addPlainSeparator();
+	if (unigram) {
+		auto tabs = object_ptr<TabsStrip>(_top, st::infoUnigramProfileTabsStrip);
+		const auto raw = tabs.data();
+		raw->setCentered(true);
+		raw->setTextContext(Core::TextContext({
+			.session = &_peer->session(),
+			.customEmojiLoopLimit = 1,
+		}));
+		auto gifts = MakeGiftsTabDescriptor(_peer);
+		rpl::combine(
+			std::move(gifts.shown),
+			std::move(gifts.title),
+			tr::lng_media_type_posts(tr::marked),
+			tr::lng_stories_archive_button(tr::marked)
+		) | rpl::on_next([=](bool showGifts, const TextWithEntities &giftsTitle,
+				const TextWithEntities &posts, const TextWithEntities &archiveTitle) {
+			auto items = std::vector<StripTab>{ {
+				.id = u"posts"_q,
+				.text = Lang::GetInstance().id().startsWith(u"ru"_q)
+					? TextWithEntities{ u"Публикации"_q }
+					: posts,
+			} };
+			if (showGifts) {
+				items.push_back({
+					.id = u"gifts"_q,
+					.text = giftsTitle,
+				});
+			}
+			items.push_back({
+				.id = u"archive"_q,
+				.text = archiveTitle,
+			});
+			raw->setTabs(std::move(items));
+			if (_profileMedia && _profileMedia == _profileGifts.get() && !showGifts) {
+				selectProfileTab(u"posts"_q);
+			}
+			raw->setActiveTab(!_profileMedia ? u"posts"_q
+				: _profileMedia == _profileGifts.get() ? u"gifts"_q : u"archive"_q);
+		}, raw->lifetime());
+		raw->activated() | rpl::on_next([=](const QString &id) {
+			selectProfileTab(id);
+			raw->setActiveTab(id);
+		}, raw->lifetime());
+		stack.add({ .widget = std::move(tabs) });
+		stack.finalize();
+		finalizeTop(false);
+		return;
+	}
+	auto tracker = Ui::MultiSlideTracker();
+	auto card = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(nullptr);
+	auto rows = static_cast<Ui::VerticalLayout*>(nullptr);
+	if (material) {
+		card = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			_top, object_ptr<Ui::VerticalLayout>(_top));
+		const auto inner = card->entity();
+		const auto inset = style::ConvertScale(10);
+		rows = inner->add(
+			object_ptr<Ui::VerticalLayout>(inner),
+			QMargins(inset, 0, inset, 0),
+			style::al_justify);
+	}
 	const auto addButton = [&](object_ptr<Ui::SlideWrap<>> button) {
 		const auto raw = button.data();
+		if (rows) {
+			tracker.track(rows->add(std::move(button)));
+			return raw;
+		}
 		stack.add({
 			.widget = std::move(button),
 			.shown = raw->toggledValue(),
@@ -328,13 +412,70 @@ void InnerWidget::createProfileTop() {
 		addButton(makeArchiveButton()),
 		addButton(makeRecentButton()),
 	};
+	const auto cardWidget = card.data();
+	if (cardWidget) {
+		const auto background = (_controller->wrap() == Wrap::Layer)
+			? &st::boxBg
+			: &st::profileBg;
+		::Settings::FinishGroupedSettingsRows(rows, background);
+		cardWidget->toggleOn(tracker.atLeastOneShownValue());
+		stack.add({
+			.widget = std::move(card),
+			.shown = cardWidget->toggledValue(),
+		});
+	}
 	stack.finalize();
+	if (cardWidget) {
+		cardWidget->finishAnimating();
+	}
 	// Layout insertion shows even wrappers whose initial toggle is off.
 	for (const auto button : buttons) {
 		button->finishAnimating();
 	}
 
 	finalizeTop(false);
+}
+
+void InnerWidget::selectProfileTab(const QString &id) {
+	const auto posts = (id == u"posts"_q);
+	auto &media = (id == u"gifts"_q) ? _profileGifts : _profileArchive;
+	if (!posts && !media) {
+		auto descriptor = (id == u"gifts"_q)
+			? Profile::MakeGiftsTabDescriptor(_peer)
+			: Profile::MakeStoriesTabDescriptor(_peer, true);
+		media = descriptor.factory({ .controller = _controller, .peer = _peer,
+			.parent = this });
+		media->widget()->heightValue() | rpl::on_next([=] {
+			refreshHeight();
+		}, media->widget()->lifetime());
+	}
+	const auto next = posts ? nullptr : media.get();
+	if (_profileMedia == next) {
+		return;
+	}
+	if (_profileMedia) {
+		_profileMedia->deactivated();
+		_profileMedia->widget()->hide();
+	} else {
+		_list->selectionAction(SelectionAction::Clear);
+	}
+	_profileMedia = next;
+	_profilePosts = posts;
+	_list->setVisible(posts);
+	if (_empty) {
+		_empty->setVisible(posts);
+	}
+	if (next) {
+		next->widget()->show();
+		auto bindings = next->topBarBindings();
+		_selectedLists.fire(bindings.selectedItems
+			? std::move(bindings.selectedItems)
+			: rpl::single(SelectedItems()));
+	} else {
+		_selectedLists.fire(_list->selectedListValue());
+	}
+	resizeToWidth(width());
+	visibleTopBottomUpdated(_visibleRange.top, _visibleRange.bottom);
 }
 
 void InnerWidget::createButtons() {
@@ -515,6 +656,10 @@ base::weak_qptr<Ui::RpWidget> InnerWidget::createPinnedToTop(
 		return nullptr;
 	}
 
+	const auto ownTelegramProfile = _myProfile && Core::Telega::UseTelegramStyle();
+	if (ownTelegramProfile) {
+		_backToggles = true;
+	}
 	const auto content = Ui::CreateChild<Profile::TopBar>(
 		parent,
 		Profile::TopBar::Descriptor{
@@ -529,8 +674,13 @@ base::weak_qptr<Ui::RpWidget> InnerWidget::createPinnedToTop(
 				controller->showSection(Info::Saved::MakeMusic(peer));
 			},
 		});
-	content->backRequest(
-	) | rpl::start_to_stream(_backClicks, content->lifetime());
+	content->backRequest() | rpl::on_next([=] {
+		if (ownTelegramProfile && _isStackBottom && _controller->wrap() == Wrap::Layer) {
+			_controller->parentController()->hideSpecialLayer();
+		} else {
+			_backClicks.fire({});
+		}
+	}, content->lifetime());
 	return base::make_weak(not_null<Ui::RpWidget*>{ content });
 }
 
@@ -599,7 +749,12 @@ void InnerWidget::visibleTopBottomUpdated(
 		int visibleTop,
 		int visibleBottom) {
 	_visibleRange = { visibleTop, visibleBottom };
-	setChildVisibleTopBottom(_list, visibleTop, visibleBottom);
+	if (_profileMedia) {
+		const auto top = _profileMedia->widget()->y();
+		_profileMedia->setVisibleRegion(visibleTop - top, visibleBottom - top);
+	} else {
+		setChildVisibleTopBottom(_list, visibleTop, visibleBottom);
+	}
 }
 
 bool InnerWidget::showInternal(not_null<Memento*> memento) {
@@ -617,6 +772,9 @@ void InnerWidget::setupList() {
 		this,
 		_controller);
 	const auto raw = _list.data();
+	if (Core::Telega::UseWindows11Style() && _myProfile) {
+		raw->setProfileStoriesGrid();
+	}
 	const auto albumId = _albumId.current();
 	if (albumId && albumId != Data::kStoriesAlbumIdArchive) {
 		raw->setReorderDescriptor({
@@ -650,10 +808,12 @@ void InnerWidget::setupList() {
 			-1
 		};
 	}) | rpl::start_to_stream(_scrollToRequests, raw->lifetime());
-	_selectedLists.fire(raw->selectedListValue());
+	if (!_profileMedia) {
+		_selectedLists.fire(raw->selectedListValue());
+	}
 	_listTops.fire(raw->topValue());
 
-	raw->show();
+	raw->setVisible(!_profileMedia);
 
 	Ui::PostponeCall(crl::guard(this, [=] {
 		visibleTopBottomUpdated(_visibleRange.top, _visibleRange.bottom);
@@ -744,6 +904,9 @@ void InnerWidget::refreshEmpty() {
 		_empty->show();
 	}
 	_emptyLoading = !albumCanAdd && !knownEmpty;
+	if (_profileMedia) {
+		_empty->hide();
+	}
 	resizeToWidth(width());
 }
 
@@ -788,7 +951,7 @@ void InnerWidget::refreshAlbumsTabs() {
 	if (has) {
 		tabs.push_back({
 			.id = u"add"_q,
-			.text = { '+' + tr::lng_stories_album_add(tr::now) },
+			.text = { u"+ "_q + tr::lng_stories_album_add(tr::now) },
 		});
 	}
 	if (!_albumsTabs) {
@@ -1021,13 +1184,22 @@ void InnerWidget::restoreState(not_null<Memento*> memento) {
 }
 
 rpl::producer<SelectedItems> InnerWidget::selectedListValue() const {
+	auto initial = _profileMedia
+		? _profileMedia->topBarBindings().selectedItems
+		: _list->selectedListValue();
 	return _selectedLists.events_starting_with(
-		_list->selectedListValue()
+		initial ? std::move(initial) : rpl::single(SelectedItems())
 	) | rpl::flatten_latest();
 }
 
 void InnerWidget::selectionAction(SelectionAction action) {
-	_list->selectionAction(action);
+	if (_profileMedia) {
+		if (const auto callback = _profileMedia->topBarBindings().selectionAction) {
+			callback(action);
+		}
+	} else {
+		_list->selectionAction(action);
+	}
 }
 
 int InnerWidget::resizeGetHeight(int newWidth) {
@@ -1041,7 +1213,13 @@ int InnerWidget::resizeGetHeight(int newWidth) {
 		_top->resizeToWidth(newWidth);
 	}
 	if (_list) {
-		_list->resizeToWidth(newWidth);
+		const auto inset = (Core::Telega::UseWindows11Style() && _myProfile)
+			? style::ConvertScale(24)
+			: 0;
+		_list->resizeToWidth(std::max(1, newWidth - 2 * inset));
+	}
+	if (_profileMedia) {
+		_profileMedia->resizeToWidth(newWidth);
 	}
 	if (const auto empty = _empty.get()) {
 		const auto margin = st::giftListAboutMargin;
@@ -1064,9 +1242,14 @@ int InnerWidget::recountHeight() {
 		_top->moveToLeft(0, top);
 		top += _top->heightNoMargins() - st::lineWidth;
 	}
+	if (_profileMedia) {
+		const auto widget = _profileMedia->widget();
+		widget->moveToLeft(0, top);
+		return top + widget->heightNoMargins();
+	}
 	auto listHeight = 0;
 	if (_list) {
-		_list->moveToLeft(0, top);
+		_list->moveToLeft(std::max(0, (width() - _list->width()) / 2), top);
 		listHeight = _list->heightNoMargins();
 		top += listHeight;
 	}

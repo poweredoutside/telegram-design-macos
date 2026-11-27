@@ -1718,7 +1718,7 @@ bool Notifications::paintOuter(
 		not_null<QWidget*> outer,
 		int maxVisibleHeight,
 		QRect clip) {
-	if (!Platform::IsWindows()) {
+	if (!Platform::IsWindows() || Core::Telega::UseWindows11Style()) {
 		return false;
 	}
 	auto p = QPainter(outer);

@@ -1,6 +1,7 @@
 #include "core/core_telega_preferences.h"
 
 #include "core/core_telega_material.h"
+#include "core/core_telega_menu.h"
 
 #include "base/platform/base_platform_info.h"
 
@@ -35,12 +36,33 @@ constexpr auto kBottomAction = "telega.messages.channel-bottom-action";
 constexpr auto kStickerTime = "telega.messages.sticker-time";
 constexpr auto kStickerScale = "telega.messages.sticker-scale";
 constexpr auto kNavigation = "telega.appearance.navigation";
+constexpr auto kTelegramNavigation = "telega.appearance.telegram-navigation";
+constexpr auto kGhostModeSelection = "telega.privacy.ghost-mode-selection";
 constexpr auto kDownloadMode = "telega.transfer.download-mode";
 constexpr auto kAppIcon = "telega.appearance.app-icon";
 constexpr auto kAppIconSquare = "telega.appearance.app-icon-square";
 constexpr auto kInterfaceStyle = "telega.appearance.interface-style";
+constexpr auto kLegacyThemeStyle = "telega.theme.legacy-style";
 
 auto InterfaceStyleAtStartup = InterfaceStyle::MacOS;
+
+constexpr auto kGhostOptions = std::array{
+	DisplayOption::PauseAutomaticChatReads,
+	DisplayOption::HideStoryViewReceipts,
+	DisplayOption::HideTypingIndicator,
+	DisplayOption::SetOfflineAfterSending,
+	DisplayOption::HideOnlineAnnouncements,
+};
+
+int CurrentGhostModeSelection() {
+	auto selection = 0;
+	for (auto i = 0; i != int(kGhostOptions.size()); ++i) {
+		if (DisplayEnabled(kGhostOptions[i])) {
+			selection |= 1 << i;
+		}
+	}
+	return selection;
+}
 
 constexpr auto kMaterialKeys = std::array{
 	"telega.material.google-sans",
@@ -117,6 +139,12 @@ std::pair<const char*, rpl::variable<bool>*> DisplaySetting(
 	case DisplayOption::HideSidebarStatus:
 		return DisplaySetting<DisplayOption::HideSidebarStatus>(
 			"telega.appearance.hide-sidebar-status");
+	case DisplayOption::HideMacNavigationContacts:
+		return DisplaySetting<DisplayOption::HideMacNavigationContacts>(
+			"telega.appearance.hide-mac-navigation-contacts");
+	case DisplayOption::HideMacNavigationCalls:
+		return DisplaySetting<DisplayOption::HideMacNavigationCalls>(
+			"telega.appearance.hide-mac-navigation-calls");
 	case DisplayOption::HideSenderMiniAvatars:
 		return DisplaySetting<DisplayOption::HideSenderMiniAvatars>(
 			"telega.dialogs.hide-sender-mini-avatars");
@@ -147,6 +175,9 @@ std::pair<const char*, rpl::variable<bool>*> DisplaySetting(
 	case DisplayOption::HideAllChatsFolder:
 		return DisplaySetting<DisplayOption::HideAllChatsFolder>(
 			"telega.dialogs.hide-all-chats-folder");
+	case DisplayOption::HideArchiveFolders:
+		return DisplaySetting<DisplayOption::HideArchiveFolders>(
+			"telega.dialogs.hide-archive-folders");
 	case DisplayOption::PauseVoiceInBackground:
 		return DisplaySetting<DisplayOption::PauseVoiceInBackground>(
 			"telega.media.pause-voice-in-background");
@@ -316,6 +347,42 @@ void SetDisplayEnabled(DisplayOption option, bool enabled) {
 	Set(enabled, key, *value);
 }
 
+rpl::producer<bool> GhostModeValue() {
+	auto values = std::vector<rpl::producer<bool>>();
+	values.reserve(kGhostOptions.size());
+	for (const auto option : kGhostOptions) {
+		values.push_back(DisplayValue(option));
+	}
+	return rpl::combine(std::move(values)) | rpl::map([](const auto &values) {
+		return std::find(values.begin(), values.end(), true) != values.end();
+	}) | rpl::distinct_until_changed();
+}
+
+void SetGhostModeEnabled(bool enabled) {
+	const auto current = CurrentGhostModeSelection();
+	if (enabled == (current != 0)) {
+		return;
+	}
+	constexpr auto all = (1 << kGhostOptions.size()) - 1;
+	auto &settings = App().settings();
+	if (!enabled) {
+		settings.writePref<int>(kGhostModeSelection, current);
+		App().saveSettingsDelayed();
+	}
+	const auto selection = enabled
+		? settings.readPref<int>(kGhostModeSelection, all)
+		: 0;
+	for (auto i = 0; i != int(kGhostOptions.size()); ++i) {
+		SetDisplayEnabled(kGhostOptions[i], (selection & (1 << i)) != 0);
+	}
+}
+
+void ResetGhostModeSelection() {
+	App().settings().writePref<int>(kGhostModeSelection,
+		(1 << kGhostOptions.size()) - 1);
+	App().saveSettingsDelayed();
+}
+
 QString GifSearchBot() {
 	return QString::fromUtf8(App().settings().readPref<QByteArray>(kGifSearchBot));
 }
@@ -426,6 +493,41 @@ void SetNavigation(const QStringList &items) {
 	App().saveSettingsDelayed();
 }
 
+QStringList TelegramNavigationItems() {
+	return NavigationItems() + QStringList{
+		u"night"_q, u"ghost"_q, u"streamer"_q
+	};
+}
+
+QStringList TelegramNavigation() {
+	const auto bytes = App().settings().readPref<QByteArray>(kTelegramNavigation);
+	const auto legacy = bytes.startsWith(':');
+	if (!legacy && !bytes.startsWith("v2:")) {
+		return Navigation() + QStringList{ u"night"_q, u"ghost"_q, u"streamer"_q };
+	}
+	const auto available = TelegramNavigationItems();
+	auto result = QString::fromUtf8(bytes.mid(legacy ? 1 : 3)).split(
+		u',',
+		Qt::SkipEmptyParts);
+	if (legacy && !result.contains(u"streamer"_q)) {
+		result.push_back(u"streamer"_q);
+	}
+	result.removeIf([&](const QString &item) { return !available.contains(item); });
+	result.removeDuplicates();
+	return result;
+}
+
+void SetTelegramNavigation(const QStringList &items) {
+	App().settings().writePref<QByteArray>(kTelegramNavigation,
+		QByteArray("v2:") + items.join(u',').toUtf8());
+	App().saveSettingsDelayed();
+}
+
+void ResetTelegramNavigation() {
+	App().settings().writePref<QByteArray>(kTelegramNavigation, QByteArray());
+	App().saveSettingsDelayed();
+}
+
 int AvatarCornerPercent() {
 	return std::clamp(App().settings().readPref<int>(
 		"telega.appearance.avatar-corner-percent", 50), 0, 50);
@@ -471,6 +573,10 @@ void SetPreferredMaterialOption(MaterialOption option, bool enabled) {
 
 void InitInterfaceStyle() {
 	InterfaceStyleAtStartup = PreferredInterfaceStyle();
+	auto &settings = App().settings();
+	if (Platform::IsWindows() && settings.readPref<int>(kLegacyThemeStyle, -1) < 0) {
+		settings.writePref<int>(kLegacyThemeStyle, int(InterfaceStyleAtStartup));
+	}
 	using E = MaterialOption;
 	const auto read = PreferredMaterialOption;
 	style::SetMaterialDesign({
@@ -487,9 +593,28 @@ void InitInterfaceStyle() {
 	});
 }
 
+InterfaceStyle ActiveInterfaceStyle() {
+	return InterfaceStyleAtStartup;
+}
+
+std::string StyleThemePreference(std::string_view key) {
+	const auto active = int(InterfaceStyleAtStartup);
+	auto result = std::string(key);
+	if (Platform::IsWindows()
+		&& App().settings().readPref<int>(kLegacyThemeStyle, active) != active) {
+		result += '.';
+		result += std::to_string(active);
+	}
+	return result;
+}
+
 bool UseMacOSStyle() {
 	return Platform::IsWindows()
 		&& InterfaceStyleAtStartup == InterfaceStyle::MacOS;
+}
+
+bool UseTelegramStyle() {
+	return InterfaceStyleAtStartup == InterfaceStyle::Windows;
 }
 
 bool UseMaterial3Style() {
@@ -686,6 +811,10 @@ void SetVideoSeekStep(int seconds) {
 		App().settings().writePref<int>(kVideoSeekStep, seconds);
 		App().saveSettingsDelayed();
 	}
+}
+
+bool StreamerModeEnabled() {
+	return Platform::IsWindows() && WindowProtected().current();
 }
 
 rpl::producer<bool> ProtectMainWindowValue() {

@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_inner_widget.h"
+#include "api/api_telega_badges.h"
 #include "core/core_telega_preferences.h"
 
 #include "dialogs/dialogs_three_state_icon.h"
@@ -327,6 +328,7 @@ InnerWidget::InnerWidget(
 	setAccessibleName(tr::lng_recent_chats(tr::now));
 
 	_communityViewable.setRepaint([=] { update(); });
+	Api::TelegaBadges::Changes() | rpl::on_next([=] { update(); }, lifetime());
 
 	Core::Telega::DisplayValue(
 		Core::Telega::DisplayOption::TimeWithSeconds

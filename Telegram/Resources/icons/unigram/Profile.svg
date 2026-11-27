@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/Profile.cs -->
+<defs>
+<linearGradient id="LinearGradientBrush_0" gradientUnits="userSpaceOnUse" x1="0" y1="-3.5" x2="0" y2="3.5"><stop offset="0" stop-color="#61c8b8" stop-opacity="1"/><stop offset="1" stop-color="#479d8e" stop-opacity="1"/></linearGradient>
+<linearGradient id="LinearGradientBrush_1" gradientUnits="userSpaceOnUse" x1="0" y1="-4" x2="0" y2="4"><stop offset="0" stop-color="#61c8b8" stop-opacity="1"/><stop offset="1" stop-color="#479d8e" stop-opacity="1"/></linearGradient>
+</defs>
+<g transform="matrix(10 0 0 10 100 145)">
+<path d="M 0 3.5 C 4.5 3.5 6.5 1 6.5 -0.5 C 6.5 -1.432 6.5 -1.897 6.348 -2.265 C 6.145 -2.755 5.755 -3.145 5.265 -3.348 C 4.897 -3.5 4.432 -3.5 3.5 -3.5 L -3.5 -3.5 C -4.432 -3.5 -4.897 -3.5 -5.265 -3.348 C -5.755 -3.145 -6.145 -2.755 -6.348 -2.265 C -6.5 -1.897 -6.5 -1.432 -6.5 -0.5 C -6.5 1 -4.5 3.5 0 3.5 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush_0)" fill-opacity="1"/>
+</g>
+<g transform="matrix(10 0 0 10 100 60)">
+<path d="M 0 4 C 2.209 4 4 2.209 4 0 C 4 -2.209 2.209 -4 0 -4 C -2.209 -4 -4 -2.209 -4 0 C -4 2.209 -2.209 4 0 4 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush_1)" fill-opacity="1"/>
+</g>
+</svg>

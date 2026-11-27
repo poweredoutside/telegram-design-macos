@@ -25,7 +25,8 @@ public:
 	PinnedBar(
 		not_null<QWidget*> parent,
 		Fn<bool()> customEmojiPaused,
-		rpl::producer<> customEmojiPausedChanges);
+		rpl::producer<> customEmojiPausedChanges,
+		bool unigramCard = false);
 	~PinnedBar();
 
 	void show();
@@ -57,6 +58,7 @@ private:
 	void updateShadowGeometry(QRect wrapGeometry);
 	void updateControlsGeometry(QRect wrapGeometry);
 
+	const int _sideInset;
 	Ui::SlideWrap<> _wrap;
 	std::unique_ptr<Ui::MessageBar> _bar;
 

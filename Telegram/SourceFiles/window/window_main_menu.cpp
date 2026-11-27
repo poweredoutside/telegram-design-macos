@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "apiwrap.h"
 #include "base/event_filter.h"
+#include "base/platform/base_platform_info.h"
 #include "base/qt_signal_producer.h"
 #include "boxes/about_box.h"
 #include "core/update_channel.h"
@@ -18,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_box_controller.h"
 #include "calls/calls_instance.h"
 #include "core/application.h"
+#include "core/core_telega_menu.h"
 #include "core/core_telega_preferences.h"
 #include "ui/style/style_material.h"
 #include "core/click_handler_types.h"
@@ -147,15 +149,155 @@ constexpr auto kPlayStatusLimit = 2;
 	}) | rpl::flatten_latest();
 }
 
+[[nodiscard]] QString UnigramAccountMenuId(not_null<Main::Session*> session) {
+	return u"account-"_q + QString::number(session->userId().bare);
+}
+
+[[nodiscard]] QString MaterialAccountMenuId(
+		not_null<Main::Session*> session) {
+	return u"account-"_q + QString::number(session->uniqueId());
+}
+
+[[nodiscard]] std::string MenuPreferenceKey(
+		MainMenuStyle style,
+		const QString &id) {
+	return ((style == MainMenuStyle::Unigram)
+		? "telega.unigramMainMenu."
+		: "telega.material3MainMenu.") + id.toStdString();
+}
+
+[[nodiscard]] bool MaterialMenuOptionShown(
+		const QString &id,
+		bool shownByDefault = true) {
+	return MainMenuOptionShown(MainMenuStyle::Material3, id, shownByDefault);
+}
+
+[[nodiscard]] QStringList MaterialNavigation() {
+	const auto original = Core::Telega::Navigation();
+	const auto order = Core::Telega::NavigationItems();
+	auto result = original;
+	for (const auto &id : order) {
+		if (id == u"divider"_q) {
+			continue;
+		}
+		const auto index = original.indexOf(id);
+		const auto shown = MaterialMenuOptionShown(id, index >= 0);
+		if (!shown) {
+			result.removeAll(id);
+		} else if (index < 0) {
+			const auto position = order.indexOf(id);
+			const auto after = std::find_if(result.begin(), result.end(),
+				[&](const QString &item) { return order.indexOf(item) > position; });
+			result.insert(after, id);
+		}
+	}
+	return result;
+}
+
 } // namespace
+
+std::vector<MainMenuOption> MainMenuOptions(
+		MainMenuStyle style,
+		not_null<Main::Session*> session) {
+	if (style == MainMenuStyle::Material3) {
+		auto options = std::vector<MainMenuOption>();
+		const auto accounts = session->domain().orderedAccounts();
+		if (accounts.size() > 1) {
+			for (const auto &account : accounts) {
+				if (const auto other = account->maybeSession()) {
+					options.push_back({
+						MaterialAccountMenuId(other),
+						other->user()->name(),
+					});
+				}
+			}
+		}
+		options.push_back({ u"add-account"_q, tr::lng_menu_add_account(tr::now) });
+		if (!session->supportMode()) {
+			const auto navigation = Core::Telega::Navigation();
+			const auto add = [&](QString id, QString title) {
+				const auto shown = navigation.contains(id);
+				options.push_back({ std::move(id), std::move(title), shown });
+			};
+			add(u"profile"_q, tr::lng_menu_my_profile(tr::now));
+			add(u"group"_q, tr::lng_create_group_title(tr::now));
+			add(u"channel"_q, tr::lng_create_channel_title(tr::now));
+			add(u"contacts"_q, tr::lng_menu_contacts(tr::now));
+			add(u"calls"_q, tr::lng_menu_calls(tr::now));
+			add(u"saved"_q, tr::lng_saved_messages(tr::now));
+			if (session->appConfig().walletAvailable()) {
+				add(u"wallet"_q, tr::lng_wallet_menu(tr::now));
+			}
+			add(u"ai"_q, Settings::TelegaAiChatLabel());
+			add(u"feed"_q, TelegaFeedLabel());
+		}
+		if (Platform::IsWindows()) {
+			options.push_back({ u"streamer"_q, Settings::StreamerModeLabel() });
+		}
+		options.push_back({ u"night"_q, tr::lng_menu_night_mode(tr::now) });
+		return options;
+	}
+	auto options = std::vector<MainMenuOption>{
+		{ u"night"_q, tr::lng_menu_night_mode(tr::now) },
+		{ u"streamer"_q, Settings::StreamerModeLabel() },
+		{ UnigramAccountMenuId(session), session->user()->name() },
+	};
+	for (const auto &entry : session->domain().accounts()) {
+		const auto account = entry.account.get();
+		if (account != &session->account() && account->sessionExists()) {
+			const auto other = &account->session();
+			options.push_back({ UnigramAccountMenuId(other), other->user()->name() });
+		}
+	}
+	options.insert(options.end(), {
+		{ u"add-account"_q, tr::lng_menu_add_account(tr::now) },
+		{ u"contacts"_q, tr::lng_menu_contacts(tr::now) },
+		{ u"calls"_q, tr::lng_menu_calls(tr::now) },
+		{ u"group"_q, tr::lng_create_group_title(tr::now) },
+		{ u"channel"_q, tr::lng_create_channel_title(tr::now) },
+		{ u"saved"_q, tr::lng_saved_messages(tr::now) },
+	});
+	return options;
+}
+
+bool MainMenuOptionShown(
+		MainMenuStyle style,
+		const QString &id,
+		bool shownByDefault) {
+	return id.isEmpty() || Core::App().settings().readPref<bool>(
+		MenuPreferenceKey(style, id),
+		shownByDefault);
+}
+
+void SetMainMenuOptionShown(MainMenuStyle style, const QString &id, bool shown) {
+	Core::App().settings().writePref<bool>(MenuPreferenceKey(style, id), shown);
+	Core::App().saveSettingsDelayed();
+}
 
 void ShowWindows11MainMenu(not_null<SessionController*> controller) {
 	const auto menu = Ui::CreateChild<Ui::PopupMenu>(
 		controller->content(), st::popupMenuWithIcons);
-	const auto &session = controller->session();
+	auto &session = controller->session();
 	const auto domain = &session.domain();
 	const auto self = session.user();
-	menu->addAction(tr::lng_menu_night_mode(tr::now), [=] {
+	auto hasAction = false;
+	auto pendingSeparator = false;
+	const auto nextGroup = [&] { pendingSeparator = hasAction; };
+	const auto add = [&](
+			QString id,
+			QString title,
+			Fn<void()> callback,
+			not_null<const style::icon*> icon) -> QAction* {
+		if (!MainMenuOptionShown(MainMenuStyle::Unigram, id)) {
+			return nullptr;
+		}
+		if (std::exchange(pendingSeparator, false)) {
+			menu->addSeparator();
+		}
+		hasAction = true;
+		return menu->addAction(std::move(title), std::move(callback), icon);
+	};
+	add(u"night"_q, tr::lng_menu_night_mode(tr::now), [=] {
 		if (Theme::Background()->editingTheme()) {
 			controller->show(Ui::MakeInformBox(tr::lng_theme_editor_cant_change_theme()));
 			return;
@@ -165,44 +307,56 @@ void ShowWindows11MainMenu(not_null<SessionController*> controller) {
 			Theme::KeepApplied();
 		});
 	}, &st::menuIconNightMode);
-	menu->addSeparator();
-	menu->addAction(self->name(), [=] {
+	const auto streamer = add(
+		u"streamer"_q,
+		Settings::StreamerModeLabel(),
+		[] {
+			Core::Telega::SetProtectMainWindow(!Core::Telega::StreamerModeEnabled());
+		},
+		&st::menuIconLock);
+	if (streamer) {
+		streamer->setCheckable(true);
+		streamer->setChecked(Core::Telega::StreamerModeEnabled());
+	}
+	nextGroup();
+	add(UnigramAccountMenuId(&session), self->name(), [=] {
 		controller->showSection(Info::Stories::MakeMyProfile(self));
 	}, &st::menuIconProfile);
 	for (const auto &entry : domain->accounts()) {
 		const auto account = entry.account.get();
 		if (account != &session.account() && account->sessionExists()) {
-			menu->addAction(account->session().user()->name(), [=] {
+			const auto other = &account->session();
+			add(UnigramAccountMenuId(other), other->user()->name(), [=] {
 				domain->maybeActivate(account);
 			}, &st::menuIconProfile);
 		}
 	}
 	if (!session.supportMode() && domain->accounts().size() < domain->maxAccounts()) {
-		menu->addAction(tr::lng_menu_add_account(tr::now), [=] {
+		add(u"add-account"_q, tr::lng_menu_add_account(tr::now), [=] {
 			controller->window().preventOrInvoke([=] {
 				Core::App().setActivePrimaryWindow(&controller->window());
 				domain->addActivated(MTP::Environment{});
 			});
 		}, &st::menuIconAddAccount);
 	}
-	menu->addSeparator();
-	menu->addAction(tr::lng_menu_contacts(tr::now), [=] {
+	nextGroup();
+	add(u"contacts"_q, tr::lng_menu_contacts(tr::now), [=] {
 		controller->show(PrepareContactsBox(controller));
 	}, &st::menuIconUserShow);
-	menu->addAction(tr::lng_menu_calls(tr::now), [=] {
+	add(u"calls"_q, tr::lng_menu_calls(tr::now), [=] {
 		::Calls::ShowCallsBox(controller);
 	}, &st::menuIconPhone);
-	menu->addAction(tr::lng_menu_settings(tr::now), [=] {
+	add({}, tr::lng_menu_settings(tr::now), [=] {
 		controller->window().showSettings();
 	}, &st::menuIconSettings);
-	menu->addSeparator();
-	menu->addAction(tr::lng_create_group_title(tr::now), [=] {
+	nextGroup();
+	add(u"group"_q, tr::lng_create_group_title(tr::now), [=] {
 		controller->showNewGroup();
 	}, &st::menuIconGroups);
-	menu->addAction(tr::lng_create_channel_title(tr::now), [=] {
+	add(u"channel"_q, tr::lng_create_channel_title(tr::now), [=] {
 		controller->showNewChannel();
 	}, &st::menuIconChannel);
-	menu->addAction(tr::lng_saved_messages(tr::now), [=] {
+	add(u"saved"_q, tr::lng_saved_messages(tr::now), [=] {
 		controller->showPeerHistory(self);
 	}, &st::menuIconSavedMessages);
 	const auto inset = style::ConvertScale(5);
@@ -569,7 +723,7 @@ void MainMenu::moveBadge() {
 	}
 	const auto available = width()
 		- st::mainMenuCoverNameLeft
-		- _toggleAccounts->rightSkip()
+		- (_toggleAccounts->isHidden() ? 0 : _toggleAccounts->rightSkip())
 		- _badge->widget()->width();
 	const auto left = st::mainMenuCoverNameLeft
 		+ std::min(_name.maxWidth() + st::semiboldFont->spacew, available);
@@ -683,7 +837,11 @@ void MainMenu::setupArchive() {
 }
 
 void MainMenu::setupUserpicButton() {
-	_userpicButton->setClickedCallback([=] { toggleAccounts(); });
+	_userpicButton->setClickedCallback([=] {
+		if (!_toggleAccounts->isHidden()) {
+			toggleAccounts();
+		}
+	});
 	_userpicButton->show();
 }
 
@@ -698,7 +856,15 @@ void MainMenu::setupAccounts() {
 	const auto inner = _accounts->entity();
 
 	inner->add(object_ptr<Ui::FixedHeightWidget>(inner, st::mainMenuSkip));
-	auto events = Settings::SetupAccounts(inner, _controller);
+	const auto material = Core::Telega::UseMaterial3Style();
+	auto options = Settings::AccountsListOptions();
+	if (material) {
+		options.showAccount = [](not_null<Main::Session*> session) {
+			return MaterialMenuOptionShown(MaterialAccountMenuId(session));
+		};
+		options.showAddAccount = MaterialMenuOptionShown(u"add-account"_q);
+	}
+	auto events = Settings::SetupAccounts(inner, _controller, std::move(options));
 	inner->add(object_ptr<Ui::FixedHeightWidget>(inner, st::mainMenuSkip));
 
 	std::move(
@@ -707,7 +873,20 @@ void MainMenu::setupAccounts() {
 		closeLayer();
 	}, inner->lifetime());
 
-	_accounts->toggleOn(Core::App().settings().mainMenuAccountsShownValue());
+	auto expanded = Core::App().settings().mainMenuAccountsShownValue();
+	if (material) {
+		rpl::duplicate(events.hasRows) | rpl::on_next([=](bool hasRows) {
+			_toggleAccounts->setVisible(hasRows);
+			moveBadge();
+			update();
+		}, lifetime());
+		_accounts->toggleOn(rpl::combine(
+			std::move(expanded),
+			std::move(events.hasRows),
+			std::logical_and<>()));
+	} else {
+		_accounts->toggleOn(std::move(expanded));
+	}
 	_accounts->finishAnimating();
 
 	_shadow->setDuration(0)->toggleOn(_accounts->shownValue());
@@ -747,15 +926,25 @@ void MainMenu::showFinished() {
 		u"main-menu/emoji-status"_q,
 		_setEmojiStatus,
 		Settings::SubsectionTitleHighlight());
-	_controller->checkHighlightControl(
-		u"main-menu/night-mode"_q,
-		_nightThemeToggle);
+	if (_nightThemeToggle) {
+		_controller->checkHighlightControl(
+			u"main-menu/night-mode"_q,
+			_nightThemeToggle);
+	}
 }
 
 void MainMenu::setupMenu() {
 	using namespace Settings;
 
 	const auto controller = _controller;
+	const auto telegram = Core::Telega::UseTelegramStyle()
+		&& !controller->session().supportMode();
+	const auto material = Core::Telega::UseMaterial3Style();
+	const auto items = telegram
+		? Core::Telega::TelegramNavigation()
+		: material
+		? MaterialNavigation()
+		: Core::Telega::Navigation();
 	const auto addAction = [&](
 			rpl::producer<QString> text,
 			IconDescriptor &&descriptor) {
@@ -768,17 +957,37 @@ void MainMenu::setupMenu() {
 	if (!_controller->session().supportMode()) {
 		SetupMenuBots(_menu, controller);
 		const auto session = &controller->session();
-		for (const auto &item : Core::Telega::Navigation()) {
+		const auto addDivider = [&] {
+			_menu->add(object_ptr<Ui::PlainShadow>(_menu),
+				{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
+		};
+		auto hasAction = false;
+		auto pendingDivider = false;
+		for (const auto &item : items) {
+			if (item == u"divider"_q) {
+				if (material) {
+					pendingDivider = hasAction;
+				} else if (_menu->count()) {
+					addDivider();
+				}
+				continue;
+			}
+			if (material
+				&& (item != u"wallet"_q || session->appConfig().walletAvailable())) {
+				if (std::exchange(pendingDivider, false)) {
+					addDivider();
+				}
+				hasAction = true;
+			}
 			if (item == u"profile"_q) {
 				addAction(tr::lng_menu_my_profile(), { &st::menuIconProfile })
 					->setClickedCallback([=] {
-						controller->showSection(Info::Stories::MakeMyProfile(session->user()));
+						auto params = SectionShow();
+						params.forbidLayer = Core::Telega::UseWindows11Style();
+						controller->showSection(
+							Info::Stories::MakeMyProfile(session->user()),
+							params);
 					});
-			} else if (item == u"divider"_q) {
-				if (_menu->count()) {
-					_menu->add(object_ptr<Ui::PlainShadow>(_menu),
-						{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
-				}
 			} else if (item == u"ai"_q) {
 				addAction(rpl::single(TelegaAiChatLabel()), { &st::menuIconStar })
 					->setClickedCallback([=] { ShowTelegaAiChat(controller); });
@@ -859,6 +1068,30 @@ void MainMenu::setupMenu() {
 		controller->window().showSettings();
 	});
 
+	if (telegram && items.contains(u"ghost"_q)) {
+		const auto ghost = addAction(
+			rpl::single(GhostModeLabel()),
+			{ &st::menuIconStealth }
+		)->toggleOn(Core::Telega::GhostModeValue(), true);
+		ghost->setClickedCallback([=] {
+			Core::Telega::SetGhostModeEnabled(!ghost->toggled());
+		});
+	}
+	if (Platform::IsWindows()
+		&& (!telegram || items.contains(u"streamer"_q))
+		&& (!material || MaterialMenuOptionShown(u"streamer"_q))) {
+		const auto streamer = addAction(
+			rpl::single(StreamerModeLabel()),
+			{ &st::menuIconLock }
+		)->toggleOn(Core::Telega::ProtectMainWindowValue(), true);
+		streamer->setClickedCallback([] {
+			Core::Telega::SetProtectMainWindow(!Core::Telega::StreamerModeEnabled());
+		});
+	}
+	if ((telegram && !items.contains(u"night"_q))
+		|| (material && !MaterialMenuOptionShown(u"night"_q))) {
+		return;
+	}
 	_nightThemeToggle = addAction(
 		tr::lng_menu_night_mode(),
 		{ &st::menuIconNightMode }
@@ -997,7 +1230,7 @@ void MainMenu::paintEvent(QPaintEvent *e) {
 void MainMenu::drawName(Painter &p) {
 	const auto widthText = width()
 		- st::mainMenuCoverNameLeft
-		- _toggleAccounts->rightSkip();
+		- (_toggleAccounts->isHidden() ? 0 : _toggleAccounts->rightSkip());
 
 	const auto user = _controller->session().user();
 	if (_nameVersion < user->nameVersion()) {

@@ -59,6 +59,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/vertical_list.h"
 #include "ui/ui_utility.h"
+#include "ui/style/style_material.h"
 #include "styles/style_info.h"
 #include "styles/style_settings.h"
 
@@ -208,7 +209,14 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 		}
 	}
 
-	auto stack = SectionStack(result.data());
+	const auto unigram = Core::Telega::UseWindows11Style()
+		&& (_peer->isUser() || _peer->isBroadcast())
+		&& !_savedMessages && !_sublist;
+	const auto material = Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().grouped
+		&& _peer->isUser()
+		&& !_savedMessages && !_sublist;
+	auto stack = SectionStack(result.data(), unigram || material);
 	if (_topic && _topic->creating()) {
 		stack.finalize();
 		return result;
@@ -225,7 +233,7 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 	}
 
 	const auto thirdColumn = (_controller->wrap() == Wrap::Side);
-	const auto tabs = UseProfileMediaTabs() && !thirdColumn;
+	const auto tabs = (UseProfileMediaTabs() || unigram) && !thirdColumn;
 	auto sharedTracker = Ui::MultiSlideTracker();
 	if (!tabs) {
 		auto sharedMediaWidget = SetupSharedMediaClassic(
@@ -381,7 +389,9 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 			.shown = raw->toggledValue(),
 		});
 	}
-	if (auto actions = SetupActions(_controller, result.data(), _peer)) {
+	if (auto actions = (unigram && tabs && !_peer->isBot())
+		? object_ptr<Ui::RpWidget>{ nullptr }
+		: SetupActions(_controller, result.data(), _peer)) {
 		stack.addPlainSeparator();
 		stack.add(Section{
 			.widget = std::move(actions),

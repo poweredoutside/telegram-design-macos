@@ -59,6 +59,29 @@ infoProfileTopBarPhotoTop: 24px;
 infoProfileTopBarPhotoBgShift: 55px;
 infoProfileTopBarPhotoBgNoActionsShift: 30px;
 infoProfileTopBarPhotoSize: 80px;
+infoUnigramProfilePhotoSize: 140px;
+infoUnigramProfilePhotoTop: 32px;
+infoUnigramProfileTitleTop: 184px;
+infoUnigramProfileStatusTop: 210px;
+infoUnigramProfileHeight: 272px;
+infoUnigramProfileActionsHeight: 314px;
+infoUnigramProfileTitle: FlatLabel(defaultFlatLabel) {
+	textFg: windowBoldFg;
+	maxHeight: 28px;
+	style: TextStyle(defaultTextStyle) {
+		font: font(20px semibold);
+	}
+}
+infoUnigramProfileEdit: RoundButton(defaultActiveButton) {
+	width: -24px;
+	height: 32px;
+	textTop: 7px;
+	radius: 5px;
+	textBg: windowBgOver;
+	textBgOver: windowBgRipple;
+	textFg: windowFg;
+	textFgOver: windowFg;
+}
 infoProfileTopBarLastSeenSkip: point(8px, 1px);
 infoProfileTopBarGiftSize: 20px;
 infoProfileTopBarGiftLeft: point(15px, 13px);

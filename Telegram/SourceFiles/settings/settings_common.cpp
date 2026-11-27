@@ -69,13 +69,15 @@ not_null<Ui::VerticalLayout*> GroupedSettingsContent::content() const {
 }
 
 int GroupedSettingsContent::resizeGetHeight(int newWidth) {
-	const auto inset = Core::Telega::UseMaterial3Style()
+	const auto fluent = Core::Telega::UseWindows11Style();
+	const auto inset = fluent ? style::ConvertScale(24)
+		: Core::Telega::UseMaterial3Style()
 		? style::ConvertScale(10)
 		: st::macSettingsPageInset;
 	const auto innerWidth = std::clamp(
 		newWidth - 2 * inset,
 		0,
-		style::ConvertScale(600));
+		fluent ? newWidth : style::ConvertScale(600));
 	_content->resizeToWidth(innerWidth);
 	_content->move((newWidth - innerWidth) / 2, 0);
 	return _content->height();
@@ -505,31 +507,36 @@ bool IsGroupedSettingsContent(not_null<QWidget*> widget) {
 
 not_null<Ui::VerticalLayout*> AddGroupedSettingsRows(
 		not_null<Ui::VerticalLayout*> container) {
-	return container->add(object_ptr<Ui::VerticalLayout>(container));
+	const auto material = Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().grouped;
+	return container->add(
+		object_ptr<Ui::VerticalLayout>(container),
+		material ? style::al_justify : style::al_left);
 }
 
 void FinishGroupedSettingsRows(
 		not_null<Ui::VerticalLayout*> group,
 		const style::color *background) {
 	const auto material = Core::Telega::UseMaterial3Style();
-	const auto fluent = Core::Telega::UseWindows11Style();
+	if (Core::Telega::UseWindows11Style()) {
+		for (const auto child : group->findChildren<QWidget*>()) {
+			if (const auto button = dynamic_cast<Ui::SettingsButton*>(child)) {
+				button->setCardSurface(style::ConvertScale(4), style::ConvertScale(2));
+			}
+		}
+		return;
+	}
 	if (material && !style::MaterialDesign().grouped) {
 		return;
-	} else if (material || fluent) {
+	} else if (material) {
 		group->paintRequest() | rpl::on_next([=](QRect clip) {
 			auto p = QPainter(group);
 			p.fillRect(clip, style::MaterialTone(
-				st::windowBg->c, st::windowFg->c, fluent ? .035 : .06));
+				st::windowBg->c, st::windowFg->c, .06));
 		}, group->lifetime());
-		for (auto i = 0; i != group->count(); ++i) {
-			const auto row = group->widgetAt(i).get();
-			if (const auto button = dynamic_cast<Ui::SettingsButton*>(row)) {
+		for (const auto child : group->findChildren<QWidget*>()) {
+			if (const auto button = dynamic_cast<Ui::SettingsButton*>(child)) {
 				button->setMaterialSurface();
-			}
-			for (const auto child : row->findChildren<QWidget*>()) {
-				if (const auto button = dynamic_cast<Ui::SettingsButton*>(child)) {
-					button->setMaterialSurface();
-				}
 			}
 		}
 	}
@@ -557,26 +564,25 @@ void FinishGroupedSettingsRows(
 		const auto inset = style::ConvertScale(14);
 		for (auto i = 0; i != int(rows.size()); ++i) {
 			const auto last = (i + 1 == int(rows.size()));
-			if ((material || fluent) && !last) {
+			if (material && !last) {
 				const auto bottom = (rows[i]->geometry().bottom() + 1
 					+ rows[i + 1]->y()) / 2;
 				p.fillRect(0, bottom - st::lineWidth, group->width(),
 					st::lineWidth, pageBackground);
-			} else if (!material && !fluent && !last) {
+			} else if (!material && !last) {
 				p.fillRect(inset,
 					rows[i]->y() + rows[i]->height() - st::lineWidth,
 					std::max(0, group->width() - 2 * inset),
 					st::lineWidth, st::shadowFg);
 			}
 		}
-		if ((material || fluent || !plain) && !rows.empty()) {
+		if ((material || !plain) && !rows.empty()) {
 			p.setRenderHint(QPainter::Antialiasing);
 			auto outside = QPainterPath();
 			outside.setFillRule(Qt::OddEvenFill);
 			outside.addRect(overlay->rect());
 			const auto radius = std::min(
-				fluent ? style::ConvertScale(8)
-					: material
+				material
 					? style::ConvertScale(18)
 					: st::macSettingsRadius,
 				overlay->height() / 2);
@@ -598,7 +604,9 @@ not_null<Ui::FlatLabel*> AddGroupedSettingsHeader(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> text) {
 	return container->add(object_ptr<Ui::FlatLabel>(
-		container, std::move(text), Core::Telega::UseMaterial3Style()
+		container, std::move(text), Core::Telega::UseWindows11Style()
+			? st::unigramSettingsPageHeader
+			: Core::Telega::UseMaterial3Style()
 			? st::materialSettingsPageHeader
 			: st::macSettingsPageHeader),
 		style::margins(style::ConvertScale(14), style::ConvertScale(20),
@@ -608,9 +616,18 @@ not_null<Ui::FlatLabel*> AddGroupedSettingsHeader(
 void AddGroupedSettingsFooter(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> text) {
+	const auto material = Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().grouped;
+	static const auto materialFooter = [] {
+		auto result = st::macSettingsPageHeader;
+		result.style.font = st::normalFont;
+		return result;
+	}();
 	container->add(object_ptr<Ui::FlatLabel>(
-		container, std::move(text), st::macSettingsPageHeader),
-		style::margins(style::ConvertScale(14), style::ConvertScale(5),
+		container,
+		std::move(text),
+		material ? materialFooter : st::macSettingsPageHeader),
+		style::margins(style::ConvertScale(14), style::ConvertScale(material ? 12 : 5),
 			style::ConvertScale(14), 0));
 }
 
@@ -679,6 +696,9 @@ object_ptr<Button> CreateButtonWithIcon(
 	auto result = object_ptr<Button>(parent, std::move(text), st);
 	const auto button = result.data();
 	button->setAllowTextLines();
+	if (Core::Telega::UseWindows11Style() && IsGroupedSettingsContent(parent)) {
+		button->setCardSurface(style::ConvertScale(4), style::ConvertScale(2));
+	}
 	if (descriptor) {
 		AddButtonIcon(button, st, std::move(descriptor));
 	}
@@ -702,6 +722,23 @@ not_null<Button*> AddButtonWithIcon(
 	return container->add(std::move(button), { inset, 0, inset, 0 });
 }
 
+void AddSettingsNavigationArrow(not_null<Ui::SettingsButton*> button) {
+	button->setProperty("unigramNavigationArrow", true);
+	auto padding = button->st().padding;
+	padding.setRight(padding.right() + style::ConvertScale(20));
+	button->setPaddingOverride(padding);
+	const auto arrow = Ui::CreateChild<Ui::RpWidget>(button);
+	arrow->setAttribute(Qt::WA_TransparentForMouseEvents);
+	arrow->resize(st::macSettingsNext.size());
+	arrow->paintOn([](QPainter &p) {
+		st::macSettingsNext.paint(p, 0, 0, st::macSettingsNext.width(), st::windowFg->c);
+	});
+	button->sizeValue() | rpl::on_next([=](QSize size) {
+		arrow->moveToRight(style::ConvertScale(16), (size.height() - arrow->height()) / 2);
+	}, arrow->lifetime());
+	arrow->show();
+}
+
 void CreateRightLabel(
 		not_null<Button*> button,
 		v::text::data &&label,
@@ -709,7 +746,9 @@ void CreateRightLabel(
 		rpl::producer<QString> buttonText,
 		Ui::Text::MarkedContext context) {
 	const auto &st = ResolveButtonStyle(button, original);
-	const auto rightSkip = IsMacButtonStyle(st)
+	const auto rightSkip = button->property("unigramNavigationArrow").toBool()
+		? st.padding.right() + style::ConvertScale(22)
+		: IsMacButtonStyle(st)
 		? st.padding.right()
 		: st::settingsButtonRightSkip;
 	const auto name = Ui::CreateChild<Ui::FlatLabel>(
@@ -848,6 +887,9 @@ not_null<Button*> AddButtonWithLabel(
 		rpl::duplicate(text),
 		st,
 		std::move(descriptor));
+	if (Core::Telega::UseWindows11Style() && IsGroupedSettingsContent(container)) {
+		AddSettingsNavigationArrow(button);
+	}
 	CreateRightLabel(button, std::move(label), st, std::move(text));
 	return button;
 }

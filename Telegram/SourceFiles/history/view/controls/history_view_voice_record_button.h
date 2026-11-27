@@ -39,6 +39,7 @@ public:
 	};
 
 	void setType(Type state);
+	void setUnigramVoice(bool unigram);
 
 	void requestPaintColor(float64 progress);
 	void requestPaintProgress(float64 progress);
@@ -62,6 +63,7 @@ private:
 
 	rpl::variable<float64> _showProgress = 0.;
 	float64 _colorProgress = 0.;
+	bool _unigramVoice = false;
 	rpl::variable<Type> _state = Type::Record;
 
 	// This can animate for a very long time (like in music playing),

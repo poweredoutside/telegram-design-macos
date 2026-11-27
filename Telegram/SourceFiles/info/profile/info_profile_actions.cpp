@@ -85,6 +85,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/toggle_arrow.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
+#include "ui/style/style_material.h"
 #include "ui/ui_utility.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_custom_emoji.h"
@@ -110,6 +111,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_channel_earn.h" // st::channelEarnCurrencyCommonMargins
 #include "styles/style_chat_helpers.h"
 #include "styles/style_info.h"
+#include "styles/style_profile.h"
 #include "styles/style_info_profile_actions.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
@@ -231,10 +233,11 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 }
 
 [[nodiscard]] rpl::producer<TextWithEntities> AboutWithAdvancedValue(
-		not_null<PeerData*> peer) {
+		not_null<PeerData*> peer,
+		bool includeAbout = true) {
 	using Option = Core::Telega::DisplayOption;
 	return rpl::combine(
-		AboutValue(peer),
+		includeAbout ? AboutValue(peer) : rpl::single(TextWithEntities()),
 		rpl::single(ShowPeerIdBelowAbout.value()) | rpl::then(
 			ShowPeerIdBelowAbout.changes() | rpl::map([] {
 				return ShowPeerIdBelowAbout.value();
@@ -254,7 +257,7 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 			if (!value.empty()) {
 				value.append("\n\n");
 			}
-			value.append(Italic(u"id: "_q));
+			value.append(Italic(peer->isUser() ? u"ID Account: "_q : u"id: "_q));
 			const auto raw = peer->id.value & PeerId::kChatTypeMask;
 			value.append(Link(
 				Italic(Lang::FormatCountDecimal(raw)),
@@ -929,11 +932,38 @@ void DeleteContactNote(
 	return result;
 }
 
+void SetupProfileCard(
+		not_null<Ui::RpWidget*> card,
+		const style::icon *icon,
+		int bottomSkip = 0) {
+	card->paintRequest() | rpl::on_next([=] {
+		auto p = QPainter(card);
+		const auto material = Core::Telega::UseMaterial3Style();
+		const auto radius = style::ConvertScale(material ? 18 : 4);
+		const auto area = card->rect().adjusted(0, 0, 0, -bottomSkip);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setPen(Qt::NoPen);
+		p.setBrush(material
+			? QBrush(style::MaterialTone(st::windowBg->c, st::windowFg->c, .06))
+			: QBrush(st::windowBgOver));
+		p.drawRoundedRect(area, radius, radius);
+		if (icon) {
+			icon->paint(p, style::ConvertScale(16),
+				(area.height() - icon->height()) / 2, area.width(), st::windowFg->c);
+		}
+	}, card->lifetime());
+}
+
 [[nodiscard]] object_ptr<Ui::SlideWrap<>> CreateBirthday(
 		not_null<QWidget*> parent,
 		not_null<Window::SessionController*> controller,
-		not_null<UserData*> user) {
+		not_null<UserData*> user,
+		bool unigram) {
 	using namespace Data;
+	const auto padding = unigram
+		? style::margins(style::ConvertScale(58), style::ConvertScale(12),
+			style::ConvertScale(16), style::ConvertScale(16))
+		: st::infoProfileLabeledPadding;
 
 	auto result = object_ptr<Ui::SlideWrap<Ui::RoundButton>>(
 		parent,
@@ -941,7 +971,11 @@ void DeleteContactNote(
 			parent,
 			rpl::single(QString()),
 			st::infoHoursOuter),
-		st::infoProfileLabeledPadding - st::infoHoursOuterMargin);
+		padding - st::infoHoursOuterMargin);
+	if (unigram) {
+		SetupProfileCard(result.data(), &st::infoUnigramProfileBirthday,
+			style::ConvertScale(4));
+	}
 	result->setDuration(st::infoSlideDuration);
 	const auto button = result->entity();
 	button->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
@@ -1428,11 +1462,26 @@ bool SetClickContext(
 
 Section DetailsFiller::makeInfo() {
 	const auto parent = _stack->layout();
+	const auto material = Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().grouped
+		&& _peer->isUser()
+		&& !_sublist;
+	const auto unigram = Core::Telega::UseWindows11Style()
+		&& (_peer->isUser() || _peer->isBroadcast())
+		&& !_sublist;
+	const auto inset = unigram ? style::ConvertScale(24) : 0;
+	const auto cardMargins = style::margins(inset, 0, inset, 0);
 	auto wrap = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 		parent,
 		object_ptr<Ui::VerticalLayout>(parent));
 	const auto raw = wrap.data();
 	const auto result = raw->entity();
+	const auto rows = material
+		? result->add(
+			object_ptr<Ui::VerticalLayout>(result),
+			QMargins(style::ConvertScale(10), 0, style::ConvertScale(10), 0),
+			style::al_justify)
+		: result;
 	auto tracker = Ui::MultiSlideTracker();
 
 	// Fill context for a mention / hashtag / bot command link.
@@ -1561,33 +1610,33 @@ Section DetailsFiller::makeInfo() {
 			const style::FlatLabel &textSt = st::infoLabeled,
 			const style::margins &padding = st::infoProfileLabeledPadding,
 			const style::PopupMenu &stMenu = st::defaultPopupMenu,
-			anim::type visibilityAnimation = anim::type::normal) {
+			anim::type visibilityAnimation = anim::type::normal,
+			const style::icon *icon = nullptr) {
+		const auto actualPadding = material
+			? style::margins(style::ConvertScale(14), padding.top(),
+				style::ConvertScale(14), padding.bottom())
+			: (unigram && icon)
+			? style::margins(style::ConvertScale(58), style::ConvertScale(12),
+				style::ConvertScale(16), style::ConvertScale(18))
+			: padding;
 		auto line = CreateTextWithLabel(
-			result,
+			rows,
 			v::text::take_marked(std::move(label)),
 			std::move(text),
 			st::infoLabel,
 			textSt,
-			padding,
+			actualPadding,
 			stMenu,
 			visibilityAnimation);
-		tracker.track(result->add(std::move(line.wrap)));
+		if (unigram && icon) {
+			SetupProfileCard(line.wrap.data(), icon, style::ConvertScale(5));
+		}
+		tracker.track(rows->add(std::move(line.wrap), (unigram && icon)
+			? cardMargins
+			: style::margins()));
 
 		line.text->setClickHandlerFilter(infoClickFilter);
 		return line;
-	};
-	const auto addInfoLine = [&](
-			v::text::data &&label,
-			rpl::producer<TextWithEntities> &&text,
-			const style::FlatLabel &textSt = st::infoLabeled,
-			const style::margins &padding = st::infoProfileLabeledPadding,
-			const style::PopupMenu &stMenu = st::defaultPopupMenu) {
-		return addInfoLineGeneric(
-			std::move(label),
-			std::move(text),
-			textSt,
-			padding,
-			stMenu);
 	};
 	const auto addInfoOneLine = [&](
 			v::text::data &&label,
@@ -1595,14 +1644,16 @@ Section DetailsFiller::makeInfo() {
 			const QString &contextCopyText,
 			const style::margins &padding = st::infoProfileLabeledPadding,
 			const style::PopupMenu &stMenu = st::defaultPopupMenu,
-			anim::type visibilityAnimation = anim::type::normal) {
+			anim::type visibilityAnimation = anim::type::normal,
+			const style::icon *icon = nullptr) {
 		auto result = addInfoLineGeneric(
 			std::move(label),
 			std::move(text),
 			st::infoLabeledOneLine,
 			padding,
 			stMenu,
-			visibilityAnimation);
+			visibilityAnimation,
+			icon);
 		result.text->setDoubleClickSelectsParagraph(true);
 		result.text->setContextCopyText(contextCopyText);
 		return result;
@@ -1612,7 +1663,7 @@ Section DetailsFiller::makeInfo() {
 			not_null<Ui::FlatLabel*> label,
 			int rightSkip) {
 		const auto parent = label->parentWidget();
-		const auto container = result;
+		const auto container = rows;
 		rpl::combine(
 			container->widthValue(),
 			label->geometryValue(),
@@ -1703,13 +1754,32 @@ Section DetailsFiller::makeInfo() {
 				user->session().supportHelper().infoTextValue(user));
 		}
 
+		const auto selfCard = unigram && user->isSelf();
+		const auto addAbout = [&] {
+			auto label = user->isBot() ? tr::lng_info_about_label() : tr::lng_info_bio_label();
+			auto text = (selfCard || material)
+				? AboutValue(user)
+				: AboutWithAdvancedValue(user);
+			const auto about = addInfoLineGeneric(
+				std::move(label), rpl::duplicate(text), st::infoLabeled,
+				st::infoProfileLabeledPadding, st::defaultPopupMenu,
+				anim::type::normal, &st::menuIconInfo);
+			setupAboutContextMenu(about.text, std::move(text));
+			if (!selfCard && !material) {
+				SetupAboutPeerIdDrag(about.text, user);
+			}
+		};
+		if (selfCard) {
+			addAbout();
+		}
 		const auto phoneLine = addInfoOneLine(
 			tr::lng_info_mobile_label(),
 			VisiblePhoneValue(user, PhoneOrHiddenValue(user)),
 			tr::lng_profile_copy_phone(tr::now),
 			st::infoProfileLabeledPadding,
 			st::popupMenuWithIcons,
-			anim::type::instant);
+			anim::type::instant,
+			&st::menuIconPhone);
 		{
 			const auto phoneLabel = phoneLine.text;
 			const auto hook = [=](Ui::FlatLabel::ContextMenuRequest request) {
@@ -1730,24 +1800,27 @@ Section DetailsFiller::makeInfo() {
 			};
 			phoneLabel->setContextMenuHook(hook);
 		}
-		auto label = user->isBot()
-			? tr::lng_info_about_label()
-			: tr::lng_info_bio_label();
-		const auto about = addInfoLine(
-			std::move(label),
-			AboutWithAdvancedValue(user));
-		setupAboutContextMenu(about.text, AboutWithAdvancedValue(user));
-		SetupAboutPeerIdDrag(about.text, user);
+		if (!selfCard) {
+			addAbout();
+		}
 
 		const auto usernameLine = addInfoOneLine(
 			UsernamesSubtext(_peer, tr::lng_info_username_label()),
 			UsernameValue(user, true) | rpl::map([=](TextWithEntities u) {
-				return u.text.isEmpty()
-					? TextWithEntities()
-					: tr::link(u, UsernameUrl(user, u.text.mid(1)));
+				if (u.text.isEmpty()) {
+					return TextWithEntities();
+				}
+				const auto username = u.text.mid(1);
+				if (selfCard) {
+					u = TextWithEntities{ username };
+				}
+				return tr::link(u, UsernameUrl(user, username));
 			}),
 			QString(),
-			st::infoProfileLabeledUsernamePadding);
+			st::infoProfileLabeledUsernamePadding,
+			st::defaultPopupMenu,
+			anim::type::normal,
+			&st::menuIconUsername);
 		const auto callback = UsernamesLinkCallback(
 			_peer,
 			controller,
@@ -1801,11 +1874,30 @@ Section DetailsFiller::makeInfo() {
 		fitLabelToButton(qrButton, usernameLine.text, rightSkip);
 		fitLabelToButton(qrButton, usernameLine.subtext, rightSkip);
 		qrButton->setClickedCallback(showQr);
+		if (selfCard) {
+			usernameLine.text->setTextColorOverride(st::windowFg->c);
+			if (const auto label = usernameLine.text) {
+				style::PaletteChanged() | rpl::on_next([=] {
+					label->setTextColorOverride(st::windowFg->c);
+				}, label->lifetime());
+			}
+		}
+		if (selfCard || material) {
+			const auto extra = addInfoLineGeneric(
+				rpl::single(TextWithEntities()),
+				AboutWithAdvancedValue(user, false),
+				st::infoLabeled,
+				st::infoProfileLabeledPadding,
+				st::defaultPopupMenu,
+				anim::type::normal,
+				&st::menuIconInfo);
+			SetupAboutPeerIdDrag(extra.text, user);
+		}
 
 		if (!user->isBot()) {
 			tracker.track(result->add(
-				CreateBirthday(result, controller, user),
-				{},
+				CreateBirthday(result, controller, user, unigram),
+				cardMargins,
 				style::al_justify));
 			tracker.track(result->add(
 				CreateWorkingHours(result, user), {}, style::al_justify));
@@ -1857,7 +1949,11 @@ Section DetailsFiller::makeInfo() {
 				? TopicSubtext(_peer)
 				: UsernamesSubtext(_peer, tr::lng_info_link_label())),
 			std::move(linkText),
-			QString());
+			QString(),
+			st::infoProfileLabeledUsernamePadding,
+			st::defaultPopupMenu,
+			anim::type::normal,
+			&st::menuIconUsername);
 		const auto controller = _controller->parentController();
 		const auto linkCallback = UsernamesLinkCallback(
 			_peer,
@@ -1914,13 +2010,24 @@ Section DetailsFiller::makeInfo() {
 			).text->setLinksTrusted();
 		}
 
-		const auto about = addInfoLine(tr::lng_info_about_label(), _topic
-			? rpl::single(TextWithEntities())
-			: AboutWithAdvancedValue(_peer));
+		const auto about = addInfoLineGeneric(
+			tr::lng_info_about_label(),
+			_topic ? rpl::single(TextWithEntities()) : AboutWithAdvancedValue(_peer),
+			st::infoLabeled,
+			st::infoProfileLabeledPadding,
+			st::defaultPopupMenu,
+			anim::type::normal,
+			&st::menuIconInfo);
 		if (!_topic) {
 			setupAboutContextMenu(about.text, AboutWithAdvancedValue(_peer));
 			SetupAboutPeerIdDrag(about.text, _peer);
 		}
+	}
+	if (material) {
+		const auto background = (_controller->wrap() == Wrap::Layer)
+			? &st::boxBg
+			: &st::profileBg;
+		::Settings::FinishGroupedSettingsRows(rows, background);
 	}
 	raw->toggleOn(tracker.atLeastOneShownValue());
 	raw->finishAnimating();
@@ -1933,6 +2040,12 @@ Section DetailsFiller::makeInfo() {
 
 Section DetailsFiller::makePersonalChannel(not_null<UserData*> user) {
 	const auto parent = _stack->layout();
+	const auto unigram = Core::Telega::UseWindows11Style();
+	const auto material = Core::Telega::UseMaterial3Style()
+		&& style::MaterialDesign().grouped;
+	const auto inset = unigram ? style::ConvertScale(24)
+		: material ? style::ConvertScale(10) : 0;
+	const auto margins = style::margins(inset, material ? inset : 0, inset, 0);
 	auto result = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 		parent,
 		object_ptr<Ui::VerticalLayout>(parent));
@@ -1997,7 +2110,7 @@ Section DetailsFiller::makePersonalChannel(not_null<UserData*> user) {
 		const auto onlyChannelWrap = container->add(
 			object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 				container,
-				object_ptr<Ui::VerticalLayout>(container)));
+				object_ptr<Ui::VerticalLayout>(container)), margins);
 		onlyChannelWrap->toggleOn(rpl::duplicate(channel) | rpl::map([=] {
 			return user->personalChannelId()
 				&& !user->personalChannelMessageId();
@@ -2018,6 +2131,9 @@ Section DetailsFiller::makePersonalChannel(not_null<UserData*> user) {
 			st::infoLabel,
 			st::infoLabeled,
 			st::infoProfilePersonalChannelPadding);
+		if (unigram || material) {
+			SetupProfileCard(line.wrap.data(), &st::infoIconMediaChannel);
+		}
 		onlyChannelWrap->entity()->add(std::move(line.wrap));
 
 		line.text->setClickHandlerFilter([=](
@@ -2029,17 +2145,19 @@ Section DetailsFiller::makePersonalChannel(not_null<UserData*> user) {
 			return false;
 		});
 
-		object_ptr<FloatingIcon>(
-			onlyChannelWrap,
-			st::infoIconMediaChannel,
-			st::infoPersonalChannelIconPosition);
+		if (!unigram && !material) {
+			object_ptr<FloatingIcon>(
+				onlyChannelWrap,
+				st::infoIconMediaChannel,
+				st::infoPersonalChannelIconPosition);
+		}
 	}
 
 	{
 		const auto messageChannelWrap = container->add(
 			object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 				container,
-				object_ptr<Ui::VerticalLayout>(container)));
+				object_ptr<Ui::VerticalLayout>(container)), margins);
 		messageChannelWrap->setDuration(duration);
 		messageChannelWrap->toggleOn(rpl::duplicate(channel) | rpl::map([=] {
 			return user->personalChannelId()
@@ -2060,33 +2178,85 @@ Section DetailsFiller::makePersonalChannel(not_null<UserData*> user) {
 		const auto rebuild = [=](
 				not_null<HistoryItem*> item,
 				anim::type animated) {
-			const auto &stUserpic = st::infoPersonalChannelUserpic;
-			const auto &stLabeled = st::infoProfilePersonalChannelPadding;
+			const auto stUserpic = [=] {
+				auto result = st::infoPersonalChannelUserpic;
+				if (unigram) {
+					result.photoSize = style::ConvertScale(48);
+					result.size = QSize(result.photoSize, result.photoSize);
+				}
+				return result;
+			}();
+			const auto stLabeled = unigram
+				? style::margins(style::ConvertScale(68), style::ConvertScale(8),
+					style::ConvertScale(10), style::ConvertScale(8))
+				: st::infoProfilePersonalChannelPadding;
 
 			messageChannelWrap->toggle(false, anim::type::instant);
 			clear();
 
 			const auto inner = messageChannelWrap->entity()->add(
 				object_ptr<Ui::VerticalLayout>(messageChannelWrap->entity()));
+			if (material) {
+				SetupProfileCard(inner, nullptr);
+			}
+			if (unigram) {
+				const auto heading = inner->add(object_ptr<Ui::FixedHeightWidget>(
+					inner, style::ConvertScale(26)));
+				const auto channel = item->history()->peer->asChannel();
+				const auto title = tr::lng_profile_action_short_channel(tr::now);
+				const auto count = tr::lng_chat_status_subscribers(
+					tr::now, lt_count_decimal, channel->membersCount());
+				heading->setAccessibleName(title + ' ' + count);
+				heading->paintRequest() | rpl::on_next([=] {
+					auto p = QPainter(heading);
+					const auto height = heading->height();
+					const auto font = st::semiboldFont;
+					const auto titleWidth = font->width(title);
+					p.setFont(font);
+					p.setPen(st::windowFg);
+					p.drawText(QRect(0, 0, titleWidth, height), Qt::AlignCenter, title);
+					if (channel->membersCount() > 0) {
+						const auto badgeHeight = style::ConvertScale(16);
+						const auto badge = QRect(titleWidth + style::ConvertScale(6),
+							(height - badgeHeight) / 2,
+							st::normalFont->width(count) + style::ConvertScale(8), badgeHeight);
+						const auto radius = style::ConvertScale(4);
+						p.setRenderHint(QPainter::Antialiasing);
+						p.setPen(Qt::NoPen);
+						p.setBrush(st::windowBgActive);
+						p.drawRoundedRect(badge, radius, radius);
+						p.setPen(st::windowFgActive);
+						p.setFont(st::normalFont);
+						p.drawText(badge, Qt::AlignCenter, count);
+					}
+				}, heading->lifetime());
+			}
 
 			const auto line = inner->add(
 				object_ptr<Ui::FixedHeightWidget>(
 					inner,
 					stUserpic.photoSize + rect::m::sum::v(stLabeled)));
+			if (unigram) {
+				SetupProfileCard(line, nullptr);
+			}
 			const auto userpic = Ui::CreateChild<Ui::UserpicButton>(
 				line,
 				item->history()->peer,
-				st::infoPersonalChannelUserpic);
+				*line->lifetime().make_state<style::UserpicButton>(stUserpic));
 
 			userpic->moveToLeft(
-				-st::infoPersonalChannelUserpicSkip
-					+ (stLabeled.left() - stUserpic.photoSize) / 2,
+				unigram
+					? style::ConvertScale(8)
+					: -st::infoPersonalChannelUserpicSkip
+						+ (stLabeled.left() - stUserpic.photoSize) / 2,
 				stLabeled.top());
 			userpic->setAttribute(Qt::WA_TransparentForMouseEvents);
 
 			const auto date = Ui::CreateChild<Ui::FlatLabel>(
 				line,
-				Ui::FormatDialogsDate(ItemDateTime(item)),
+				unigram
+					? langDayOfMonth(ItemDateTime(item).date())
+					: Ui::FormatDialogsDate(ItemDateTime(item)),
 				st::infoPersonalChannelDateLabel);
 
 			const auto name = Ui::CreateChild<Ui::FlatLabel>(
@@ -2166,7 +2336,7 @@ Section DetailsFiller::makePersonalChannel(not_null<UserData*> user) {
 					size.height() - stLabeled.bottom() - preview->height());
 			}, preview->lifetime());
 
-			{
+			if (!unigram) {
 				inner->add(
 					object_ptr<Ui::FlatLabel>(
 						inner,

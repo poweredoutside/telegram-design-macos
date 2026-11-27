@@ -51,6 +51,7 @@ infoSharedMediaCountButton: SettingsCountButton(managePeerButton) {
 	label: defaultSettingsRightLabel;
 	labelPosition: point(24px, 10px);
 }
+infoUnigramProfileBirthday: icon {{ "settings/birthday_add-22x22", windowFg }};
 infoHoursState: FlatLabel(infoLabeled) {
 	minWidth: 0px;
 }

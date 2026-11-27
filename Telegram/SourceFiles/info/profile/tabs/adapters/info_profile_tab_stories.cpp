@@ -37,10 +37,11 @@ class StoriesSubController final : public AbstractController {
 public:
 	StoriesSubController(
 		not_null<AbstractController*> parent,
-		not_null<PeerData*> peer)
+		not_null<PeerData*> peer,
+		int albumId)
 	: AbstractController(parent->parentController())
 	, _parent(parent)
-	, _key(Stories::Tag(peer)) {
+	, _key(Stories::Tag(peer, albumId)) {
 	}
 
 	Key key() const override {
@@ -64,9 +65,9 @@ private:
 
 class StoriesTabAdapter final : public MediaTabContent {
 public:
-	StoriesTabAdapter(MediaTabContext context)
+	StoriesTabAdapter(MediaTabContext context, int albumId)
 	: _peer(context.peer)
-	, _subController(context.controller, context.peer)
+	, _subController(context.controller, context.peer, albumId)
 	, _host(context.parent) {
 		const auto host = _host.data();
 		_list = Ui::CreateChild<Media::ListWidget>(host, &_subController);
@@ -150,18 +151,21 @@ private:
 
 } // namespace
 
-MediaTabDescriptor MakeStoriesTabDescriptor(not_null<PeerData*> peer) {
+MediaTabDescriptor MakeStoriesTabDescriptor(not_null<PeerData*> peer, bool archive) {
 	using namespace rpl::mappers;
 	return {
-		.id = u"stories"_q,
-		.title = (peer->isChannel()
+		.id = archive ? u"archive"_q : u"stories"_q,
+		.title = (archive
+			? tr::lng_stories_archive_button(tr::marked)
+			: peer->isChannel()
 			? tr::lng_media_type_posts(tr::marked)
 			: tr::lng_media_type_stories(tr::marked)),
 		.shown = StoriesCountValue(peer) | rpl::map(_1 > 0),
-		.factory = [](MediaTabContext context) {
-			return std::make_unique<StoriesTabAdapter>(std::move(context));
+		.factory = [=](MediaTabContext context) {
+			return std::make_unique<StoriesTabAdapter>(std::move(context),
+				archive ? Data::kStoriesAlbumIdArchive : Data::kStoriesAlbumIdSaved);
 		},
-		.profileTab = Data::ProfileTab::Posts,
+		.profileTab = archive ? Data::ProfileTab::None : Data::ProfileTab::Posts,
 	};
 }
 

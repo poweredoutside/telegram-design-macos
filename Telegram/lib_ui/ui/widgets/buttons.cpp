@@ -20,6 +20,7 @@
 #include "ui/round_rect.h"
 
 #include <QtGui/QtEvents>
+#include <QtGui/QPainterPath>
 
 namespace Ui {
 namespace {
@@ -995,6 +996,13 @@ void SettingsButton::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 
 	const auto paintOver = (isOver() || isDown()) && !isDisabled();
+	if (_cardRadius) {
+		p.setRenderHint(QPainter::Antialiasing);
+		auto path = QPainterPath();
+		path.addRoundedRect(rect().adjusted(0, _cardVerticalInset,
+			0, -_cardVerticalInset), _cardRadius, _cardRadius);
+		p.setClipPath(path, Qt::IntersectClip);
+	}
 	paintBg(p, e->rect(), paintOver);
 
 	paintRipple(p, 0, 0);
@@ -1012,9 +1020,18 @@ void SettingsButton::setMaterialSurface() {
 	update();
 }
 
+void SettingsButton::setCardSurface(int radius, int verticalInset) {
+	_cardRadius = radius;
+	_cardVerticalInset = verticalInset;
+	update();
+}
+
 void SettingsButton::paintBg(Painter &p, const QRect &rect, bool over) const {
 	const auto bg = over ? _st.textBgOver : _st.textBg;
-	if (_materialSurface && bg->c.alpha() > 0) {
+	if (_cardRadius) {
+		p.fillRect(rect, style::MaterialTone(st::windowBg->c, st::windowFg->c,
+			isDown() ? .12 : over ? .09 : .055));
+	} else if (_materialSurface && bg->c.alpha() > 0) {
 		p.fillRect(rect, style::MaterialTone(
 			bg->c, st::windowFg->c, over ? .10 : .06));
 	} else {

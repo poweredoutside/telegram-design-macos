@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/Business.cs -->
+<defs>
+<linearGradient id="LinearGradientBrush_0" gradientUnits="userSpaceOnUse" x1="-8.664" y1="3.099" x2="8.664" y2="-3.099"><stop offset="0" stop-color="#6b92ff" stop-opacity="1"/><stop offset="0.484" stop-color="#966eff" stop-opacity="1"/><stop offset="1" stop-color="#e36ace" stop-opacity="1"/></linearGradient>
+<linearGradient id="LinearGradientBrush_1" gradientUnits="userSpaceOnUse" x1="0" y1="-4.25" x2="0" y2="4.25"><stop offset="0.35" stop-color="#a95de3" stop-opacity="1"/><stop offset="1" stop-color="#f46c7c" stop-opacity="1"/></linearGradient>
+</defs>
+<g transform="translate(99.938 50.995)">
+<g transform="translate(0 0) rotate(0) scale(10 10) translate(0 0)">
+<path d="M -8.974 -0.912 C -9.72 -0.912 -10.434 -0.607 -10.951 -0.068 L -11.732 0.746 C -12.058 1.086 -12.279 1.556 -12.1 1.992 C -11.833 2.643 -11.214 3.099 -10.492 3.099 C -9.527 3.099 -8.744 2.283 -8.744 1.276 C -8.744 2.283 -7.961 3.099 -6.996 3.099 C -6.031 3.099 -5.248 2.283 -5.248 1.276 C -5.248 2.283 -4.465 3.099 -3.5 3.099 C -2.535 3.099 -1.752 2.283 -1.752 1.276 C -1.752 2.283 -0.969 3.099 -0.004 3.099 C 0.961 3.099 1.744 2.283 1.744 1.276 C 1.744 2.283 2.527 3.099 3.492 3.099 C 4.214 3.099 4.833 2.643 5.1 1.992 C 5.279 1.556 5.058 1.086 4.732 0.746 L 3.951 -0.068 C 3.434 -0.607 2.72 -0.912 1.974 -0.912 L -8.974 -0.912 Z M -5.474 -0.912 C -6.22 -0.912 -6.934 -0.607 -7.451 -0.068 L -8.232 0.746 C -8.558 1.086 -8.779 1.556 -8.6 1.992 C -8.333 2.643 -7.714 3.099 -6.992 3.099 C -6.027 3.099 -5.244 2.283 -5.244 1.276 C -5.244 2.283 -4.461 3.099 -3.496 3.099 C -2.531 3.099 -1.748 2.283 -1.748 1.276 C -1.748 2.283 -0.965 3.099 0 3.099 C 0.965 3.099 1.748 2.283 1.748 1.276 C 1.748 2.283 2.531 3.099 3.496 3.099 C 4.461 3.099 5.244 2.283 5.244 1.276 C 5.244 2.283 6.027 3.099 6.992 3.099 C 7.714 3.099 8.333 2.643 8.6 1.992 C 8.779 1.556 8.558 1.086 8.232 0.746 L 7.451 -0.068 C 6.934 -0.607 6.22 -0.912 5.474 -0.912 L -5.474 -0.912 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush_0)" fill-opacity="1"/>
+</g>
+</g>
+<g transform="translate(99.938 50.995)">
+<g transform="translate(0 0) rotate(0) scale(10 10) translate(0 0)">
+<path d="M -5.098 -3.099 C -5.501 -3.099 -5.827 -2.773 -5.827 -2.37 C -5.827 -1.967 -5.501 -1.641 -5.098 -1.641 L 5.097 -1.641 C 5.5 -1.641 5.827 -1.967 5.827 -2.37 C 5.827 -2.773 5.5 -3.099 5.097 -3.099 L -5.098 -3.099 Z" fill-rule="nonzero" fill="#000000" fill-opacity="0.2"/>
+</g>
+</g>
+<g transform="translate(100 137.5)">
+<g transform="translate(0 0) rotate(0) scale(10 10) translate(0 0)">
+<path d="M -5.5 -3.5 C -5.5 -3.914 -5.836 -4.25 -6.25 -4.25 C -6.664 -4.25 -7 -3.914 -7 -3.5 L -7 2.587 C -7 3.505 -6.255 4.25 -5.337 4.25 L 5.337 4.25 C 6.255 4.25 7 3.505 7 2.587 L 7 -3.5 C 7 -3.914 6.664 -4.25 6.25 -4.25 C 5.836 -4.25 5.5 -3.914 5.5 -3.5 L 5.5 -2.326 C 5.5 -1.732 5.018 -1.25 4.424 -1.25 L -4.424 -1.25 C -5.018 -1.25 -5.5 -1.732 -5.5 -2.326 L -5.5 -3.5 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush_1)" fill-opacity="1"/>
+</g>
+</g>
+</svg>

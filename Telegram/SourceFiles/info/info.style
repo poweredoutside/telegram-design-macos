@@ -432,6 +432,21 @@ infoSettingsLayerTopBar: InfoTopBar(infoSettingsTopBar) {
 	bg: boxBg;
 	radius: boxRadius;
 }
+infoUnigramSettingsTopBar: InfoTopBar(infoTopBar) {
+	height: 50px;
+	back: infoSettingsTopBarBack;
+	title: FlatLabel(infoTopBarTitle) {
+		maxHeight: 30px;
+		style: TextStyle(defaultTextStyle) {
+			font: font(23px semibold);
+		}
+	}
+	titlePosition: point(24px, 9px);
+}
+infoUnigramSettingsLayerTopBar: InfoTopBar(infoUnigramSettingsTopBar) {
+	bg: boxBg;
+	radius: boxRadius;
+}
 
 
 infoProfileTopBarHeightMax: 180px + infoLayerTopBarHeight;
@@ -788,6 +803,20 @@ infoProfileTabsStrip: ProfileTabsStrip {
 		color: lightButtonBgRipple;
 	}
 	duration: 200;
+}
+infoUnigramProfileTabsStrip: ProfileTabsStrip {
+	height: 40px;
+	margin: margins(8px, 0px, 8px, 0px);
+	skip: 0px;
+	tabPadding: margins(14px, 0px, 14px, 0px);
+	activeSkip: 6px;
+	style: semiboldTextStyle;
+	fg: windowSubTextFg;
+	fgActive: windowActiveTextFg;
+	bg: windowBgOver;
+	bgActive: lightButtonBgOver;
+	ripple: defaultRippleAnimation;
+	duration: 180;
 }
 infoProfileTabsShadow: BoxShadow {
 	blurRadius: 8px;

@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "main/main_session.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/layers/box_background.h"
 #include "ui/widgets/checkbox.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
@@ -122,6 +123,7 @@ void PinMessageBox(
 		}).send();
 	};
 
+	Ui::AllowBoxBackgroundWithScroll(box);
 	Ui::ConfirmBox(box, {
 		.text = (pinningOld
 			? tr::lng_pinned_pin_old_sure()

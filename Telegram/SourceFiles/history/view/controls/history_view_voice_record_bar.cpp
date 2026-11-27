@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 #include "chat_helpers/compose/compose_show.h"
 #include "core/application.h"
+#include "core/core_telega_preferences.h"
 #include "data/data_document.h"
 #include "data/data_document_media.h"
 #include "data/data_session.h"
@@ -35,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/round_video_recorder.h"
 #include "ui/controls/send_button.h"
 #include "ui/effects/animation_value.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/effects/animation_value_f.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/text/format_values.h"
@@ -46,6 +48,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/rect.h"
 #include "ui/ui_utility.h"
 #include "webrtc/webrtc_video_track.h"
+#include "window/section_widget.h"
+#include "window/themes/window_theme_glass.h"
+#include "window/window_session_controller.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_history_view_voice_record_bar.h"
@@ -65,6 +70,8 @@ constexpr auto kMinSamples
 	= ::Media::Player::kDefaultFrequency / 5; // 0.2 seconds
 
 constexpr auto kPrecision = 10;
+constexpr auto kUnigramPrecision = 100;
+constexpr auto kUnigramTimerInterpolation = crl::time(100);
 
 constexpr auto kLockArcAngle = 15.;
 
@@ -142,6 +149,16 @@ void SoundedPreview::subscribeToUpdates(Fn<void()> callback) {
 	const auto durationString = Ui::FormatDurationText(duration / kPrecision);
 	const auto decimalPart = QString::number(duration % kPrecision);
 	return durationString + QLocale().decimalPoint() + decimalPart;
+}
+
+[[nodiscard]] QString FormatUnigramVoiceDuration(int centiseconds) {
+	const auto seconds = centiseconds / kUnigramPrecision;
+	auto time = Ui::FormatDurationText(seconds);
+	if (seconds < 10 * 60) {
+		time.remove(0, 1);
+	}
+	return time + '.' + QString::number(centiseconds % kUnigramPrecision)
+		.rightJustified(2, QChar('0'));
 }
 
 [[nodiscard]] QString FormatTrimDuration(crl::time duration) {
@@ -439,7 +456,8 @@ void FillWithMinithumbs(
 		QPainter &p,
 		const QRect &widgetRect,
 		const style::RecordBarLock &st,
-		float64 progress) {
+		float64 progress,
+		bool unigram = false) {
 	const auto &originTop = st.originTop;
 	const auto &originBottom = st.originBottom;
 	const auto &originBody = st.originBody;
@@ -460,6 +478,17 @@ void FillWithMinithumbs(
 
 	const auto full = widgetRect - QMargins(0, topMargin, 0, bottomMargin);
 	const auto inner = full - shadowMargins;
+	if (unigram) {
+		auto hq = PainterHighQualityEnabler(p);
+		const auto diameter = std::min(inner.height(), style::ConvertScale(36));
+		const auto circle = QRectF(
+			QRectF(inner).center() - QPointF(diameter / 2., diameter / 2.),
+			QSizeF(diameter, diameter));
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::historyToDownBg);
+		p.drawEllipse(circle);
+		return inner;
+	}
 	const auto content = inner
 		- style::margins(0, originTop.height(), 0, originBottom.height());
 	const auto contentShadow = full
@@ -624,7 +653,8 @@ TTLButton::TTLButton(
 	) | rpl::on_next([=](const QRect &clip) {
 		auto p = QPainter(this);
 
-		const auto inner = DrawLockCircle(p, rect(), _st.lock, 1.);
+		const auto unigram = !recordingVideo && Core::Telega::UseWindows11Style();
+		const auto inner = DrawLockCircle(p, rect(), _st.lock, 1., unigram);
 
 		Ui::RippleButton::paintRipple(p, _rippleRect.x(), _rippleRect.y());
 
@@ -1815,7 +1845,12 @@ void RecordLock::init() {
 void RecordLock::drawProgress(QPainter &p) {
 	const auto progress = _progress.current();
 
-	const auto inner = DrawLockCircle(p, rect(), _st, progress);
+	const auto inner = DrawLockCircle(
+		p,
+		rect(),
+		_st,
+		progress,
+		isStopState() && !_recordingVideo && Core::Telega::UseWindows11Style());
 
 	if (isLocked()) {
 		Ui::RippleButton::paintRipple(p, _rippleRect.x(), _rippleRect.y());
@@ -2028,7 +2063,7 @@ public:
 		const style::RecordBar &st,
 		int height);
 
-	void requestPaintProgress(float64 progress);
+	void requestPaintProgress(float64 progress, bool unigram);
 
 protected:
 	QImage prepareRippleMask() const override;
@@ -2042,6 +2077,7 @@ private:
 	const QRect _rippleRect;
 
 	rpl::variable<float64> _showProgress = 0.;
+	bool _unigram = false;
 
 	Ui::Text::String _text;
 
@@ -2076,7 +2112,7 @@ void CancelButton::init() {
 
 		Ui::RippleButton::paintRipple(p, _rippleRect.x(), _rippleRect.y());
 
-		p.setPen(_st.cancelActive);
+		p.setPen(_unigram ? st::historySendIconFg : _st.cancelActive);
 		_text.draw(p, {
 			.position = QPoint(0, (height() - _text.minHeight()) / 2),
 			.outerWidth = width(),
@@ -2094,9 +2130,12 @@ QPoint CancelButton::prepareRippleStartPosition() const {
 	return mapFromGlobal(QCursor::pos()) - _rippleRect.topLeft();
 }
 
-void CancelButton::requestPaintProgress(float64 progress) {
-	_showProgress = progress;
-	update();
+void CancelButton::requestPaintProgress(float64 progress, bool unigram) {
+	if (_showProgress.current() != progress || _unigram != unigram) {
+		_unigram = unigram;
+		_showProgress = progress;
+		update();
+	}
 }
 
 VoiceRecordBar::VoiceRecordBar(
@@ -2143,22 +2182,78 @@ VoiceRecordBar::~VoiceRecordBar() {
 	}
 }
 
+QRect VoiceRecordBar::macRecordingSurface() const {
+	const auto inset = st::historyComposeMacInset;
+	const auto vertical = style::ConvertScale(2);
+	auto area = rect().marginsRemoved({ inset, vertical, inset, vertical });
+	const auto sendX = mapFromGlobal(_send->mapToGlobal(QPoint())).x();
+	const auto sendLeft = rtl() ? width() - sendX - _send->width() : sendX;
+	area.setRight(sendLeft - st::historyComposeMacGap - 1);
+	return area;
+}
+
+int VoiceRecordBar::recordingControlRight(int width) const {
+	if (Core::Telega::UseMacOSStyle()) {
+		const auto send = Ui::MapFrom(
+			_outerContainer, _send->parentWidget(), _send->geometry());
+		const auto left = send.x() + (send.width() - width) / 2;
+		return rtl() ? left : (_outerContainer->width() - left - width);
+	}
+	const auto me = Ui::MapFrom(_outerContainer, parentWidget(), geometry());
+	return _outerContainer->width()
+		- rect::right(me)
+		+ st::historyRecordLockPosition.x();
+}
+
 void VoiceRecordBar::updateMessageGeometry() {
+	const auto mac = Core::Telega::UseMacOSStyle();
+	const auto area = mac ? macRecordingSurface() : rect();
+	const auto unigram = usesUnigramRecordingStyle();
+	const auto radius = unigram
+		? style::ConvertScale(6)
+		: st::historyRecordSignalRadius;
+	const auto dotCenter = mac
+		? area.x() + style::ConvertScale(15)
+		: unigram ? style::ConvertScale(32) : _centerY;
+	_redCircleRect = QRect(dotCenter - radius, _centerY - radius,
+		radius * 2, radius * 2);
+	_durationRect.moveLeft(rect::right(_redCircleRect)
+		+ st::historyRecordDurationSkip);
+	_durationRect.setWidth(_cancelFont->width(unigram
+		? FormatUnigramVoiceDuration(kAudioVoiceMaxLength * kUnigramPrecision - 1)
+		: FormatVoiceDuration(kMaxSamples)));
+	const auto cancelWidth = _cancel->width();
+	const auto centered = area.x() + (area.width() - cancelWidth) / 2;
+	const auto available = mac ? rect::right(area) : (width() - _send->width());
+	const auto durationEnd = rect::right(_durationRect)
+		+ style::ConvertScale(4);
+	const auto cancelLeft = (mac || unigram)
+		? std::clamp(
+			std::max(centered, durationEnd),
+			area.x(),
+			std::max(area.x(), available - cancelWidth))
+		: centered;
+	if (mac || unigram) {
+		_durationRect.setWidth(std::clamp(
+			cancelLeft - _durationRect.left(), 0, _durationRect.width()));
+	}
+	_cancel->moveToLeft(cancelLeft, 0);
 	const auto left = rect::right(_durationRect) + st::historyRecordTextLeft;
-	const auto right = width()
-		- _send->width()
-		- st::historyRecordTextRight;
+	const auto right = available - st::historyRecordTextRight;
 	const auto textWidth = _message.maxWidth();
-	const auto width = ((right - left) < textWidth)
+	const auto width = mac
+		? std::clamp(right - left, 1, std::max(1, textWidth))
+		: ((right - left) < textWidth)
 		? st::historyRecordTextWidthForWrap
 		: textWidth;
 	const auto countLines = std::ceil((float)textWidth / width);
 	const auto textHeight = _message.minHeight() * countLines;
-	_messageRect = QRect(
+	const auto message = QRect(
 		left + (right - left - width) / 2,
 		(height() - textHeight) / 2,
 		width,
 		textHeight);
+	_messageRect = mac ? myrtlrect(message) : message;
 }
 
 void VoiceRecordBar::updateLockGeometry() {
@@ -2167,9 +2262,7 @@ void VoiceRecordBar::updateLockGeometry() {
 	const auto finalTop = me.y()
 		- st::historyRecordLockPosition.y()
 		- _lock->height();
-	const auto finalRight = _outerContainer->width()
-		- rect::right(me)
-		+ st::historyRecordLockPosition.x();
+	const auto finalRight = recordingControlRight(_lock->width());
 	const auto progress = _showLockAnimation.value(
 		_lockShowing.current() ? 1. : 0.);
 	if (_lockFromBottom) {
@@ -2199,9 +2292,7 @@ void VoiceRecordBar::updateTTLGeometry(
 		- _ttlButton->height()
 		- (_ttlButton->height() * (1. - lockHiddenProgress));
 	if (type == TTLAnimationType::RightLeft) {
-		const auto finalRight = _outerContainer->width()
-			- rect::right(me)
-			+ st::historyRecordLockPosition.x();
+		const auto finalRight = recordingControlRight(_ttlButton->width());
 
 		const auto from = -_ttlButton->width();
 		const auto right = anim::interpolate(from, finalRight, progress);
@@ -2245,33 +2336,69 @@ void VoiceRecordBar::init() {
 	sizeValue(
 	) | rpl::on_next([=](QSize size) {
 		_centerY = size.height() / 2;
-		{
-			const auto maxD = st::historyRecordSignalRadius * 2;
-			const auto point = _centerY - st::historyRecordSignalRadius;
-			_redCircleRect = { point, point, maxD, maxD };
-		}
-		{
-			const auto durationLeft = _redCircleRect.x()
-				+ _redCircleRect.width()
-				+ st::historyRecordDurationSkip;
-			const auto &ascent = _cancelFont->ascent;
-			_durationRect = QRect(
-				durationLeft,
-				_redCircleRect.y() - (ascent - _redCircleRect.height()) / 2,
-				_cancelFont->width(FormatVoiceDuration(kMaxSamples)),
-				ascent);
-		}
-		_cancel->moveToLeft((size.width() - _cancel->width()) / 2, 0);
+		const auto ascent = _cancelFont->ascent;
+		const auto radius = st::historyRecordSignalRadius;
+		const auto top = _centerY - radius - (ascent - radius * 2) / 2;
+		_durationRect = QRect(0, top, 0, ascent);
 		updateMessageGeometry();
 	}, lifetime());
 
+	const auto mac = Core::Telega::UseMacOSStyle();
+	const auto glassCache = mac
+		? lifetime().make_state<Ui::LiquidGlassBackdropCache>()
+		: nullptr;
+	if (mac) {
+		Window::Theme::GlassStyleValue() | rpl::on_next([=] {
+			update();
+		}, lifetime());
+	}
 	paintRequest(
 	) | rpl::on_next([=](const QRect &clip) {
 		auto p = QPainter(this);
 		if (_showAnimation.animating()) {
 			p.setOpacity(showAnimationRatio());
 		}
-		if (_backgroundRect) {
+		const auto unigram = usesUnigramRecordingStyle();
+		if (mac && !isListenState()) {
+			const auto area = myrtlrect(macRecordingSurface());
+			const auto glass = Window::Theme::GlassStyle();
+			auto backdrop = QImage();
+			if (glass.enabled && glass.opacity < 100 && clip.intersects(area)) {
+				if (const auto window = _show->resolveWindow()) {
+					const auto content = window->content();
+					const auto from = content->backgroundFromY()
+						- content->mapFromGlobal(mapToGlobal(QPoint())).y();
+					const auto ratio = glass.blur > 0 ? 1. : devicePixelRatioF();
+					backdrop = QImage(
+						area.size() * ratio, QImage::Format_ARGB32_Premultiplied);
+					backdrop.setDevicePixelRatio(ratio);
+					backdrop.fill(_st.bg->c);
+					auto sample = QPainter(&backdrop);
+					sample.translate(-area.x(), from - area.y());
+					Window::SectionWidget::PaintBackground(
+						sample,
+						window->currentChatTheme(),
+						QSize(width(), content->height()),
+						area.translated(0, -from),
+						window->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+				}
+			}
+			Ui::PaintLiquidGlass(
+				p, area, backdrop, _st.bg->c, glass, area.height() / 2, glassCache);
+			p.setClipRect(area, Qt::IntersectClip);
+		} else if (unigram) {
+			auto hq = PainterHighQualityEnabler(p);
+			const auto horizontal = style::ConvertScale(8);
+			const auto vertical = style::ConvertScale(4);
+			const auto area = rect().marginsRemoved({
+				horizontal, vertical, horizontal, vertical });
+			if (!area.isEmpty()) {
+				p.setPen(Qt::NoPen);
+				p.setBrush(_st.bg);
+				const auto radius = area.height() / 2.;
+				p.drawRoundedRect(area, radius, radius);
+			}
+		} else if (_backgroundRect) {
 			_backgroundRect->paint(p, rect());
 		} else {
 			p.fillRect(clip, _st.bg);
@@ -2279,21 +2406,25 @@ void VoiceRecordBar::init() {
 
 		p.setOpacity(std::min(p.opacity(), 1. - showListenAnimationRatio()));
 		const auto opacity = p.opacity();
-		_cancel->requestPaintProgress(_lock->isStopState()
-			? (opacity * _lock->lockToStopProgress())
-			: 0.);
+		_cancel->requestPaintProgress(
+			_lock->isStopState() ? opacity * _lock->lockToStopProgress() : 0.,
+			unigram);
 
 		if (!opacity) {
 			return;
 		}
+		const auto durationRect = (mac || unigram)
+			? myrtlrect(_durationRect) : _durationRect;
+		const auto redCircleRect = (mac || unigram)
+			? myrtlrect(_redCircleRect) : _redCircleRect;
 		if (clip.intersects(_messageRect)) {
 			// The message should be painted first to avoid flickering.
 			drawMessage(p, activeAnimationRatio());
 		}
-		if (clip.intersects(_durationRect)) {
+		if (clip.intersects(durationRect)) {
 			drawDuration(p);
 		}
-		if (clip.intersects(_redCircleRect)) {
+		if (clip.intersects(redCircleRect)) {
 			// Should be the last to be drawn.
 			drawRedCircle(p);
 		}
@@ -2475,6 +2606,8 @@ void VoiceRecordBar::prepareOnSendPress() {
 	_ttlButton = nullptr;
 	clearResumeState();
 	_lock->setRecordingVideo(_recordingVideo);
+	_level->setUnigramVoice(usesUnigramRecordingStyle());
+	updateMessageGeometry();
 }
 
 void VoiceRecordBar::applyListenTrimForResume() {
@@ -2570,8 +2703,17 @@ void VoiceRecordBar::initLevelGeometry() {
 			_outerContainer,
 			_send->parentWidget(),
 			send);
-		const auto center = (send.width() - _level->width()) / 2;
-		_level->moveToLeft(mapped.x() + center, mapped.y() + center);
+		if (Core::Telega::UseMacOSStyle()) {
+			_level->move(mapped.topLeft() + QPoint(
+				(mapped.width() - _level->width()) / 2,
+				(mapped.height() - _level->height()) / 2));
+			updateMessageGeometry();
+			updateLockGeometry();
+			updateTTLGeometry(TTLAnimationType::RightLeft, 1.);
+		} else {
+			const auto center = (send.width() - _level->width()) / 2;
+			_level->moveToLeft(mapped.x() + center, mapped.y() + center);
+		}
 	}, lifetime());
 }
 
@@ -2613,8 +2755,6 @@ void VoiceRecordBar::startRecording() {
 		}
 
 		_lockShowing = true;
-		startRedCircleAnimation();
-
 		_recording = true;
 		if (_paused.current()) {
 			_paused = false;
@@ -2633,7 +2773,10 @@ void VoiceRecordBar::startRecording() {
 					clearResumePrefix();
 				}
 				_resumeFromTrimmedListen = false;
-				update(_durationRect);
+				update(
+					(usesUnigramRecordingStyle() || Core::Telega::UseMacOSStyle())
+						? myrtlrect(_durationRect)
+						: _durationRect);
 			}
 		} else {
 			clearResumePrefix();
@@ -2641,6 +2784,10 @@ void VoiceRecordBar::startRecording() {
 				? _videoRecorder->audioChunkProcessor()
 				: nullptr);
 		}
+		_recordingSampleTime = crl::now();
+		_displayedCentiseconds = _recordingSamples
+			/ (::Media::Player::kDefaultFrequency / kUnigramPrecision);
+		startRedCircleAnimation();
 		instance()->updated(
 		) | rpl::on_next_error([=](const Update &update) {
 			recordUpdated(update.level, update.samples);
@@ -2796,11 +2943,17 @@ void VoiceRecordBar::recordUpdated(quint16 level, int samples) {
 	const auto resumedSamples = std::max(0, samples - _resumeRawSamples);
 	const auto totalSamples = _resumePrefixSamples + resumedSamples;
 	_recordingSamples = totalSamples;
+	_recordingSampleTime = crl::now();
 	if (totalSamples < 0 || totalSamples >= kMaxSamples) {
 		stop(totalSamples > 0 && _inField.current());
 	}
 	Core::App().updateNonIdle();
-	update(_durationRect);
+	if (usesUnigramRecordingStyle()) {
+		updateUnigramDuration(_recordingSampleTime);
+	} else {
+		update(Core::Telega::UseMacOSStyle()
+			? myrtlrect(_durationRect) : _durationRect);
+	}
 	const auto type = _recordingVideo
 		? Api::SendProgressType::RecordRound
 		: Api::SendProgressType::RecordVoice;
@@ -2832,6 +2985,7 @@ void VoiceRecordBar::finish() {
 	_inField = false;
 	_redCircleProgress = 0.;
 	_recordingSamples = 0;
+	_displayedCentiseconds = 0;
 	_paused = false;
 
 	_showAnimation.stop();
@@ -3046,24 +3200,54 @@ void VoiceRecordBar::stopRecording(StopType type, bool ttlBeforeHide) {
 	}
 }
 
+bool VoiceRecordBar::usesUnigramRecordingStyle() const {
+	return !_recordingVideo && Core::Telega::UseWindows11Style();
+}
+
+void VoiceRecordBar::updateUnigramDuration(crl::time now) {
+	const auto captured = std::max(0, _recordingSamples)
+		/ (::Media::Player::kDefaultFrequency / kUnigramPrecision);
+	const auto elapsed = isRecording()
+		? std::clamp(now - _recordingSampleTime,
+			crl::time(0), kUnigramTimerInterpolation)
+		: crl::time(0);
+	const auto centiseconds = captured + int(elapsed / 10);
+	if (centiseconds > _displayedCentiseconds) {
+		_displayedCentiseconds = centiseconds;
+		update(myrtlrect(_durationRect));
+	}
+}
+
 void VoiceRecordBar::drawDuration(QPainter &p) {
-	const auto duration = FormatVoiceDuration(_recordingSamples);
+	const auto unigram = usesUnigramRecordingStyle();
+	const auto duration = unigram
+		? FormatUnigramVoiceDuration(_displayedCentiseconds)
+		: FormatVoiceDuration(_recordingSamples);
 	p.setFont(_cancelFont);
 	p.setPen(_st.durationFg);
-
-	p.drawText(_durationRect, style::al_left, duration);
+	const auto mirrored = unigram || Core::Telega::UseMacOSStyle();
+	p.drawText(
+		mirrored ? myrtlrect(_durationRect) : _durationRect,
+		(mirrored && rtl()) ? style::al_right : style::al_left,
+		duration);
 }
 
 void VoiceRecordBar::startRedCircleAnimation() {
-	if (anim::Disabled()) {
+	const auto unigram = usesUnigramRecordingStyle();
+	if (!unigram && anim::Disabled()) {
 		return;
 	}
 	const auto animation
 		= _recordingLifetime.make_state<Ui::Animations::Basic>();
 	animation->init([=](crl::time now) {
+		if (unigram) {
+			updateUnigramDuration(now);
+			return isRecording();
+		}
 		const auto diffTime = now - animation->started();
 		_redCircleProgress = std::abs(std::sin(diffTime / 400.));
-		update(_redCircleRect);
+		update(Core::Telega::UseMacOSStyle()
+			? myrtlrect(_redCircleRect) : _redCircleRect);
 		return true;
 	});
 	animation->start();
@@ -3072,13 +3256,20 @@ void VoiceRecordBar::startRedCircleAnimation() {
 void VoiceRecordBar::drawRedCircle(QPainter &p) {
 	auto hq = PainterHighQualityEnabler(p);
 	p.setPen(Qt::NoPen);
+	if (usesUnigramRecordingStyle()) {
+		p.setBrush(QColor(255, 0, 0));
+		p.drawEllipse(myrtlrect(_redCircleRect));
+		return;
+	}
 	p.setBrush(st::historyRecordVoiceFgInactive);
 
 	const auto opacity = p.opacity();
 	p.setOpacity(opacity * (1. - _redCircleProgress));
 	const int radii = st::historyRecordSignalRadius * showAnimationRatio();
-	const auto center = _redCircleRect.center() + QPoint(1, 1);
-	p.drawEllipse(center, radii, radii);
+	const auto area = Core::Telega::UseMacOSStyle()
+		? myrtlrect(_redCircleRect)
+		: _redCircleRect;
+	p.drawEllipse(area.center() + QPoint(1, 1), radii, radii);
 	p.setOpacity(opacity);
 }
 

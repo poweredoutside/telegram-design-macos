@@ -1,6 +1,7 @@
 #include "ui/effects/liquid_glass.h"
 
 #include "ui/image/image_prepare.h"
+#include "ui/ui_utility.h"
 
 #include <QtGui/QPainter>
 #include <QtGui/QPainterPath>
@@ -104,6 +105,32 @@ QImage LiquidGlassBackdropCache::prepare(
 		_filtered = FilterBackdrop(image, size, radius, blur, refraction);
 	}
 	return _filtered;
+}
+
+QImage CaptureLiquidGlassBackdrop(
+		QWidget &source,
+		QRect globalRect,
+		QColor fallback) {
+	const auto local = QRect(
+		source.mapFromGlobal(globalRect.topLeft()),
+		globalRect.size());
+	const auto visible = local.intersected(source.rect());
+	if (visible.isEmpty()) {
+		return {};
+	}
+	auto sample = GrabWidgetToImage(&source, visible, fallback);
+	if (local == visible) {
+		return sample;
+	}
+	const auto ratio = sample.devicePixelRatio();
+	auto result = QImage(local.size() * ratio,
+		QImage::Format_ARGB32_Premultiplied);
+	result.setDevicePixelRatio(ratio);
+	result.fill(fallback);
+	auto painter = QPainter(&result);
+	painter.drawImage(visible.topLeft() - local.topLeft(), sample);
+	painter.end();
+	return result;
 }
 
 void PaintLiquidGlass(

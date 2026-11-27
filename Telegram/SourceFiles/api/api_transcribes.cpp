@@ -8,9 +8,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_transcribes.h"
 
 #include "apiwrap.h"
+#include "api/api_gemini_chat.h"
 #include "api/api_text_entities.h"
 #include "data/data_channel.h"
 #include "data/data_document.h"
+#include "data/data_document_media.h"
+#include "data/data_file_origin.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/history.h"
@@ -22,7 +25,44 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "spellcheck/spellcheck_types.h"
 
+#include <QtCore/QFile>
+
 namespace Api {
+namespace {
+
+[[nodiscard]] DocumentData *GeminiVoiceDocument(not_null<HistoryItem*> item) {
+	if (!GeminiChat::VoiceTranscriptionEnabled()
+		|| !item->isRegular()
+		|| !item->isHistoryEntry()
+		|| item->isLocal()
+		|| item->isEphemeral()
+		|| !item->allowsForward()) {
+		return nullptr;
+	}
+	const auto media = item->media();
+	const auto document = media ? media->document() : nullptr;
+	return (document && document->isVoiceMessage() && !media->ttlSeconds())
+		? document
+		: nullptr;
+}
+
+[[nodiscard]] QByteArray ReadVoiceRecording(
+		const std::shared_ptr<Data::DocumentMedia> &media) {
+	if (!media->bytes().isEmpty()) {
+		return media->bytes();
+	}
+	const auto &location = media->owner()->location(true);
+	if (!location.accessEnable()) {
+		return {};
+	}
+	const auto disable = gsl::finally([&] { location.accessDisable(); });
+	auto file = QFile(location.name());
+	return file.open(QIODevice::ReadOnly)
+		? file.read(GeminiChat::kRecordingBytesLimit + 1)
+		: QByteArray();
+}
+
+} // namespace
 
 Transcribes::Transcribes(not_null<ApiWrap*> api)
 : _session(&api->session())
@@ -99,6 +139,140 @@ crl::time Transcribes::trialsMaxLengthMs() const {
 	return 1000 * _session->appConfig().get<int>(
 		u"transcribe_audio_trial_duration_max"_q,
 		300);
+}
+
+bool Transcribes::geminiVoiceAvailable(not_null<HistoryItem*> item) {
+	return GeminiVoiceDocument(item) != nullptr;
+}
+
+const Transcribes::GeminiVoiceEntry &Transcribes::geminiVoiceEntry(
+		not_null<HistoryItem*> item) const {
+	static const auto empty = GeminiVoiceEntry();
+	const auto i = _geminiVoices.find(item->fullId());
+	const auto document = (i != _geminiVoices.end())
+		? GeminiVoiceDocument(item)
+		: nullptr;
+	return (document && i->second.document == document->id) ? i->second : empty;
+}
+
+bool Transcribes::toggleGeminiVoice(not_null<HistoryItem*> item) {
+	const auto i = _geminiVoices.find(item->fullId());
+	if (i == _geminiVoices.end()) {
+		return false;
+	}
+	if (i->second.loading) {
+		return true;
+	}
+	const auto document = GeminiVoiceDocument(item);
+	if (!document || i->second.document != document->id) {
+		return false;
+	}
+	i->second.shown = !i->second.shown;
+	_session->data().requestItemResize(item);
+	return true;
+}
+
+void Transcribes::transcribeGeminiVoice(
+		not_null<HistoryItem*> item,
+		Fn<void(GeminiVoiceError)> onError) {
+	const auto document = GeminiVoiceDocument(item);
+	if (!document || toggleGeminiVoice(item)) {
+		return;
+	} else if (!GeminiChat::HasKey()) {
+		onError(GeminiVoiceError::Key);
+		return;
+	} else if (document->size > GeminiChat::kRecordingBytesLimit) {
+		onError(GeminiVoiceError::Size);
+		return;
+	}
+	const auto id = item->fullId();
+	const auto media = document->createMediaView();
+	_geminiVoices[id] = { .document = document->id, .loading = true };
+	_session->data().requestItemResize(item);
+
+	if (!media->loaded(true) && !document->loading()) {
+		document->save(id, QString());
+	}
+	if (document->loading()) {
+		_geminiVoiceDownloads[id] = _session->data().documentLoadProgress(
+		) | rpl::filter([=](not_null<DocumentData*> changed) {
+			return changed == document && !document->loading();
+		}) | rpl::take(1) | rpl::on_next(
+			[=, onError = std::move(onError)]() mutable {
+				auto recording = media;
+				auto error = std::move(onError);
+				_geminiVoiceDownloads.remove(id);
+				sendGeminiVoice(id, recording, std::move(error));
+			});
+	} else {
+		sendGeminiVoice(id, media, std::move(onError));
+	}
+}
+
+void Transcribes::sendGeminiVoice(
+		FullMsgId id,
+		const std::shared_ptr<Data::DocumentMedia> &media,
+		Fn<void(GeminiVoiceError)> onError) {
+	const auto item = _session->data().message(id);
+	if (!item || GeminiVoiceDocument(item) != media->owner().get()) {
+		finishGeminiVoice(id, {});
+		return;
+	}
+	const auto fail = [=](GeminiVoiceError error) {
+		finishGeminiVoice(id, {});
+		onError(error);
+	};
+	if (!GeminiChat::HasKey()) {
+		fail(GeminiVoiceError::Key);
+		return;
+	}
+	auto bytes = ReadVoiceRecording(media);
+	if (bytes.isEmpty()) {
+		fail(GeminiVoiceError::Download);
+		return;
+	} else if (bytes.size() > GeminiChat::kRecordingBytesLimit) {
+		fail(GeminiVoiceError::Size);
+		return;
+	} else if (!bytes.startsWith("OggS")) {
+		fail(GeminiVoiceError::Format);
+		return;
+	}
+	GeminiChat::Transcribe(
+		std::move(bytes),
+		GeminiChat::Recording::Voice,
+		[=, weak = base::make_weak(_session.get())](QString result, bool ok) {
+			const auto session = weak.get();
+			if (!session) {
+				return;
+			}
+			const auto currentItem = session->data().message(id);
+			const auto document = currentItem
+				? GeminiVoiceDocument(currentItem)
+				: nullptr;
+			auto &transcribes = session->api().transcribes();
+			if (document != media->owner().get()) {
+				transcribes.finishGeminiVoice(id, {});
+			} else if (ok && !result.isEmpty()) {
+				transcribes.finishGeminiVoice(id, std::move(result));
+			} else {
+				transcribes.finishGeminiVoice(id, {});
+				onError(GeminiVoiceError::Transcription);
+			}
+		});
+}
+
+void Transcribes::finishGeminiVoice(FullMsgId id, QString result) {
+	if (result.isEmpty()) {
+		_geminiVoices.remove(id);
+	} else {
+		auto &entry = _geminiVoices[id];
+		entry.result = std::move(result);
+		entry.loading = false;
+		entry.shown = true;
+	}
+	if (const auto item = _session->data().message(id)) {
+		_session->data().requestItemResize(item);
+	}
 }
 
 void Transcribes::toggle(not_null<HistoryItem*> item) {

@@ -10,11 +10,54 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/event_filter.h"
 #include "platform/platform_specific.h"
 
+#include <QtWidgets/QApplication>
+
 namespace Core {
+
+class ScreenshotProtection::StreamerWindowFilter final : public QObject {
+public:
+	explicit StreamerWindowFilter(not_null<ScreenshotProtection*> owner)
+	: _owner(owner) {
+		QCoreApplication::instance()->installEventFilter(this);
+	}
+
+private:
+	bool eventFilter(QObject *watched, QEvent *event) override {
+		if (event->type() == QEvent::WinIdChange
+			|| event->type() == QEvent::Show) {
+			if (const auto widget = qobject_cast<QWidget*>(watched)) {
+				if (widget->isWindow() && widget->internalWinId()) {
+					_owner->apply(widget, event->type() == QEvent::WinIdChange);
+				}
+			}
+		}
+		return false;
+	}
+
+	const not_null<ScreenshotProtection*> _owner;
+
+};
 
 ScreenshotProtection::ScreenshotProtection() = default;
 
 ScreenshotProtection::~ScreenshotProtection() = default;
+
+void ScreenshotProtection::setStreamerMode(bool enabled) {
+	if (enabled == bool(_streamerWindowFilter)) {
+		return;
+	}
+	if (enabled) {
+		_streamerWindowFilter = std::make_unique<StreamerWindowFilter>(this);
+		for (const auto widget : QApplication::topLevelWidgets()) {
+			if (widget->internalWinId()) {
+				apply(widget);
+			}
+		}
+	} else {
+		_streamerWindowFilter.reset();
+		refresh();
+	}
+}
 
 void ScreenshotProtection::addContentReason(
 		not_null<QWidget*> window,
@@ -58,6 +101,9 @@ void ScreenshotProtection::addReason(
 }
 
 bool ScreenshotProtection::activeFor(not_null<QWidget*> window) const {
+	if (_streamerWindowFilter && window->isWindow()) {
+		return true;
+	}
 	for (const auto &[id, reason] : _reasons) {
 		if (reason.active && reason.window == window.get()) {
 			return true;
@@ -101,6 +147,9 @@ void ScreenshotProtection::refresh() {
 	}
 	for (const auto &[widget, enabled] : windows) {
 		apply(widget);
+		if (!desired.contains(widget) && !activeFor(widget)) {
+			_applied.remove(widget);
+		}
 	}
 }
 

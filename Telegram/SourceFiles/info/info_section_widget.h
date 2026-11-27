@@ -37,6 +37,7 @@ public:
 
 	Dialogs::RowDescriptor activeChat() const override;
 	[[nodiscard]] bool isSettingsOrOwnProfile() const;
+	[[nodiscard]] bool isProfilePage() const;
 
 	bool hasTopBarShadow() const override;
 	QPixmap grabForShowAnimation(

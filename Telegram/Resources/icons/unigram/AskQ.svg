@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/AskQ.cs -->
+<defs>
+<linearGradient id="LinearGradientBrush" gradientUnits="userSpaceOnUse" x1="0.57" y1="-79.172" x2="-0.598" y2="79.666"><stop offset="0" stop-color="#66c7dd" stop-opacity="1"/><stop offset="1" stop-color="#3b81c1" stop-opacity="1"/></linearGradient>
+</defs>
+<g transform="translate(100 100)">
+<path d="M -80 0 C -80 -44.183 -44.183 -80 0 -80 C 44.183 -80 80 -44.183 80 0 C 80 44.183 44.183 80 0 80 C -13.492 80 -26.218 76.656 -37.378 70.748 L -73.787 79.851 C -75.491 80.277 -77.293 79.777 -78.535 78.536 C -79.777 77.294 -80.277 75.491 -79.851 73.787 L -70.748 37.378 C -76.656 26.217 -80 13.492 -80 0 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush)" fill-opacity="1"/>
+</g>
+<g transform="translate(100.011 88.757)">
+<path d="M -15.004 -8.649 C -15.004 -18.465 -7.696 -23.757 -0.012 -23.757 C 7.673 -23.757 15.004 -18.482 15.004 -8.649 C 15.004 8.018 0 5.678 0 23.757" fill-rule="evenodd" fill="none" fill-opacity="1" stroke="#ffffff" stroke-opacity="1" stroke-width="10" stroke-linecap="round" stroke-linejoin="miter"/>
+</g>
+<g transform="translate(100 100)">
+<path d="M 6.995 35.126 C 6.995 31.262 3.863 28.13 -0.001 28.13 C -3.865 28.13 -6.997 31.262 -6.997 35.126 C -6.997 38.99 -3.865 42.122 -0.001 42.122 C 3.863 42.122 6.995 38.99 6.995 35.126 Z" fill-rule="nonzero" fill="#ffffff" fill-opacity="1"/>
+</g>
+</svg>

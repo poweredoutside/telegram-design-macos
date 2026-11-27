@@ -15,7 +15,15 @@ class InfiniteRadialAnimation;
 class RippleAnimation;
 } // namespace Ui
 
+namespace Window {
+class SessionController;
+} // namespace Window
+
 namespace HistoryView {
+
+void ShowGeminiVoiceTranscription(
+	not_null<HistoryItem*> item,
+	not_null<Window::SessionController*> controller);
 
 using PaintContext = Ui::ChatPaintContext;
 
@@ -40,8 +48,6 @@ public:
 	[[nodiscard]] bool contains(const QPoint &p);
 
 private:
-	[[nodiscard]] bool hasLock() const;
-
 	const not_null<HistoryItem*> _item;
 	const bool _roundview = false;
 	const bool _summarize = false;

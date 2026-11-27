@@ -6,6 +6,8 @@
 //
 #include "ui/layers/box_content.h"
 
+#include "ui/layers/box_background.h"
+
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/widgets/labels.h"
@@ -21,6 +23,18 @@
 
 namespace Ui {
 namespace {
+
+const style::RoundButton &BoxButtonStyle(
+		not_null<BoxContent*> box,
+		const style::RoundButton &st) {
+	if (st.textBg != st::defaultBoxButton.textBg
+		|| !BoxUsesCustomBackground(box)) {
+		return st;
+	}
+	const auto copy = box->lifetime().make_state<style::RoundButton>(st);
+	copy->textBg = st::transparent;
+	return *copy;
+}
 
 class BoxShow final : public Show {
 public:
@@ -145,7 +159,7 @@ QPointer<RoundButton> BoxContent::addButton(
 	auto button = object_ptr<RoundButton>(
 		this,
 		std::move(text),
-		st);
+		BoxButtonStyle(this, st));
 	auto result = QPointer<RoundButton>(button.data());
 	result->setClickedCallback(std::move(clickCallback));
 	getDelegate()->addButton(std::move(button));
@@ -175,7 +189,7 @@ QPointer<RoundButton> BoxContent::addLeftButton(
 	auto button = object_ptr<RoundButton>(
 		this,
 		std::move(text),
-		st);
+		BoxButtonStyle(this, st));
 	const auto result = QPointer<RoundButton>(button.data());
 	result->setClickedCallback(std::move(clickCallback));
 	getDelegate()->addLeftButton(std::move(button));

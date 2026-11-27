@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_top_bar.h"
 
+#include "api/api_telega_badges.h"
+#include "lang/lang_instance.h"
+
 #include "api/api_peer_colors.h"
 #include "api/api_peer_photo.h"
 #include "api/api_user_privacy.h"
@@ -24,6 +27,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 #include "chat_helpers/stickers_lottie.h"
 #include "core/application.h"
+#include "core/core_telega_menu.h"
+#include "info/stories/info_stories_publish.h"
+#include "core/core_telega_preferences.h"
 #include "core/shortcuts.h"
 #include "data/components/recent_shared_media_gifts.h"
 #include "data/data_birthday.h"
@@ -88,6 +94,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/fields/input_field.h"
 #include "ui/top_background_gradient.h"
 #include "ui/ui_utility.h"
+#include "ui/telega_badge.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/glare_tooltip.h"
 #include "ui/widgets/horizontal_fit_container.h"
@@ -109,11 +116,116 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 
+#include <QtCore/QDateTime>
 #include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QPainterPath>
 
 namespace Info::Profile {
 namespace {
+
+bool IsTelegramSelfProfile(
+		TopBar::Source source,
+		not_null<PeerData*> peer) {
+	return source == TopBar::Source::Stories
+		&& peer->isSelf()
+		&& Core::Telega::UseTelegramStyle();
+}
+
+QString BadgeText(const QString &russian, const QString &english) {
+	return Lang::GetInstance().id().startsWith(u"ru"_q) ? russian : english;
+}
+
+QString TelegaBadgeTypeTitle(Api::TelegaBadges::Type type) {
+	return (type == Api::TelegaBadges::Type::Developer)
+		? BadgeText(u"Разработчик"_q, u"Developer"_q)
+		: BadgeText(u"Спонсор"_q, u"Sponsor"_q);
+}
+
+void ShowTelegaBadgeDetails(
+		not_null<Window::SessionController*> controller,
+		UserId user,
+		QString owner,
+		Api::TelegaBadges::Details badge) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		const auto size = style::ConvertScale(84);
+		const auto gap = style::ConvertScale(22);
+		const auto sectionGap = style::ConvertScale(12);
+		box->setWidth(style::ConvertScale(520));
+		box->addTopButton(st::boxTitleClose, [=] { box->closeBox(); });
+		box->addSkip(style::ConvertScale(18));
+		const auto row = box->addRow(object_ptr<Ui::RpWidget>(box));
+		const auto icon = Ui::CreateChild<Ui::FixedHeightWidget>(row, size);
+		const auto text = Ui::CreateChild<Ui::VerticalLayout>(row);
+		icon->resize(size, size);
+		icon->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(icon);
+			Ui::PaintTelegaBadge(p, icon->rect(), badge.type, st::boxTitleFg->c);
+		}, icon->lifetime());
+
+		const auto label = [&](QString value, const style::FlatLabel &st,
+				int marginTop = 0) {
+			text->add(object_ptr<Ui::FlatLabel>(text, value, st),
+				style::margins(0, marginTop, 0, 0));
+		};
+		label(BadgeText(u"Бейдж №%1"_q, u"Badge #%1"_q).arg(badge.number),
+			st::boxTitle);
+		const auto description = (badge.type == Api::TelegaBadges::Type::Developer)
+			? BadgeText(u"%1 разрабатывает Telega."_q,
+				u"%1 develops Telega."_q)
+			: BadgeText(u"%1 поддерживает разработку материально."_q,
+				u"%1 financially supports development."_q);
+		label(description.arg(owner), st::boxLabel, style::ConvertScale(4));
+		label(owner, st::boxLabel, sectionGap);
+		label(BadgeText(u"Владелец"_q, u"Owner"_q), st::boxDividerLabel);
+		label(TelegaBadgeTypeTitle(badge.type), st::boxLabel, sectionGap);
+		label(BadgeText(u"Тип бейджа"_q, u"Badge type"_q), st::boxDividerLabel);
+		if (!badge.comment.isEmpty()) {
+			label(badge.comment, st::boxLabel, sectionGap);
+			label(BadgeText(u"Комментарий"_q, u"Comment"_q), st::boxDividerLabel);
+		}
+		const auto holders = tr::lng_edit_privacy_exceptions_count(
+			tr::now,
+			lt_count,
+			badge.holders);
+		label(holders, st::boxLabel, sectionGap);
+		label(BadgeText(u"Распространённость"_q, u"Prevalence"_q),
+			st::boxDividerLabel);
+		if (badge.expiresAt) {
+			const auto expires = QDateTime::fromSecsSinceEpoch(badge.expiresAt);
+			label(langDateTimeFull(expires), st::boxLabel, sectionGap);
+			label(BadgeText(u"Срок действия"_q, u"Valid until"_q), st::boxDividerLabel);
+		}
+
+		row->widthValue() | rpl::on_next([=](int width) {
+			icon->moveToLeft(0, 0, width);
+			text->resizeToWidth(std::max(1, width - size - gap - sectionGap));
+			text->moveToLeft(size + gap, 0, width);
+		}, row->lifetime());
+		text->heightValue() | rpl::on_next([=](int height) {
+			row->resize(row->width(), std::max(height, size));
+		}, row->lifetime());
+		box->addSkip(sectionGap);
+		const auto footer = box->addRow(object_ptr<Ui::RpWidget>(box));
+		const auto close = Ui::CreateChild<Ui::RoundButton>(
+			footer,
+			tr::lng_close(),
+			st::defaultBoxButton);
+		rpl::combine(footer->widthValue(), close->sizeValue()
+		) | rpl::on_next([=](int width, QSize size) {
+			footer->resize(width, size.height());
+			close->move((width - size.width()) / 2, 0);
+		}, footer->lifetime());
+		close->setClickedCallback([=] { box->closeBox(); });
+		box->addSkip(sectionGap);
+		Api::TelegaBadges::Value(user) | rpl::on_next(
+			[=](const std::optional<Api::TelegaBadges::Details> &current) {
+				if (!current) {
+					crl::on_main(box, [=] { box->closeBox(); });
+				}
+			}, box->lifetime());
+	}));
+}
 
 class Userpic final
 	: public Ui::AbstractButton
@@ -376,6 +488,10 @@ TopBar::TopBar(
 , _st(st::infoTopBar)
 , _source(descriptor.source)
 , _savedMessages(_key.savedMessages() != nullptr)
+, _unigram(Core::Telega::UseWindows11Style()
+	&& (_peer->isUser() || _peer->isBroadcast())
+	&& !_savedMessages
+	&& _source != Source::Preview)
 , _badgeTooltipHide(
 	std::make_unique<base::Timer>([=] { hideBadgeTooltip(); }))
 , _botVerify(std::make_unique<Badge>(
@@ -409,13 +525,19 @@ TopBar::TopBar(
 	nullptr,
 	_gifPausedChecker))
 , _hasActions(!_savedMessages
-	&& descriptor.source != Source::Stories
+	&& !(_unigram && _peer->isSelf())
+	&& (descriptor.source != Source::Stories
+		|| IsTelegramSelfProfile(_source, _peer))
 	&& descriptor.source != Source::Preview
 	&& (_wrap.current() != Wrap::Side || !_peer->isNotificationsUser()))
 , _minForProgress([&] {
 	QWidget::setMinimumHeight(st::infoLayerTopBarHeight);
 	QWidget::setMaximumHeight(_savedMessages
 		? st::infoLayerTopBarHeight
+		: _unigram
+		? (_hasActions
+			? st::infoUnigramProfileActionsHeight
+			: st::infoUnigramProfileHeight)
 		: _hasActions
 		? st::infoProfileTopBarHeightMax
 		: st::infoProfileTopBarNoActionsHeightMax);
@@ -424,7 +546,7 @@ TopBar::TopBar(
 			? 0
 			: st::infoProfileTopBarActionButtonsHeight);
 }())
-, _title(this, nameValue(), _st.title)
+, _title(this, nameValue(), _unigram ? st::infoUnigramProfileTitle : _st.title)
 , _starsRating((_peer->isUser() && !_savedMessages)
 	? std::make_unique<Ui::StarsRating>(
 		this,
@@ -550,12 +672,38 @@ TopBar::TopBar(
 	std::move(badgeUpdates) | rpl::on_next([=] {
 		updateLabelsPosition();
 	}, _title->lifetime());
+	if (_peer->asUser() && !_savedMessages) {
+		Api::TelegaBadges::Value(peerToUser(_peer->id)
+		) | rpl::on_next([=](std::optional<Api::TelegaBadges::Details> badge) {
+			_telegaBadge.destroy();
+			if (badge) {
+				_telegaBadge.create(this);
+				const auto button = _telegaBadge.data();
+				const auto title = TelegaBadgeTypeTitle(badge->type);
+				const auto size = style::ConvertScale(20);
+				button->resize(size, size);
+				button->setAccessibleName(title);
+				button->setToolTip(title);
+				button->setCursor(style::cur_pointer);
+				button->paintRequest() | rpl::on_next([=, type = badge->type] {
+					auto p = QPainter(button);
+					Ui::PaintTelegaBadge(p, button->rect(), type, st::windowActiveTextFg->c);
+				}, button->lifetime());
+				button->setClickedCallback([=, badge = *badge] {
+					ShowTelegaBadgeDetails(controller, peerToUser(_peer->id),
+						_peer->name(), badge);
+				});
+				button->show();
+			}
+			updateLabelsPosition();
+		}, lifetime());
+	}
 
 	setupUniqueBadgeTooltip();
 	setupButtons(controller, descriptor.source);
 	setupSwipeBack(controller);
 	setupUserpicButton(controller);
-	if (_hasActions) {
+	if (_hasActions && !IsTelegramSelfProfile(_source, _peer)) {
 		_peer->session().changes().peerFlagsValue(
 			_peer,
 			Data::PeerUpdate::Flag::FullInfo
@@ -1014,7 +1162,7 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 		this,
 		st::infoProfileTopBarActionButtonsSpace);
 	const auto chechMax = [&, max = 3] {
-		return buttons.size() >= max;
+		return buttons.size() >= (_unigram && !isSide ? max + 1 : max);
 	};
 	const auto addMore = [&] {
 		if ([&]() -> bool {
@@ -1043,16 +1191,21 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 		finalizeActions(buttons);
 	});
 	if (user) {
+		const auto openChat = _unigram
+			? (Lang::GetInstance().id().startsWith(u"ru"_q)
+				? u"Открыть чат"_q
+				: u"Open chat"_q)
+			: tr::lng_profile_action_short_message(tr::now);
 		const auto message = Ui::CreateChild<TopBarActionButton>(
 			this,
-			tr::lng_profile_action_short_message(tr::now),
+			openChat,
 			st::infoProfileTopBarActionMessage);
 		message->setClickedCallback([=, window = controller] {
 			window->showPeerHistory(
 				peer->id,
 				Window::SectionShow::Way::Forward);
 		});
-		message->setAccessibleName(tr::lng_profile_action_short_message(tr::now));
+		message->setAccessibleName(openChat);
 		buttons.push_back(message);
 		_actions->add(message);
 	}
@@ -1081,6 +1234,29 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 		message->setAccessibleName(tr::lng_profile_action_short_channel(tr::now));
 		buttons.push_back(message);
 		_actions->add(message);
+	}
+	const auto addCalls = [&] {
+		if (isSide || !user || user->sharedMediaInfo() || user->isInaccessible()
+			|| user->callsStatus() == UserData::CallsStatus::Disabled) {
+			return;
+		}
+		const auto addCall = [&](bool video, QString text, const style::icon &icon) {
+			const auto button = Ui::CreateChild<TopBarActionButton>(this, text, icon);
+			button->setClickedCallback([=] {
+				Core::App().calls().startOutgoingCall(user, { .video = video });
+			});
+			button->setAccessibleName(text);
+			buttons.push_back(button);
+			_actions->add(button);
+		};
+		addCall(false, tr::lng_profile_action_short_call(tr::now), st::infoProfileTopBarActionCall);
+		if (_unigram) {
+			const auto russian = Lang::GetInstance().id().startsWith(u"ru"_q);
+			addCall(true, russian ? u"Видеозвонок"_q : u"Video call"_q, st::menuIconVideoChat);
+		}
+	};
+	if (_unigram) {
+		addCalls();
 	}
 	if (!peer->isSelf()) {
 		const auto notifications = Ui::CreateChild<TopBarActionButton>(
@@ -1146,21 +1322,8 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 	if (chechMax()) {
 		return;
 	}
-	if (!isSide
-		&& user
-		&& !user->sharedMediaInfo()
-		&& !user->isInaccessible()
-		&& user->callsStatus() != UserData::CallsStatus::Disabled) {
-		const auto call = Ui::CreateChild<TopBarActionButton>(
-			this,
-			tr::lng_profile_action_short_call(tr::now),
-			st::infoProfileTopBarActionCall);
-		call->setClickedCallback([=] {
-			Core::App().calls().startOutgoingCall(user, {});
-		});
-		call->setAccessibleName(tr::lng_profile_action_short_call(tr::now));
-		buttons.push_back(call);
-		_actions->add(call);
+	if (!_unigram) {
+		addCalls();
 	}
 	if (chechMax()) {
 		return;
@@ -1500,6 +1663,32 @@ void TopBar::setupUserpicButton(
 					chosenMediaCallback(type));
 			}));
 	};
+
+	if (_hasActions && IsTelegramSelfProfile(_source, _peer)) {
+		_actions = base::make_unique_q<Ui::HorizontalFitContainer>(
+			this,
+			st::infoProfileTopBarActionButtonsSpace);
+		const auto add = [&](QString text, const style::icon &icon, Fn<void()> done) {
+			const auto button = Ui::CreateChild<TopBarActionButton>(this, text, icon);
+			button->setAccessibleName(text);
+			button->setClickedCallback(std::move(done));
+			_actions->add(button);
+			return not_null{ button };
+		};
+		const auto photo = add(
+			tr::lng_profile_set_photo_button(tr::now),
+			st::menuIconPhotoSet,
+			[=] { chooseFile(ChosenType::Set); });
+		const auto edit = add(
+			tr::lng_group_invite_context_edit(tr::now),
+			st::menuIconEdit,
+			[=] { controller->showSettings(::Settings::InformationId()); });
+		const auto story = add(
+			Stories::NewStoryLabel(),
+			st::menuIconAdd,
+			[=] { Stories::ShowPublishBox(controller); });
+		finalizeActions({ photo, story, edit });
+	}
 
 	const auto addFromClipboard = [=](
 			Ui::PopupMenu *menu,
@@ -1940,6 +2129,9 @@ int TopBar::calculateRightButtonsWidth() const {
 	if (_topBarButton) {
 		width += _topBarButton->width();
 	}
+	if (_unigramEdit) {
+		width += _unigramEdit->width() + style::ConvertScale(24);
+	}
 	if (_tabMenuToggle && _tabMenuToggle->toggled()) {
 		width += _tabMenuToggle->width();
 	}
@@ -2010,7 +2202,9 @@ void TopBar::updateTitlePosition(float64 progressCurrent) {
 	const auto verifiedWidget = _verified ? _verified->widget() : nullptr;
 	const auto badgeWidget = _badge ? _badge->widget() : nullptr;
 	const auto botVerifyWidget = _botVerify ? _botVerify->widget() : nullptr;
-	auto badgesWidth = 0;
+	const auto badgeGap = st::infoVerifiedCheckPosition.x();
+	const auto telegaWidth = _telegaBadge ? (_telegaBadge->width() + badgeGap) : 0;
+	auto badgesWidth = telegaWidth;
 	if (verifiedWidget) {
 		badgesWidth += verifiedWidget->width();
 	}
@@ -2023,7 +2217,9 @@ void TopBar::updateTitlePosition(float64 progressCurrent) {
 	if (verifiedWidget || badgeWidget) {
 		badgesWidth += st::infoVerifiedCheckPosition.x();
 	}
-	const auto titleWidth = width()
+	const auto titleWidth = _unigram
+		? width() - 2 * std::max(interpolatedPadding, reservedRight) - badgesWidth
+		: width()
 		- interpolatedPadding
 		- reservedRight
 		- badgesWidth;
@@ -2033,15 +2229,15 @@ void TopBar::updateTitlePosition(float64 progressCurrent) {
 	}
 
 	const auto titleTop = anim::interpolate(
-		_st.titleWithSubtitlePosition.y(),
-		st::infoProfileTopBarTitleTop,
+		_st.titleWithSubtitlePosition.y() - (_unigram ? style::ConvertScale(4) : 0),
+		_unigram ? st::infoUnigramProfileTitleTop : st::infoProfileTopBarTitleTop,
 		progressCurrent);
 
 	const auto badgeTop = titleTop;
 	const auto badgeBottom = titleTop + _title->height();
 	const auto margins = LargeCustomEmojiMargins();
 
-	auto totalElementsWidth = _title->width();
+	auto totalElementsWidth = _title->width() + telegaWidth;
 	const auto botVerifySkip = botVerifyWidget
 		? botVerifyWidget->width() + st::infoVerifiedCheckPosition.x()
 		: 0;
@@ -2059,7 +2255,7 @@ void TopBar::updateTitlePosition(float64 progressCurrent) {
 	auto titleLeft = anim::interpolate(
 		titleMostLeft,
 		(width() - totalElementsWidth) / 2,
-		progressCurrent);
+		_unigram ? 1. : progressCurrent);
 
 	if (_botVerify) {
 		_botVerify->move(
@@ -2069,6 +2265,11 @@ void TopBar::updateTitlePosition(float64 progressCurrent) {
 		titleLeft += margins.left() + botVerifySkip;
 	}
 
+	if (_telegaBadge) {
+		const auto top = (badgeTop + badgeBottom - _telegaBadge->height()) / 2;
+		_telegaBadge->moveToLeft(titleLeft, top);
+		titleLeft += telegaWidth;
+	}
 	_title->moveToLeft(titleLeft, titleTop);
 	const auto badgeLeft = titleLeft + _title->width();
 	if (_badge) {
@@ -2128,7 +2329,7 @@ void TopBar::updateStatusPosition(float64 progressCurrent) {
 		* (_tabSwapShown ? 1. : -1.)));
 	const auto statusTop = anim::interpolate(
 		_st.subtitlePosition.y(),
-		st::infoProfileTopBarStatusTop,
+		_unigram ? st::infoUnigramProfileStatusTop : st::infoProfileTopBarStatusTop,
 		progressCurrent) + swapShift;
 	const auto totalElementsWidth = _status->width()
 		+ (_starsRating ? _starsRating->width() : 0)
@@ -2136,7 +2337,7 @@ void TopBar::updateStatusPosition(float64 progressCurrent) {
 	const auto statusLeft = anim::interpolate(
 		statusMostLeft(),
 		(width() - totalElementsWidth) / 2,
-		progressCurrent);
+		_unigram ? 1. : progressCurrent);
 
 	if (const auto rating = _starsRating.get()) {
 		rating->moveTo(statusLeft, statusTop - st::lineWidth);
@@ -2695,6 +2896,15 @@ void TopBar::updateRightButtonsPosition() {
 		_topBarButton->moveToRight(right, 0);
 		right += _topBarButton->width();
 	}
+	if (_unigramEdit) {
+		const auto inset = style::ConvertScale(24);
+		const auto top = anim::interpolate(
+			(st::infoLayerTopBarHeight - _unigramEdit->height()) / 2,
+			inset,
+			_progress.current());
+		_unigramEdit->moveToRight(right + inset, top);
+		right += _unigramEdit->width() + inset;
+	}
 	if (_tabMenuToggle && _tabMenuToggle->toggled()) {
 		_tabMenuToggle->moveToRight(right, 0);
 		right += _tabMenuToggle->width();
@@ -2744,7 +2954,18 @@ void TopBar::resizeEvent(QResizeEvent *e) {
 QRect TopBar::userpicGeometry() const {
 	constexpr auto kMinScale = 0.25;
 	const auto progressCurrent = _progress.current();
-	const auto fullSize = st::infoProfileTopBarPhotoSize;
+	const auto fullSize = _unigram
+		? st::infoUnigramProfilePhotoSize
+		: st::infoProfileTopBarPhotoSize;
+	if (_unigram) {
+		const auto scrolled = std::max(maximumHeight() - height(), 0);
+		const auto scale = height() / float64(std::max(maximumHeight(), 1));
+		const auto size = std::max(1, qRound(fullSize * scale));
+		return QRect((width() - size) / 2,
+			st::infoUnigramProfilePhotoTop - qRound(.8 * scrolled)
+				+ (fullSize - size) / 2,
+			size, size);
+	}
 	const auto minSize = fullSize * kMinScale;
 	const auto size = anim::interpolate(minSize, fullSize, progressCurrent);
 	const auto x = (width() - size) / 2;
@@ -2793,11 +3014,13 @@ void TopBar::paintUserpic(QPainter &p, const QRect &geometry) {
 		p.drawImage(geometry, _cachedUserpic);
 		return;
 	}
+	const auto fullSize = _unigram
+		? st::infoUnigramProfilePhotoSize
+		: st::infoProfileTopBarPhotoSize;
 	if (_videoUserpicPlayer && _videoUserpicPlayer->ready()) {
-		const auto size = st::infoProfileTopBarPhotoSize;
 		const auto paused = _gifPausedChecker();
 		const auto frame = _videoUserpicPlayer->frame(
-			Size(size),
+			Size(fullSize),
 			_peer,
 			paused);
 		if (!frame.isNull()) {
@@ -2813,7 +3036,6 @@ void TopBar::paintUserpic(QPainter &p, const QRect &geometry) {
 	if (!overlayActive && !awaitingCloud && _userpicUniqueKey != key) {
 		_waitingUserpicCloudLoad = false;
 		_userpicUniqueKey = key;
-		const auto fullSize = st::infoProfileTopBarPhotoSize;
 		const auto scaled = fullSize * style::DevicePixelRatio();
 		const auto radius = (_source == Source::Community)
 			? std::optional<int>(int(scaled * Ui::ForumUserpicRadiusMultiplier()))
@@ -2878,7 +3100,33 @@ void TopBar::paintEvent(QPaintEvent *e) {
 		}
 	}
 	if (!_hasGradientBg) {
-		paintEdges(p, clipBounds);
+		if (_unigram && _solidBg) {
+			auto gradient = QLinearGradient(0, 0, 0, std::max(1, height()));
+			gradient.setColorAt(
+				0.,
+				Ui::BlendColors(*_solidBg, _solidBg->lighter(145), _progress.current()));
+			gradient.setColorAt(1., *_solidBg);
+			paintEdges(p, clipBounds, gradient);
+		} else {
+			paintEdges(p, clipBounds);
+		}
+		if (_unigram && !_solidBg && _progress.current() > 0.) {
+			p.save();
+			if (clipTouchesRoundedCorners(clipBounds)) {
+				auto path = QPainterPath();
+				path.addRoundedRect(rect(), st::boxRadius, st::boxRadius);
+				p.setClipPath(path);
+			}
+			const auto base = st::boxDividerBg->c;
+			auto gradient = QRadialGradient(
+				QPointF(width() / 2., geometry.center().y()),
+				std::max(1., width() * .6));
+			gradient.setColorAt(0., Ui::BlendColors(base, st::windowFg->c, .20));
+			gradient.setColorAt(1., base);
+			p.setOpacity(_progress.current());
+			p.fillRect(clipBounds, gradient);
+			p.restore();
+		}
 	} else {
 		const auto x = (width()
 			- _cachedGradient.width() / style::DevicePixelRatio())
@@ -2934,7 +3182,7 @@ void TopBar::setupButtons(
 			std::optional<QColor>) mutable {
 		const auto isLayer = (wrap == Wrap::Layer);
 		const auto isSide = (wrap == Wrap::Side);
-		setRoundEdges(isLayer);
+		setRoundEdges(isLayer || (_unigram && !isSide));
 		setLottieSingleLoop(wrap == Wrap::Side);
 
 		_back = base::make_unique_q<Ui::FadeWrap<Ui::IconButton>>(
@@ -3037,9 +3285,12 @@ void TopBar::setupButtons(
 		updateRightButtonsPosition();
 
 		if (wrap != Wrap::Side) {
-			if (source == Source::Stories) {
+			if (source == Source::Stories
+				&& !(_hasActions && IsTelegramSelfProfile(source, _peer))) {
 				addTopBarEditButton(controller, wrap);
 			}
+		} else {
+			_unigramEdit = nullptr;
 		}
 		updateButtonsColorOverride();
 		raiseTabSearchOverlay();
@@ -3050,6 +3301,17 @@ void TopBar::setupButtons(
 void TopBar::addTopBarEditButton(
 		not_null<Window::SessionController*> controller,
 		Wrap wrap) {
+	if (_unigram) {
+		_unigramEdit = base::make_unique_q<Ui::RoundButton>(
+			this, tr::lng_group_invite_context_edit(), st::infoUnigramProfileEdit);
+		_unigramEdit->setTextTransform(Ui::RoundButtonTextTransform::NoTransform);
+		_unigramEdit->setClickedCallback([=] {
+			controller->showSettings(::Settings::InformationId());
+		});
+		_unigramEdit->show();
+		updateRightButtonsPosition();
+		return;
+	}
 	_topBarButton = base::make_unique_q<BackdropIconButton>(
 		this,
 		((wrap == Wrap::Layer)
@@ -3079,6 +3341,17 @@ std::optional<QColor> TopBar::buttonsColorOverride() const {
 
 void TopBar::updateButtonsColorOverride() {
 	const auto color = buttonsColorOverride();
+	if (_unigramEdit) {
+		if (color) {
+			auto fill = *color;
+			fill.setAlpha(28);
+			_unigramEdit->setBrushOverride(QBrush(fill));
+			_unigramEdit->setTextFgOverride(color);
+		} else {
+			_unigramEdit->setBrushOverride(std::nullopt);
+			_unigramEdit->setTextFgOverride(std::nullopt);
+		}
+	}
 	const auto apply = [&](Ui::IconButton *button) {
 		if (button) {
 			Backdrop(button)->setBackdropColor(color);
@@ -3952,6 +4225,15 @@ rpl::producer<QString> TopBar::nameValue() const {
 
 TopBarActionButtonStyle TopBar::mapActionStyle(
 		std::optional<QColor> c) const {
+	if (_unigram) {
+		const auto foreground = c ? ContentColorOverBackground(*c) : st::windowFg->c;
+		return TopBarActionButtonStyle{
+			.bgColor = anim::with_alpha(foreground, .065),
+			.fgColor = foreground,
+			.shadowColor = std::nullopt,
+			.radius = style::ConvertScale(5),
+		};
+	}
 	if (c) {
 		return TopBarActionButtonStyle{
 			.bgColor = Ui::BlendColors(

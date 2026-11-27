@@ -419,7 +419,11 @@ private:
 	bool updateReplaceMediaButton();
 	void startMediaReplace();
 	void updateOuterGeometry(QRect rect);
-	void paintBackground(QPainter &p, QRect full, QRect clip);
+	void paintBackground(
+		QPainter &p,
+		QRect full,
+		QRect clip,
+		bool composing = false);
 	void paintFloatingInput(QPainter &p, QRect clip);
 	[[nodiscard]] bool paintFloatingHeader(QPainter &painter);
 	[[nodiscard]] bool usesFloatingInput() const;

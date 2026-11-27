@@ -86,6 +86,23 @@ FileKey _backgroundKeyNight = 0;
 bool _useGlobalBackgroundKeys = false;
 bool _backgroundCanWrite = true;
 
+constexpr auto kStyleThemeStorage = "telega.theme.storage";
+constexpr auto kStyleAccentColors = "telega.theme.accent-colors";
+
+struct StyleThemeStorage {
+	FileKey day = 0;
+	FileKey night = 0;
+	FileKey backgroundDay = 0;
+	FileKey backgroundNight = 0;
+	bool nightMode = false;
+	bool tileDay = false;
+	bool tileNight = false;
+	bool globalBackground = false;
+};
+
+std::optional<StyleThemeStorage> _legacyThemeStorage;
+std::string _styleThemeStorageKey;
+
 int32 _oldSettingsVersion = 0;
 bool _settingsRewriteNeeded = false;
 bool _settingsWriteAllowed = false;
@@ -143,6 +160,74 @@ void applyReadContext(ReadSettingsContext &&context) {
 	_useGlobalBackgroundKeys = context.backgroundKeysRead;
 	_langPackKey = context.langPackKey;
 	_languagesKey = context.languagesKey;
+}
+
+void restoreStyleThemeStorage(ReadSettingsContext &context) {
+	_styleThemeStorageKey = Core::Telega::StyleThemePreference(kStyleThemeStorage);
+	auto &settings = Core::App().settings();
+	const auto unsetAccent = QByteArray(1, '\0');
+	const auto accent = settings.readPref<QByteArray>(
+		Core::Telega::StyleThemePreference(kStyleAccentColors), unsetAccent);
+	if (accent != unsetAccent || _styleThemeStorageKey != kStyleThemeStorage) {
+		auto colors = Window::Theme::AccentColors();
+		if (accent == unsetAccent || colors.setFromSerialized(accent)) {
+			settings.setThemesAccentColors(std::move(colors));
+		}
+	}
+	if (_styleThemeStorageKey == kStyleThemeStorage) {
+		return;
+	}
+	_legacyThemeStorage = StyleThemeStorage{
+		_themeKeyDay, _themeKeyNight, _backgroundKeyDay, _backgroundKeyNight,
+		Window::Theme::IsNightMode(), context.tileDay, context.tileNight,
+		_useGlobalBackgroundKeys,
+	};
+	const auto packed = Core::App().settings().readPref<QByteArray>(_styleThemeStorageKey);
+	auto stream = QDataStream(packed);
+	stream.setVersion(QDataStream::Qt_5_1);
+	auto saved = StyleThemeStorage();
+	auto flags = quint8(0);
+	stream >> saved.day >> saved.night >> saved.backgroundDay
+		>> saved.backgroundNight >> flags;
+	if (stream.status() != QDataStream::Ok) {
+		saved = {};
+		flags = 0;
+	}
+	_themeKeyLegacy = 0;
+	_themeKeyDay = saved.day;
+	_themeKeyNight = saved.night;
+	_backgroundKeyDay = saved.backgroundDay;
+	_backgroundKeyNight = saved.backgroundNight;
+	_useGlobalBackgroundKeys = true;
+	context.tileRead = true;
+	context.tileDay = (flags & 2) != 0;
+	context.tileNight = (flags & 4) != 0;
+	Window::Theme::SetNightModeValue((flags & 1) != 0);
+}
+
+StyleThemeStorage storeStyleThemeStorage() {
+	auto &settings = Core::App().settings();
+	if (Platform::IsWindows()) {
+		settings.writePref<QByteArray>(Core::Telega::StyleThemePreference(kStyleAccentColors),
+			settings.themesAccentColors().serialize());
+	}
+	const auto active = StyleThemeStorage{
+		_themeKeyDay, _themeKeyNight, _backgroundKeyDay, _backgroundKeyNight,
+		Window::Theme::IsNightMode(), Window::Theme::Background()->tileDay(),
+		Window::Theme::Background()->tileNight(), _useGlobalBackgroundKeys,
+	};
+	if (!_legacyThemeStorage) {
+		return active;
+	}
+	auto packed = QByteArray();
+	auto stream = QDataStream(&packed, QIODevice::WriteOnly);
+	stream.setVersion(QDataStream::Qt_5_1);
+	const auto flags = quint8(int(active.nightMode)
+		| (int(active.tileDay) << 1) | (int(active.tileNight) << 2));
+	stream << active.day << active.night << active.backgroundDay
+		<< active.backgroundNight << flags;
+	settings.writePref<QByteArray>(_styleThemeStorageKey, packed);
+	return *_legacyThemeStorage;
 }
 
 bool _readOldSettings(bool remove, ReadSettingsContext &context) {
@@ -416,6 +501,7 @@ void start() {
 
 	applyReadContext(std::move(context));
 	Core::Telega::InitInterfaceStyle();
+	restoreStyleThemeStorage(context);
 	if (context.legacyRead) {
 		writeSettings();
 	}
@@ -464,6 +550,7 @@ void writeSettings() {
 		return;
 	}
 	const auto configSerialized = LookupFallbackConfig().serialize();
+	const auto themeStorage = storeStyleThemeStorage();
 	const auto applicationSettings = Core::App().settings().serialize();
 
 	quint32 size = 9 * (sizeof(quint32) + sizeof(qint32));
@@ -496,18 +583,18 @@ void writeSettings() {
 
 	data.stream
 		<< quint32(dbiThemeKey)
-		<< quint64(_themeKeyDay)
-		<< quint64(_themeKeyNight)
-		<< quint32(Window::Theme::IsNightMode() ? 1 : 0);
-	if (_useGlobalBackgroundKeys) {
+		<< quint64(themeStorage.day)
+		<< quint64(themeStorage.night)
+		<< quint32(themeStorage.nightMode ? 1 : 0);
+	if (themeStorage.globalBackground) {
 		data.stream
 			<< quint32(dbiBackgroundKey)
-			<< quint64(_backgroundKeyDay)
-			<< quint64(_backgroundKeyNight);
+			<< quint64(themeStorage.backgroundDay)
+			<< quint64(themeStorage.backgroundNight);
 		data.stream
 			<< quint32(dbiTileBackground)
-			<< qint32(Window::Theme::Background()->tileDay() ? 1 : 0)
-			<< qint32(Window::Theme::Background()->tileNight() ? 1 : 0);
+			<< qint32(themeStorage.tileDay ? 1 : 0)
+			<< qint32(themeStorage.tileNight ? 1 : 0);
 	}
 	if (_langPackKey) {
 		data.stream << quint32(dbiLangPackKey) << quint64(_langPackKey);

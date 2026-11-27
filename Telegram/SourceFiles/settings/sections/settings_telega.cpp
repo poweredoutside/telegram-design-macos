@@ -1,6 +1,7 @@
 #include "settings/sections/settings_telega.h"
 
 #include "api/api_gemini_chat.h"
+#include "api/api_telega_badges.h"
 #include "base/options.h"
 #include "base/platform/base_platform_info.h"
 #include "boxes/download_path_box.h"
@@ -9,6 +10,7 @@
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/core_telega_material.h"
+#include "core/core_telega_menu.h"
 #include "core/core_telega_preferences.h"
 #include "core/file_utilities.h"
 #include "core/update_checker.h"
@@ -16,6 +18,7 @@
 #include "history/view/history_view_context_menu.h"
 #include "data/data_message_archive.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "history/view/history_view_message.h"
 #include "info/profile/info_profile_actions.h"
 #include "lang/lang_instance.h"
@@ -43,11 +46,12 @@
 #include "ui/widgets/buttons.h"
 #include "ui/painter.h"
 #include "ui/layers/generic_box.h"
-#include "ui/new_badges.h"
 #include "ui/search_field_controller.h"
 #include "ui/style/style_core_font.h"
 #include "ui/style/style_material.h"
+#include "ui/telega_badge.h"
 #include "ui/ui_utility.h"
+#include "ui/userpic_view.h"
 #include "ui/vertical_list.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/chat_filters_tabs_mode.h"
@@ -60,18 +64,21 @@
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/wrap/vertical_layout_reorder.h"
+#include "window/window_main_menu_helpers.h"
 #include "window/main_window.h"
 #include "window/window_application_icon.h"
 #include "window/notifications_manager.h"
 #include "window/section_memento.h"
 #include "window/section_widget.h"
 #include "window/themes/window_theme.h"
+#include "window/themes/window_theme_glass.h"
 #include "window/themes/window_theme_live_wallpaper.h"
 #include "window/themes/window_theme_local.h"
 #include "window/themes/window_theme_preview.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 #include "window/window_session_controller_link_info.h"
+#include "window/window_telega_feed.h"
 
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
@@ -95,6 +102,7 @@
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtGui/QDesktopServices>
+#include <QtGui/QIcon>
 #include <QtGui/QIntValidator>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QTextLayout>
@@ -116,6 +124,38 @@ namespace {
 
 namespace Theme = Window::Theme;
 namespace Gemini = Api::GeminiChat;
+
+const auto kTelegaDeveloperUsername = u"dev_outside"_q;
+const auto kTelegaCloudTipsUrl = u"https://pay.cloudtips.ru/p/141b036a"_q;
+constexpr auto kTelegaBadgeOwner = UserId{ 1931431571 };
+
+std::string MainSettingsHiddenKey(MainSettingsItem item) {
+	constexpr auto keys = std::array{
+		"telega.settings.hide-premium",
+		"telega.settings.hide-stars",
+		"telega.settings.hide-business",
+		"telega.settings.hide-send-gift",
+		"telega.settings.hide-faq",
+		"telega.settings.hide-features",
+		"telega.settings.hide-ask-question",
+	};
+	return Core::Telega::StyleThemePreference(keys[int(item)]);
+}
+
+rpl::event_stream<MainSettingsItem> &MainSettingsVisibilityChanges() {
+	static auto changes = rpl::event_stream<MainSettingsItem>();
+	return changes;
+}
+
+void SetMainSettingsItemHidden(MainSettingsItem item, bool hidden) {
+	auto &app = Core::App();
+	const auto key = MainSettingsHiddenKey(item);
+	if (app.settings().readPref<bool>(key, false) != hidden) {
+		app.settings().writePref<bool>(key, hidden);
+		app.saveSettingsDelayed();
+		MainSettingsVisibilityChanges().fire_copy(item);
+	}
+}
 
 QString Text(const QString &russian, const QString &english) {
 	return Lang::GetInstance().id().startsWith(u"ru"_q) ? russian : english;
@@ -152,6 +192,9 @@ void AddAction(
 			: ResolveButtonStyle(list, st::settingsButtonNoIcon)
 	));
 	button->setAccessibleName(text);
+	if (Core::Telega::UseWindows11Style() && IsGroupedSettingsContent(list)) {
+		AddSettingsNavigationArrow(button);
+	}
 	button->setClickedCallback(std::move(click));
 }
 
@@ -221,12 +264,21 @@ void ShowRadioChoice(
 				box, group, index, options[index], st::settingsSendType),
 				st::settingsSendTypePadding);
 		}
+		static const auto unigramButton = [] {
+			auto result = st::defaultBoxButton;
+			result.textBg = st::transparent;
+			result.textBgOver = st::windowBgOver;
+			return result;
+		}();
+		const auto &buttonStyle = Core::Telega::UseWindows11Style()
+			? unigramButton
+			: box->getDelegate()->style().button;
 		box->addButton(tr::lng_box_ok(), [=] {
 			const auto selected = group->current();
 			const auto callback = apply;
 			box->closeBox();
 			callback(selected);
-		});
+		}, buttonStyle);
 	}));
 }
 
@@ -286,15 +338,51 @@ not_null<Ui::MaskedInputField*> AddSettingsInput(
 not_null<Ui::VerticalLayout*> AddDisclosure(
 		not_null<Ui::VerticalLayout*> list,
 		QString title,
-		rpl::producer<QString> value) {
+		rpl::producer<QString> value,
+		bool chevron = false) {
 	auto panel = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 		list, object_ptr<Ui::VerticalLayout>(list));
 	const auto raw = panel.data();
+	if (chevron) {
+		value = rpl::combine(
+			std::move(value),
+			raw->toggledValue(),
+			[](QString count, bool expanded) {
+				return count + (expanded ? u"  ⌃"_q : u"  ⌄"_q);
+			});
+	}
 	AddValueAction(list, std::move(title), std::move(value), [=] {
 		raw->toggle(!raw->toggled(), anim::type::instant);
 	});
 	list->add(std::move(panel))->hide(anim::type::instant);
 	return raw->entity();
+}
+
+void AddChecklistOption(
+		not_null<Ui::VerticalLayout*> list,
+		QString title,
+		rpl::producer<bool> value,
+		Fn<void(bool)> change) {
+	static const auto checkboxStyle = [] {
+		auto result = st::defaultCheckbox;
+		result.margin = {};
+		result.checkPosition = QPoint(style::ConvertScale(30), 0);
+		result.textPosition.setY(
+			(st::defaultCheck.diameter - result.style.font->height) / 2);
+		return result;
+	}();
+	const auto check = list->add(object_ptr<Ui::Checkbox>(
+		list,
+		title,
+		checkboxStyle,
+		std::make_unique<Ui::RoundCheckView>(st::defaultCheck, false)),
+		{ 0, style::ConvertScale(6), style::ConvertScale(16), style::ConvertScale(6) });
+	check->setAllowTextLines(2);
+	std::move(value) | rpl::on_next([=](bool checked) {
+		check->setChecked(checked, Ui::Checkbox::NotifyAboutChange::DontNotify);
+	}, check->lifetime());
+	check->finishAnimating();
+	check->checkedChanges() | rpl::on_next(std::move(change), check->lifetime());
 }
 
 rpl::producer<QString> OptionCount(
@@ -309,6 +397,23 @@ rpl::producer<QString> OptionCount(
 	});
 }
 
+void PaintTelegaPreviewSurface(QPainter &p, QRect area, QRect clip) {
+	if (!Core::Telega::UseWindows11Style()) {
+		p.fillRect(clip, st::windowBg);
+		return;
+	}
+	p.save();
+	{
+		auto hq = PainterHighQualityEnabler(p);
+		const auto radius = style::ConvertScale(4);
+		const auto inset = style::ConvertScale(2);
+		p.setPen(Qt::NoPen);
+		p.setBrush(style::MaterialTone(st::windowBg->c, st::windowFg->c, .055));
+		p.drawRoundedRect(area.adjusted(0, inset, 0, -inset), radius, radius);
+	}
+	p.restore();
+}
+
 void AddSteppedSlider(
 		not_null<Ui::VerticalLayout*> list,
 		QString title,
@@ -320,7 +425,7 @@ void AddSteppedSlider(
 	const auto content = list->add(object_ptr<Ui::VerticalLayout>(list));
 	content->paintRequest() | rpl::on_next([=](const QRect &clip) {
 		auto painter = QPainter(content);
-		painter.fillRect(clip, st::windowBg);
+		PaintTelegaPreviewSurface(painter, content->rect(), clip);
 	}, content->lifetime());
 	const auto inset = style::ConvertScale(14);
 	const auto max = int(values.size()) - 1;
@@ -361,9 +466,16 @@ void AddSteppedSlider(
 		painter.setFont(st::normalFont->f);
 		painter.setPen(st::windowSubTextFg);
 		for (auto index = 0; index != stops.size(); ++index) {
-			const auto align = !index ? Qt::AlignLeft
-				: (index == stops.size() - 1) ? Qt::AlignRight : Qt::AlignHCenter;
-			painter.drawText(ticks->rect(), align | Qt::AlignVCenter, stops[index]);
+				const auto textWidth = st::normalFont->width(stops[index]);
+				const auto fraction = (stops.size() <= 1)
+					? 0.
+					: float64(index) / (stops.size() - 1);
+				const auto left = int(std::round(
+					fraction * (ticks->width() - textWidth)));
+				painter.drawText(
+					QRect(left, 0, textWidth, ticks->height()),
+					Qt::AlignVCenter,
+					stops[index]);
 		}
 	}, ticks->lifetime());
 	style::PaletteChanged() | rpl::on_next([=] {
@@ -418,6 +530,58 @@ void AddDisplayOption(
 		Core::Telega::DisplayOption option) {
 	AddToggle(list, std::move(title), Core::Telega::DisplayValue(option),
 		[=](bool enabled) { Core::Telega::SetDisplayEnabled(option, enabled); });
+}
+
+void SetupLiquidGlassSettings(not_null<Ui::VerticalLayout*> glass) {
+	AddToggle(glass, Text(u"Эффект Liquid Glass"_q, u"Liquid Glass effect"_q),
+		Window::Theme::GlassStyleValue() | rpl::map([](Ui::LiquidGlassStyle style) {
+			return style.enabled;
+		}), [=](bool enabled) {
+			auto style = Window::Theme::GlassStyle();
+			style.enabled = enabled;
+			Window::Theme::SetGlassStyle(style);
+		});
+	AddToggle(glass,
+		Text(u"Liquid Glass в диалогах"_q, u"Liquid Glass in dialogs"_q),
+		Window::Theme::GlassDialogsEnabledValue(),
+		Window::Theme::SetGlassDialogsEnabled);
+	const auto opacity = std::array{ 15, 25, 35, 45, 55, 65, 75, 85, 100 };
+	const auto blur = std::array{ 0, 10, 20, 30, 40 };
+	const auto refraction = std::array{ 0, 20, 40, 60, 80, 100 };
+	const auto values = [](const auto &items, QString suffix) {
+		auto result = QStringList();
+		for (const auto item : items) {
+			result.push_back(QString::number(item) + suffix);
+		}
+		return result;
+	};
+	const auto indexOf = [](const auto &items, int value) {
+		auto best = 0;
+		for (auto i = 1; i != int(items.size()); ++i) {
+			if (std::abs(items[i] - value)
+				< std::abs(items[best] - value)) {
+				best = i;
+			}
+		}
+		return best;
+	};
+	const auto save = [=](auto values, int Ui::LiquidGlassStyle::*field, int index) {
+		auto style = Window::Theme::GlassStyle();
+		style.*field = values[index];
+		Window::Theme::SetGlassStyle(style);
+	};
+	AddSteppedSlider(glass, Text(u"Плотность стекла"_q, u"Glass opacity"_q),
+		{ u"15%"_q, u"25%"_q, u"35%"_q, u"45%"_q, u"55%"_q, u"65%"_q, u"75%"_q, u"85%"_q, u"100%"_q },
+		values(opacity, u"%"_q), indexOf(opacity, Window::Theme::GlassStyle().opacity),
+		[=](int index) { save(opacity, &Ui::LiquidGlassStyle::opacity, index); });
+	AddSteppedSlider(glass, Text(u"Размытие"_q, u"Blur"_q),
+		{ u"0"_q, u"10"_q, u"20"_q, u"30"_q, u"40"_q },
+		values(blur, u" px"_q), indexOf(blur, Window::Theme::GlassStyle().blur),
+		[=](int index) { save(blur, &Ui::LiquidGlassStyle::blur, index); });
+	AddSteppedSlider(glass, Text(u"Преломление света"_q, u"Light refraction"_q),
+		{ u"0%"_q, u"20%"_q, u"40%"_q, u"60%"_q, u"80%"_q, u"100%"_q },
+		values(refraction, u"%"_q), indexOf(refraction, Window::Theme::GlassStyle().refraction),
+		[=](int index) { save(refraction, &Ui::LiquidGlassStyle::refraction, index); });
 }
 
 not_null<Button*> AddIndexChoice(
@@ -853,6 +1017,8 @@ void SetupPreferencesBackup(
 		DisplaySwitch{ "exactViewCounts", Option::ExactViewCounts },
 		DisplaySwitch{ "roundedContactAvatars", Option::RoundedContactAvatars },
 		DisplaySwitch{ "hideSidebarStatus", Option::HideSidebarStatus },
+		DisplaySwitch{ "hideMacNavigationContacts", Option::HideMacNavigationContacts },
+		DisplaySwitch{ "hideMacNavigationCalls", Option::HideMacNavigationCalls },
 		DisplaySwitch{ "hideSenderMiniAvatars", Option::HideSenderMiniAvatars },
 		DisplaySwitch{ "accentSenderNames", Option::AccentSenderNames },
 		DisplaySwitch{ "hidePrivateReactions", Option::HidePrivateReactions },
@@ -951,6 +1117,7 @@ void SetupPreferencesBackup(
 			{ u"avatarCornerPercent"_q, Core::Telega::AvatarCornerPercent() },
 			{ u"quickActions"_q, QJsonArray::fromStringList(HistoryView::TelegaQuickActionOrder()) },
 			{ u"navigation"_q, QJsonArray::fromStringList(Core::Telega::Navigation()) },
+			{ u"telegramNavigation"_q, QJsonArray::fromStringList(Core::Telega::TelegramNavigation()) },
 			{ u"gemini"_q, gemini },
 			{ u"options"_q, options },
 		}).toJson(QJsonDocument::Indented);
@@ -987,6 +1154,7 @@ void SetupPreferencesBackup(
 		const auto channelBottom = object.value(u"channelBottomAction"_q);
 		const auto downloadMode = object.value(u"downloadMode"_q);
 		const auto navigation = object.value(u"navigation"_q);
+		const auto telegramNavigation = object.value(u"telegramNavigation"_q);
 		const auto appIcon = object.value(u"appIcon"_q);
 		const auto appIconSquare = object.value(u"appIconSquare"_q);
 		const auto avatarCorner = object.value(u"avatarCornerPercent"_q);
@@ -1013,16 +1181,31 @@ void SetupPreferencesBackup(
 			warn();
 			return;
 		}
-		auto navigationItems = QStringList();
-		const auto knownItems = Core::Telega::NavigationItems();
-		for (const auto &value : navigation.toArray()) {
-			const auto item = value.toString();
-			if (!knownItems.contains(item) || navigationItems.contains(item)) {
-				warn();
-				return;
+		const auto parseMenu = [](
+				QJsonValue json,
+				const QStringList &knownItems) {
+			auto result = std::optional<QStringList>();
+			if (!json.isUndefined() && !json.isArray()) {
+				return result;
 			}
-			navigationItems.push_back(item);
+			auto items = QStringList();
+			for (const auto &entry : json.toArray()) {
+				const auto item = entry.toString();
+				if (!knownItems.contains(item) || items.contains(item)) {
+					return result;
+				}
+				items.push_back(item);
+			}
+			return std::optional(std::move(items));
+		};
+		auto menuItems = parseMenu(navigation, Core::Telega::NavigationItems());
+		const auto telegramItems = parseMenu(
+			telegramNavigation, Core::Telega::TelegramNavigationItems());
+		if (!menuItems || !telegramItems) {
+			warn();
+			return;
 		}
+		auto &navigationItems = *menuItems;
 		if (!navigation.isUndefined() && quickActions.isUndefined()) {
 			navigationItems.push_front(u"divider"_q);
 			navigationItems.push_front(u"profile"_q);
@@ -1081,6 +1264,9 @@ void SetupPreferencesBackup(
 		if (!navigation.isUndefined()) {
 			Core::Telega::SetNavigation(navigationItems);
 		}
+		if (!telegramNavigation.isUndefined()) {
+			Core::Telega::SetTelegramNavigation(*telegramItems);
+		}
 		if (!appIcon.isUndefined() || !appIconSquare.isUndefined()) {
 			const auto previous = Core::Telega::ApplicationIconAppearance();
 			Core::Telega::SetApplicationIconAppearance({
@@ -1125,6 +1311,8 @@ void SetupPreferencesBackup(
 				Core::Telega::SetBottomAction(Core::Telega::ChannelBottomAction::Mute);
 				Core::Telega::SetTransferDownloadMode(Core::Telega::DownloadMode::Standard);
 				Core::Telega::SetNavigation(Core::Telega::DefaultNavigation());
+				Core::Telega::ResetTelegramNavigation();
+				Core::Telega::ResetGhostModeSelection();
 				Core::Telega::SetApplicationIconAppearance({});
 				Core::Telega::SetAvatarCornerPercent(50);
 				HistoryView::SetTelegaQuickActionOrder(HistoryView::DefaultTelegaQuickActions());
@@ -1400,6 +1588,9 @@ public:
 
 protected:
 	bool paintOuter(not_null<QWidget*> outer, int, QRect clip) override {
+		if (Core::Telega::UseWindows11Style()) {
+			return false;
+		}
 		auto painter = QPainter(outer);
 		painter.fillRect(clip, st::boxSearchBg);
 		return true;
@@ -1414,7 +1605,8 @@ protected:
 
 	not_null<Ui::VerticalLayout*> addGroup(QString title, QString keywords = {}) {
 		const auto panel = _content->add(object_ptr<GroupPanel>(
-			_content, object_ptr<Ui::VerticalLayout>(_content)));
+			_content, object_ptr<Ui::VerticalLayout>(_content)),
+			Core::Telega::UseMaterial3Style() ? style::al_justify : style::al_left);
 		if (!title.isEmpty()) {
 			AddGroupedSettingsHeader(panel->entity(), rpl::single(title)
 			)->setAccessibleName(title);
@@ -1492,7 +1684,7 @@ Fn<void(int)> AddAvatarPreview(
 	}, sample->lifetime());
 	sample->paintRequest() | rpl::on_next([=](const QRect &clip) {
 		auto painter = QPainter(sample);
-		painter.fillRect(clip, st::windowBg);
+		PaintTelegaPreviewSurface(painter, sample->rect(), clip);
 		painter.setRenderHint(QPainter::Antialiasing);
 		painter.setPen(Qt::NoPen);
 		const auto inset = style::ConvertScale(14);
@@ -1545,7 +1737,7 @@ not_null<Ui::FixedHeightWidget*> AddStickerPreview(
 	const auto time = QTime::currentTime();
 	sample->paintRequest() | rpl::on_next([=](const QRect &clip) {
 		auto painter = QPainter(sample);
-		painter.fillRect(clip, st::windowBg);
+		PaintTelegaPreviewSurface(painter, sample->rect(), clip);
 		painter.setRenderHint(QPainter::Antialiasing);
 		painter.setRenderHint(QPainter::SmoothPixmapTransform);
 		painter.setPen(Qt::NoPen);
@@ -1619,7 +1811,7 @@ void SetupFolderAppearance(
 	using Mode = Ui::ChatsFiltersTabsMode;
 	sample->paintRequest() | rpl::on_next([=](const QRect &clip) {
 		auto painter = QPainter(sample);
-		painter.fillRect(clip, st::windowBg);
+		PaintTelegaPreviewSurface(painter, sample->rect(), clip);
 		const auto mode = Ui::HorizontalChatsFiltersTabsMode(settings->chatFiltersTabsMode());
 		const auto showText = (mode != Mode::IconsOnly);
 		const auto showIcons = (mode != Mode::TextOnly);
@@ -1923,25 +2115,18 @@ void AddAiKeyAction(
 void SetupTelegaTranscription(
 		not_null<Ui::VerticalLayout*> list,
 		not_null<Window::SessionController*> controller) {
-	const auto voice = list->lifetime().make_state<rpl::variable<bool>>(
-		Gemini::Preference("transcribeVoice", 0) != 0);
-	const auto round = list->lifetime().make_state<rpl::variable<bool>>(
-		Gemini::Preference("transcribeRoundVideo", 0) != 0);
-	auto providers = rpl::combine(voice->value(), round->value(), [](bool audio, bool video) {
-		return audio && video ? u"Gemini"_q : !audio && !video ? u"Telega"_q
-			: Text(u"По типу записи"_q, u"By recording type"_q);
-	});
-	const auto rows = AddDisclosure(list, Text(u"Расшифровка голосовых и видеосообщений"_q,
-		u"Voice and video message transcription"_q), std::move(providers));
-	const auto add = [&](QString title, const char *key, not_null<rpl::variable<bool>*> state) {
-		AddIndexChoice(rows, controller, std::move(title), { u"Telega"_q, u"Gemini"_q },
-			[=] { return state->current() ? 1 : 0; }, [=](int index) {
-				Gemini::SetPreference(key, index);
-				*state = (index != 0);
-			});
-	};
-	add(Text(u"Голосовые сообщения"_q, u"Voice messages"_q), "transcribeVoice", voice);
-	add(Text(u"Видеосообщения"_q, u"Video messages"_q), "transcribeRoundVideo", round);
+	AddToggle(list, Text(
+		u"Расшифровка голосовых без Premium"_q,
+		u"Voice transcription without Premium"_q),
+		rpl::single(Gemini::VoiceTranscriptionEnabled()), [](bool enabled) {
+			Gemini::SetPreference("transcribeVoice", enabled ? 1 : 0);
+		});
+	AddIndexChoice(list, controller, Text(
+		u"Расшифровка видеосообщений"_q,
+		u"Video message transcription"_q),
+		{ u"Telega"_q, u"Gemini"_q },
+		[] { return Gemini::Preference("transcribeRoundVideo", 0); },
+		[](int index) { Gemini::SetPreference("transcribeRoundVideo", index); });
 	AddAiKeyAction(list, controller, Text(u"Ключ Gemini"_q, u"Gemini key"_q));
 }
 
@@ -1960,6 +2145,9 @@ public:
 			u"яркость обои фон wallpaper background brightness"_q);
 		SetupBackgroundBrightness(wallpaper, controller);
 		SetupChatBackground(controller, wallpaper);
+		AddAction(wallpaper, Text(u"Живые обои"_q, u"Live wallpaper"_q), [=] {
+			ShowLiveWallpaperBox(controller);
+		});
 		addGroupFooter(Text(
 			u"Яркость меняет только обои, а не текст и сообщения. 100% — исходная яркость."_q,
 			u"Brightness affects only the wallpaper, not text or messages. 100% is the original brightness."_q));
@@ -1976,96 +2164,326 @@ public:
 
 };
 
-void ShowMaterialDesignSettings(
-		not_null<Window::SessionController*> controller) {
-	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+not_null<Ui::FixedHeightWidget*> AddMaterialStylePreview(
+		not_null<Ui::VerticalLayout*> list) {
+	using Option = Core::Telega::MaterialOption;
+	const auto read = Core::Telega::PreferredMaterialOption;
+	const auto preview = list->add(object_ptr<Ui::FixedHeightWidget>(
+		list, style::ConvertScale(180)), style::al_justify);
+	preview->setAccessibleName(Text(u"Предпросмотр стиля"_q, u"Style preview"_q));
+	preview->paintRequest() | rpl::on_next([=] {
+		auto p = QPainter(preview);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setPen(Qt::NoPen);
+		const auto s = [](int size) { return style::ConvertScale(size); };
+		const auto bg = st::boxBg->c;
+		const auto accent = st::windowActiveTextFg->c;
+		const auto card = style::MaterialTone(bg, accent, .09);
+		const auto selected = style::MaterialTone(bg, accent, .34);
+		const auto line = [&](QRectF area, int radius, QColor color) {
+			p.setBrush(color);
+			p.drawRoundedRect(area, radius, radius);
+		};
+		const auto width = preview->width();
+		const auto w = std::max(width, s(240));
+		const auto zoom = qreal(width) / w;
+		line(preview->rect(), s(20), card);
+		p.translate(0, (preview->height() - s(180) * zoom) / 2);
+		p.scale(zoom, zoom);
+		const auto left = w * .4;
+		line({ qreal(s(10)), qreal(s(10)), left - s(15), qreal(s(160)) },
+			read(Option::RoundedMenu) ? s(14) : 0, bg);
+		line({ left + s(5), qreal(s(10)), w - left - s(15), qreal(s(160)) },
+			s(14), bg);
+		const auto roundedSelection = read(Option::RoundedSelection);
+		const auto colors = std::array{
+			QColor(239, 144, 175),
+			QColor(129, 198, 129),
+			QColor(105, 178, 241),
+			QColor(255, 190, 96),
+		};
+		for (auto i = 0; i != 4; ++i) {
+			const auto y = s(19 + 38 * i);
+			if (i == 1) {
+				line({ qreal(s(13)), qreal(y - s(3)), left - s(21), qreal(s(34)) },
+					roundedSelection ? s(12) : 0, selected);
+			}
+			p.setBrush(colors[i]);
+			p.drawEllipse(QRect(s(17), y, s(26), s(26)));
+			line({ qreal(s(50)), qreal(y + s(5)), (left - s(64)) * .72, qreal(s(5)) },
+				s(3), st::windowFg->c);
+			line({ qreal(s(50)), qreal(y + s(15)), left - s(64), qreal(s(4)) },
+				s(2), st::windowSubTextFg->c);
+		}
+		const auto right = w - left - s(34);
+		const auto grouped = read(Option::Grouped);
+		const auto switches = read(Option::Switches);
+		const auto mutedSwitches = read(Option::MutedSwitches);
+		for (auto i = 0; i != 3; ++i) {
+			const auto y = s(20 + 26 * i);
+			line({ left + s(14), qreal(y), right, qreal(s(23)) },
+				grouped ? s(6) : 0, card);
+			line({ left + s(24), qreal(y + s(9)), right * .42, qreal(s(5)) },
+				s(3), st::windowFg->c);
+			const auto muted = i == 2 && mutedSwitches;
+			line({ w - qreal(s(55)), qreal(y + s(5)), qreal(s(23)), qreal(s(13)) },
+				s(7), muted ? st::windowSubTextFg->c : accent);
+			if (switches) {
+				line({ w - qreal(s(muted ? 53 : 44)), qreal(y + s(7)),
+					qreal(s(9)), qreal(s(9)) }, s(5), bg);
+			}
+		}
+		const auto floating = read(Option::FloatingField);
+		line({ left + s(14), qreal(s(133)), right - s(33), qreal(s(28)) },
+			floating ? s(14) : 0, floating ? card : bg);
+		line({ left + s(25), qreal(s(145)), right * .28, qreal(s(5)) },
+			s(3), st::windowSubTextFg->c);
+		line({ w - qreal(s(48)), qreal(s(133)), qreal(s(28)), qreal(s(28)) },
+			floating ? s(14) : s(5), accent);
+	}, preview->lifetime());
+	style::PaletteChanged() | rpl::on_next([=] {
+		preview->update();
+	}, preview->lifetime());
+	return preview;
+}
+
+class StyleSettings final : public TelegaPage<StyleSettings> {
+public:
+	StyleSettings(QWidget *parent, not_null<Window::SessionController*> controller)
+	: TelegaPage(parent, controller) {
+		using Style = Core::Telega::InterfaceStyle;
+		beginGroups();
+		const auto styles = std::array{
+			Style::MacOS,
+			Style::Windows,
+			Style::Material3,
+			Style::Windows11,
+		};
+		const auto interfaceRows = addGroup(QString(),
+			u"style design macos windows material стиль дизайн"_q);
+		const auto styleNames = QStringList{
+			u"macOS"_q, u"Telegram"_q, u"Material Design 3"_q, u"Unigram"_q,
+		};
+		AddIndexChoice(
+			interfaceRows,
+			controller,
+			Text(u"Выбор стиля"_q, u"Interface style"_q),
+			styleNames,
+			[=] {
+				const auto preferred = Core::Telega::PreferredInterfaceStyle();
+				const auto i = std::find(styles.begin(), styles.end(), preferred);
+				return int(i - styles.begin());
+			},
+			[=](int index) {
+				const auto selected = styles[index];
+				if (selected != Core::Telega::PreferredInterfaceStyle()) {
+					Core::Telega::SetPreferredInterfaceStyle(selected);
+					OfferSettingsRestart(controller);
+				}
+			});
+		if (Core::Telega::UseMaterial3Style()) {
+			setupMaterialSettings(controller);
+		}
+		if (Core::Telega::UseMacOSStyle()) {
+#ifdef Q_OS_WIN
+			AddIndexChoice(
+				addGroup(Text(u"Окно macOS"_q, u"macOS window"_q),
+					u"окно кнопки window controls left right"_q),
+				controller,
+				Text(u"Расположение кнопок окна"_q, u"Window button position"_q),
+				{
+					Text(u"Слева — macOS"_q, u"Left — macOS"_q),
+					Text(u"Справа — Windows"_q, u"Right — Windows"_q),
+				},
+				[] { return Platform::TitleControlsOnRight() ? 1 : 0; },
+				[](int index) { Platform::SetTitleControlsOnRight(index == 1); });
+#endif
+			using Option = Core::Telega::DisplayOption;
+			const auto navigation = addGroup(Text(
+				u"Нижняя панель macOS"_q, u"macOS bottom navigation"_q));
+			AddDisplayOption(navigation, Text(u"Скрыть контакты"_q,
+				u"Hide contacts"_q), Option::HideMacNavigationContacts);
+			AddDisplayOption(navigation, Text(u"Скрыть вызовы"_q,
+				u"Hide calls"_q), Option::HideMacNavigationCalls);
+			const auto glass = addGroup(Text(u"Liquid Glass"_q, u"Liquid Glass"_q),
+				u"стекло прозрачность размытие преломление glass transparency blur refraction"_q);
+			SetupLiquidGlassSettings(glass);
+			addGroupFooter(Text(
+				u"Настройки применяются сразу к элементам macOS стиля."_q,
+				u"These settings apply immediately to macOS style elements."_q));
+			const auto archive = addGroup(Text(u"Архив"_q, u"Archive"_q),
+				u"папки архив folders archive"_q);
+			AddToggle(archive,
+				Text(u"Показывать папки в архиве"_q, u"Show folders in archive"_q),
+				Core::Telega::DisplayValue(Option::HideArchiveFolders)
+					| rpl::map([](bool hidden) { return !hidden; }),
+				[](bool show) {
+					Core::Telega::SetDisplayEnabled(
+						Option::HideArchiveFolders,
+						!show);
+				});
+		}
+		if (Core::Telega::UseTelegramStyle()) {
+			setupTelegramNavigation();
+		} else if (Core::Telega::UseWindows11Style()) {
+			setupMainMenuVisibility(
+				controller,
+				Window::MainMenuStyle::Unigram,
+				Text(u"Меню Unigram"_q, u"Unigram menu"_q));
+		}
+		setupMainSettingsVisibility();
+		const auto themes = addGroup(QString(),
+			u"темы фон обои яркость themes wallpaper background brightness"_q);
+		const auto active = std::find(styles.begin(), styles.end(),
+			Core::Telega::ActiveInterfaceStyle());
+		AddValueAction(themes, Text(u"Темы и фон"_q, u"Themes and wallpaper"_q),
+			rpl::single(styleNames[int(active - styles.begin())]), [=] {
+				showOther(Themes::Id());
+			});
+		addGroupFooter(Text(
+			u"У каждого стиля свои тема, обои и яркость. Здесь редактируется активный стиль."_q,
+			u"Theme, wallpaper and brightness are saved per style. This edits the active style."_q));
+		finishGroups();
+	}
+
+	rpl::producer<QString> title() override {
+		return rpl::single(Text(u"Настройки стилей"_q, u"Style settings"_q));
+	}
+
+private:
+	void setupTelegramNavigation() {
+		const auto items = std::array{
+			std::pair(u"profile"_q, tr::lng_menu_my_profile(tr::now)),
+			std::pair(u"divider"_q, Text(u"Разделитель"_q, u"Separator"_q)),
+			std::pair(u"group"_q, tr::lng_create_group_title(tr::now)),
+			std::pair(u"channel"_q, tr::lng_create_channel_title(tr::now)),
+			std::pair(u"contacts"_q, tr::lng_menu_contacts(tr::now)),
+			std::pair(u"calls"_q, tr::lng_menu_calls(tr::now)),
+			std::pair(u"saved"_q, tr::lng_saved_messages(tr::now)),
+			std::pair(u"wallet"_q, tr::lng_wallet_menu(tr::now)),
+			std::pair(u"ai"_q, TelegaAiChatLabel()),
+			std::pair(u"feed"_q, Window::TelegaFeedLabel()),
+			std::pair(u"ghost"_q, GhostModeLabel()),
+			std::pair(u"night"_q, tr::lng_menu_night_mode(tr::now)),
+			std::pair(u"streamer"_q, StreamerModeLabel()),
+		};
+		const auto selection = lifetime().make_state<rpl::variable<QStringList>>(
+			Core::Telega::TelegramNavigation());
+		const auto rows = AddDisclosure(
+			addGroup(QString(), u"боковое главное меню main sidebar menu"_q),
+			Text(u"Боковое меню"_q, u"Side menu"_q),
+			selection->value() | rpl::map([total = items.size()](const QStringList &items) {
+				return u"%1/%2"_q.arg(items.size()).arg(total);
+			}),
+			true);
+		const auto order = Core::Telega::TelegramNavigationItems();
+		for (const auto &[id, title] : items) {
+			AddChecklistOption(rows, title, selection->value() | rpl::map(
+				[id = id](const QStringList &items) { return items.contains(id); }),
+				[=, id = id](bool shown) {
+					auto items = selection->current();
+					if (shown) {
+						const auto position = order.indexOf(id);
+						const auto after = std::find_if(items.begin(), items.end(),
+							[&](const QString &item) { return order.indexOf(item) > position; });
+						items.insert(after, id);
+					} else {
+						items.removeAll(id);
+					}
+					Core::Telega::SetTelegramNavigation(items);
+					*selection = std::move(items);
+				});
+		}
+	}
+
+	void setupMainMenuVisibility(
+			not_null<Window::SessionController*> controller,
+			Window::MainMenuStyle style,
+			QString title) {
+		const auto items = Window::MainMenuOptions(style, &controller->session());
+		auto keywords = title + u" боковое меню аккаунты настройки accounts sidebar"_q;
+		auto initiallyShown = QStringList();
+		for (const auto &item : items) {
+			keywords.append(u' ').append(item.title);
+			if (Window::MainMenuOptionShown(
+					style, item.id, item.shownByDefault)) {
+				initiallyShown.push_back(item.id);
+			}
+		}
+		const auto selection = lifetime().make_state<rpl::variable<QStringList>>(
+			std::move(initiallyShown));
+		const auto rows = AddDisclosure(
+			addGroup(QString(), std::move(keywords)),
+			title,
+			selection->value() | rpl::map([total = items.size()](const QStringList &shown) {
+				return u"%1/%2"_q.arg(shown.size()).arg(total);
+			}),
+			true);
+		for (const auto &item : items) {
+			AddChecklistOption(
+				rows,
+				item.title,
+				selection->value() | rpl::map([id = item.id](const QStringList &shown) {
+					return shown.contains(id);
+				}),
+				[=, id = item.id](bool shown) {
+					Window::SetMainMenuOptionShown(style, id, shown);
+					auto updated = selection->current();
+					if (shown) {
+						updated.push_back(id);
+					} else {
+						updated.removeAll(id);
+					}
+					*selection = std::move(updated);
+				});
+		}
+	}
+
+	void setupMainSettingsVisibility() {
+		using Item = MainSettingsItem;
+		const auto items = std::array{
+			std::pair(Item::Premium, tr::lng_premium_summary_title(tr::now)),
+			std::pair(Item::Stars, tr::lng_settings_credits(tr::now)),
+			std::pair(Item::Business, tr::lng_business_title(tr::now)),
+			std::pair(Item::SendGift, tr::lng_settings_gift_premium(tr::now)),
+			std::pair(Item::Faq, tr::lng_settings_faq(tr::now)),
+			std::pair(Item::Features, tr::lng_settings_features(tr::now)),
+			std::pair(Item::AskQuestion, tr::lng_settings_ask_question(tr::now)),
+		};
+		const auto hidden = [](Item item) {
+			return MainSettingsItemShownValue(item)
+				| rpl::map([](bool shown) { return !shown; });
+		};
+		auto values = std::vector<rpl::producer<bool>>();
+		for (const auto &[item, title] : items) {
+			values.push_back(hidden(item));
+		}
+		const auto rows = AddDisclosure(
+			addGroup(QString(), Text(
+				u"Скрыть в основных настройках"_q, u"Hide from main settings"_q)),
+			Text(u"Скрыть в основных настройках"_q, u"Hide from main settings"_q),
+			rpl::combine(std::move(values)) | rpl::map([](const auto &values) {
+				return u"%1/%2"_q.arg(std::count(values.begin(), values.end(), true))
+					.arg(values.size());
+			}),
+			true);
+		for (const auto &[item, title] : items) {
+			AddChecklistOption(rows, title, hidden(item), [item = item](bool hide) {
+				SetMainSettingsItemHidden(item, hide);
+			});
+		}
+	}
+
+	void setupMaterialSettings(
+			not_null<Window::SessionController*> controller) {
 		using Option = Core::Telega::MaterialOption;
 		const auto read = Core::Telega::PreferredMaterialOption;
-		box->setTitle(rpl::single(u"Material Design 3"_q));
-		box->setWidth(style::ConvertScale(456));
-		box->setMaxHeight(style::ConvertScale(720));
-		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
-		const auto content = AddGroupedSettingsContent(box->verticalLayout());
-		const auto preview = content->add(object_ptr<Ui::FixedHeightWidget>(
-			content, style::ConvertScale(180)));
-		preview->setAccessibleName(Text(u"Предпросмотр стиля"_q, u"Style preview"_q));
-		preview->paintRequest() | rpl::on_next([=] {
-			auto p = QPainter(preview);
-			p.setRenderHint(QPainter::Antialiasing);
-			p.setPen(Qt::NoPen);
-			const auto s = [](int size) { return style::ConvertScale(size); };
-			const auto bg = st::boxBg->c;
-			const auto accent = st::windowActiveTextFg->c;
-			const auto card = style::MaterialTone(bg, accent, .09);
-			const auto selected = style::MaterialTone(bg, accent, .34);
-			const auto line = [&](QRectF area, int radius, QColor color) {
-				p.setBrush(color);
-				p.drawRoundedRect(area, radius, radius);
-			};
-			const auto w = preview->width();
-			if (w < s(240)) {
-				return;
-			}
-			const auto left = w * .4;
-			line(preview->rect(), s(20), card);
-			line({ qreal(s(10)), qreal(s(10)), left - s(15), qreal(s(160)) },
-				read(Option::RoundedMenu) ? s(14) : 0, bg);
-			line({ left + s(5), qreal(s(10)), w - left - s(15), qreal(s(160)) },
-				s(14), bg);
-			const auto roundedSelection = read(Option::RoundedSelection);
-			const auto colors = std::array{
-				QColor(239, 144, 175),
-				QColor(129, 198, 129),
-				QColor(105, 178, 241),
-				QColor(255, 190, 96),
-			};
-			for (auto i = 0; i != 4; ++i) {
-				const auto y = s(19 + 38 * i);
-				if (i == 1) {
-					line({ qreal(s(13)), qreal(y - s(3)), left - s(21), qreal(s(34)) },
-						roundedSelection ? s(12) : 0, selected);
-				}
-				p.setBrush(colors[i]);
-				p.drawEllipse(QRect(s(17), y, s(26), s(26)));
-				line({ qreal(s(50)), qreal(y + s(5)), (left - s(64)) * .72, qreal(s(5)) },
-					s(3), st::windowFg->c);
-				line({ qreal(s(50)), qreal(y + s(15)), left - s(64), qreal(s(4)) },
-					s(2), st::windowSubTextFg->c);
-			}
-			const auto right = w - left - s(34);
-			const auto grouped = read(Option::Grouped);
-			const auto switches = read(Option::Switches);
-			const auto mutedSwitches = read(Option::MutedSwitches);
-			for (auto i = 0; i != 3; ++i) {
-				const auto y = s(20 + 26 * i);
-				line({ left + s(14), qreal(y), right, qreal(s(23)) },
-					grouped ? s(6) : 0, card);
-				line({ left + s(24), qreal(y + s(9)), right * .42, qreal(s(5)) },
-					s(3), st::windowFg->c);
-				const auto muted = i == 2 && mutedSwitches;
-				line({ w - qreal(s(55)), qreal(y + s(5)), qreal(s(23)), qreal(s(13)) },
-					s(7), muted ? st::windowSubTextFg->c : accent);
-				if (switches) {
-					line({ w - qreal(s(muted ? 53 : 44)), qreal(y + s(7)),
-						qreal(s(9)), qreal(s(9)) }, s(5), bg);
-				}
-			}
-			const auto floating = read(Option::FloatingField);
-			line({ left + s(14), qreal(s(133)), right - s(33), qreal(s(28)) },
-				floating ? s(14) : 0, floating ? card : bg);
-			line({ left + s(25), qreal(s(145)), right * .28, qreal(s(5)) },
-				s(3), st::windowSubTextFg->c);
-			line({ w - qreal(s(48)), qreal(s(133)), qreal(s(28)), qreal(s(28)) },
-				floating ? s(14) : s(5), accent);
-		}, preview->lifetime());
-		style::PaletteChanged() | rpl::on_next([=] {
-			preview->update();
-		}, preview->lifetime());
-		const auto changed = box->lifetime().make_state<bool>(false);
+		const auto preview = AddMaterialStylePreview(addGroup(
+			u"Material Design 3"_q,
+			Text(u"предпросмотр стиля"_q, u"style preview"_q)));
 		const auto save = [=](Option option, bool value) {
 			if (value != read(option)) {
 				Core::Telega::SetPreferredMaterialOption(option, value);
-				*changed = true;
 				preview->update();
 			}
 		};
@@ -2076,9 +2494,8 @@ void ShowMaterialDesignSettings(
 			AddToggle(rows, std::move(title), rpl::single(read(option)),
 				[=](bool value) { save(option, value); });
 		};
-		[[maybe_unused]] const auto appearanceHeading = AddGroupedSettingsHeader(
-			content, rpl::single(Text(u"Вид"_q, u"Appearance"_q)));
-		const auto appearance = AddGroupedSettingsRows(content);
+		const auto appearance = addGroup(Text(u"Вид"_q, u"Appearance"_q),
+			u"Material Design 3 Google Sans"_q);
 		AddIndexChoice(appearance, controller, Text(
 			u"Шрифт по умолчанию"_q, u"Default font"_q), {
 			u"Google Sans"_q,
@@ -2095,30 +2512,31 @@ void ShowMaterialDesignSettings(
 			Text(u"Скруглённое боковое меню"_q, u"Rounded side menu"_q));
 		add(appearance, Option::Expressive,
 			Text(u"Анимации Material Expressive"_q, u"Material Expressive animations"_q));
-		FinishGroupedSettingsRows(appearance, &st::boxBg);
-		AddGroupedSettingsFooter(content, rpl::single(Text(
-			u"Изменения применяются после перезапуска. Шрифт, выбранный в «Оформлении», имеет приоритет."_q,
-			u"Changes apply after restarting. A font chosen in Appearance takes priority."_q)));
-		[[maybe_unused]] const auto controlsHeading = AddGroupedSettingsHeader(
-			content, rpl::single(Text(u"Элементы управления"_q, u"Controls"_q)));
-		const auto controls = AddGroupedSettingsRows(content);
+		addGroupFooter(Text(
+			u"Шрифт, выбранный в «Оформлении», имеет приоритет."_q,
+			u"A font chosen in Appearance takes priority."_q));
+		setupMainMenuVisibility(
+			controller,
+			Window::MainMenuStyle::Material3,
+			Text(u"Боковое меню"_q, u"Side menu"_q));
+		const auto controls = addGroup(Text(
+			u"Элементы управления"_q, u"Controls"_q), u"Material Design 3"_q);
 		add(controls, Option::Switches,
 			Text(u"Стиль переключателей"_q, u"Switch style"_q));
 		add(controls, Option::MutedSwitches,
 			Text(u"Приглушённые выключенные переключатели"_q, u"Muted off switches"_q));
 		add(controls, Option::Sliders,
 			Text(u"Стиль слайдеров"_q, u"Slider style"_q));
-		FinishGroupedSettingsRows(controls, &st::boxBg);
-		Ui::AddSkip(content, style::ConvertScale(12));
-		box->boxClosing() | rpl::on_next([=] {
-			if (*changed && Core::Telega::UseMaterial3Style()) {
-				crl::on_main(controller->widget(), [=] {
-					OfferSettingsRestart(controller);
-				});
-			}
-		}, box->lifetime());
-	}));
-}
+		addGroupFooter(Text(
+			u"Изменения применяются после перезапуска."_q,
+			u"Changes apply after restarting."_q));
+		AddAction(addGroup(QString(), u"Material Design 3"_q),
+			tr::lng_settings_restart_now(tr::now), [=] {
+				OfferSettingsRestart(controller);
+			});
+	}
+
+};
 
 class Appearance final : public TelegaPage<Appearance> {
 public:
@@ -2126,95 +2544,9 @@ public:
 	: TelegaPage(parent, controller) {
 		using Option = Core::Telega::DisplayOption;
 		beginGroups();
-		using Style = Core::Telega::InterfaceStyle;
-		const auto styles = std::array{
-			Style::MacOS,
-			Style::Windows,
-			Style::Material3,
-			Style::Windows11,
-		};
-		const auto interfaceRows = addGroup(QString(),
-			u"style design macos windows material стиль дизайн"_q);
-		const auto selectedStyle = interfaceRows->lifetime().make_state<rpl::variable<Style>>(
-			Core::Telega::PreferredInterfaceStyle());
-		const auto styleNames = QStringList{
-			u"macOS"_q, u"Telegram"_q, u"Material Design 3"_q, u"Unigram"_q,
-		};
-		const auto styleChoice = AddIndexChoice(
-			interfaceRows,
-			controller,
-			Text(u"Выбор стиля"_q, u"Interface style"_q),
-			styleNames,
-			[=] {
-				const auto preferred = selectedStyle->current();
-				const auto i = std::find(styles.begin(), styles.end(), preferred);
-				return int(i - styles.begin());
-			},
-			[=](int index) {
-				const auto selected = styles[index];
-				if (selected != Core::Telega::PreferredInterfaceStyle()) {
-					Core::Telega::SetPreferredInterfaceStyle(selected);
-					*selectedStyle = selected;
-					OfferSettingsRestart(controller);
-				}
-			});
-		const auto beta = Text(u"бета"_q, u"beta"_q);
-		styleChoice->setAccessibleDescription(beta);
-		const auto badge = Ui::NewBadge::CreateNewBadge(styleChoice, rpl::single(beta));
-		const auto &buttonStyle = styleChoice->st();
-		auto longestValue = 0;
-		for (const auto &name : styleNames) {
-			longestValue = std::max(longestValue, buttonStyle.rightLabel.style.font->width(name));
-		}
-		const auto gap = buttonStyle.style.font->spacew;
-		const auto reserved = buttonStyle.padding.right()
-			+ std::max(buttonStyle.padding.right(), st::settingsButtonRightSkip)
-			+ longestValue;
-		styleChoice->widthValue() | rpl::on_next([=, &buttonStyle](int width) {
-			const auto left = buttonStyle.padding.left() + styleChoice->fullTextWidth() + gap;
-			badge->setVisible(left + badge->width() + gap + reserved <= width);
-			const auto top = buttonStyle.padding.top()
-				+ buttonStyle.style.font->ascent
-				- st::settingsPremiumNewBadge.style.font->ascent
-				- st::settingsPremiumNewBadgePadding.top();
-			badge->moveToLeft(left, top, width);
-		}, badge->lifetime());
-		if (Platform::IsWindows()) {
-			const auto title = Text(u"Настройки Material Design 3"_q,
-				u"Material Design 3 settings"_q);
-			const auto row = interfaceRows->add(object_ptr<Ui::SlideWrap<Button>>(
-				interfaceRows,
-				object_ptr<Button>(interfaceRows, rpl::single(title),
-					st::macSettingsPageButtonNoIcon)));
-			row->entity()->setAccessibleName(title);
-			row->entity()->setClickedCallback([=] {
-				ShowMaterialDesignSettings(controller);
-			});
-			row->toggleOn(selectedStyle->value() | rpl::map([](Style style) {
-				return style == Style::Material3;
-			}), anim::type::instant);
-		}
 		const auto font = addGroup(Text(u"Шрифт"_q, u"Font"_q),
 			u"google sans системный шрифт system font"_q);
 		SetupFontSettings(controller, font);
-		const auto wallpaper = addGroup(QString(), u"живые обои live wallpaper"_q);
-		AddAction(wallpaper, Text(u"Живые обои"_q, u"Live wallpaper"_q), [=] {
-			ShowLiveWallpaperBox(controller);
-		});
-#ifdef Q_OS_WIN
-		if (Core::Telega::UseMacOSStyle()) {
-			AddIndexChoice(
-				addGroup(Text(u"Окно"_q, u"Window"_q)),
-				controller,
-				Text(u"Расположение кнопок окна"_q, u"Window button position"_q),
-				{
-					Text(u"Слева — macOS"_q, u"Left — macOS"_q),
-					Text(u"Справа — Windows"_q, u"Right — Windows"_q),
-				},
-				[] { return Platform::TitleControlsOnRight() ? 1 : 0; },
-				[](int index) { Platform::SetTitleControlsOnRight(index == 1); });
-		}
-#endif
 		const auto radiusTitle = Text(u"Скругление аватаров"_q, u"Avatar rounding"_q);
 		const auto avatar = addGroup(radiusTitle, u"аватар квадрат круг avatar square round"_q);
 		const auto radius = Core::Telega::AvatarCornerPercent();
@@ -2321,8 +2653,8 @@ public:
 				Core::App().saveSettingsDelayed();
 			});
 		SetupTelegaTranscription(features, controller);
-		addGroupFooter(Text(u"Gemini получает запись только при выборе команды расшифровки через Gemini."_q,
-			u"Gemini receives the recording only when you choose its transcription action."_q));
+		addGroupFooter(Text(u"Для расшифровки без Premium нужен ключ Gemini. Запись отправляется в Google после подтверждения."_q,
+			u"Transcription without Premium requires a Gemini key. The recording is sent to Google after confirmation."_q));
 		finishGroups();
 	}
 
@@ -2655,7 +2987,7 @@ void SetupMessageArchive(
 	preview->paintRequest() | rpl::on_next([=] {
 		auto p = QPainter(preview);
 		p.setRenderHint(QPainter::Antialiasing);
-		p.fillRect(preview->rect(), st::windowBg);
+		PaintTelegaPreviewSurface(p, preview->rect(), preview->rect());
 		const auto inset = style::ConvertScale(12);
 		const auto width = std::min(style::ConvertScale(230), preview->width() - 2 * inset);
 		if (width <= inset * 2) {
@@ -2755,7 +3087,18 @@ public:
 			controller->show(Box(ArchiveSettingsBox, controller));
 		});
 		addGroupFooter(Text(u"Архив переносится в главное меню."_q, u"The archive moves to the main menu."_q));
-		if (Platform::ScreenshotProtectionSupported()) {
+		if constexpr (Platform::IsWindows()) {
+			AddToggle(
+				addGroup(QString(), u"стрим запись экрана streamer screen capture"_q),
+				StreamerModeLabel(),
+				Core::Telega::ProtectMainWindowValue(),
+				Core::Telega::SetProtectMainWindow);
+			addGroupFooter(Text(
+				u"Windows скрывает окна Telega в поддерживаемых записях и демонстрациях. "
+				u"Системные уведомления Telega отключаются."_q,
+				u"Windows hides Telega windows from supported recordings and screen shares. "
+				u"Telega system notifications are paused."_q));
+		} else if (Platform::ScreenshotProtectionSupported()) {
 			AddToggle(addGroup(QString(), u"скриншот запись захват экрана screenshot recording capture"_q),
 				Text(u"Защита от записи экрана"_q, u"Protect the main window from capture"_q),
 				Core::Telega::ProtectMainWindowValue(), Core::Telega::SetProtectMainWindow);
@@ -3042,6 +3385,314 @@ public:
 	}
 };
 
+void OpenTelegaCloudTips(not_null<Window::SessionController*> controller) {
+	if (!QDesktopServices::openUrl(QUrl(kTelegaCloudTipsUrl))) {
+		controller->showToast(Text(u"Не удалось открыть CloudTips."_q,
+			u"Could not open CloudTips."_q));
+	}
+}
+
+void ShowTelegaBadgeRequest(
+		not_null<Window::SessionController*> controller) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		const auto scale = [](int value) { return style::ConvertScale(value); };
+		const auto margin = scale(24);
+		const auto logoSize = scale(96);
+		box->setWidth(std::clamp(controller->widget()->width() - scale(24),
+			scale(320), scale(600)));
+		box->setNoContentMargin(true);
+		box->addTopButton(st::boxTitleClose, [=] { box->closeBox(); });
+		const auto logo = box->addRow(
+			object_ptr<Ui::FixedHeightWidget>(box, logoSize),
+			style::margins(0, scale(28), 0, scale(16)));
+		const auto icon = Window::CreateApplicationIconPreview({});
+		logo->paintRequest() | rpl::on_next([=] {
+			auto p = QPainter(logo);
+			icon.paint(&p, QRect((logo->width() - logoSize) / 2, 0,
+				logoSize, logoSize));
+		}, logo->lifetime());
+		box->addRow(object_ptr<Ui::FlatLabel>(box,
+			Text(u"Поддержать разработку"_q, u"Support development"_q), st::boxTitle),
+			style::margins(margin, 0, margin, scale(8)), style::al_top);
+		box->addRow(object_ptr<Ui::FlatLabel>(box,
+			Text(u"Поддержка проекта и личный бейдж рядом с именем."_q,
+				u"Support the project and get a badge beside your name."_q)),
+			style::margins(margin, 0, margin, scale(18)), style::al_top);
+
+		const auto step = [&](const style::icon &icon, QString title, QString description) {
+			const auto row = box->addRow(object_ptr<Ui::VerticalLayout>(box),
+				style::margins(margin, 0, margin, scale(14)));
+			const auto padding = style::margins(scale(42), 0, 0, scale(2));
+			static const auto titleStyle = [] {
+				auto result = st::defaultFlatLabel;
+				result.style = st::semiboldTextStyle;
+				return result;
+			}();
+			row->add(object_ptr<Ui::FlatLabel>(row, title, titleStyle), padding);
+			row->add(object_ptr<Ui::FlatLabel>(row, description, st::boxDividerLabel),
+				padding);
+			const auto picture = Ui::CreateChild<Ui::RpWidget>(row);
+			picture->resize(icon.width(), icon.height());
+			picture->paintRequest() | rpl::on_next([=, icon = &icon] {
+				auto p = QPainter(picture);
+				icon->paint(p, 0, 0, picture->width(), st::windowFg->c);
+			}, picture->lifetime());
+			row->widthValue() | rpl::on_next([=](int width) {
+				picture->moveToLeft(0, 0, width);
+			}, picture->lifetime());
+		};
+		step(st::menuIconEarn,
+			Text(u"Откройте CloudTips"_q, u"Open CloudTips"_q),
+			Text(u"Переведите 100 ₽ через CloudTips за бейдж спонсора."_q,
+				u"Send 100 RUB via CloudTips for a sponsor badge."_q));
+		step(st::menuIconPhoto,
+			Text(u"Отправьте скриншот оплаты"_q, u"Send a payment screenshot"_q),
+			Text(u"Напишите @%1 в личку и приложите скриншот оплаты."_q,
+				u"Send @%1 a direct message with a payment screenshot."_q
+			).arg(kTelegaDeveloperUsername));
+		step(st::menuIconStar,
+			Text(u"Получите бейдж"_q, u"Get your badge"_q),
+			Text(u"После проверки оплаты бейдж появится рядом с именем "
+				u"у пользователей Telega."_q,
+				u"After the payment is verified, Telega users will see "
+				u"the badge beside your name."_q));
+
+		const auto preview = box->addRow(
+			object_ptr<Ui::FixedHeightWidget>(box, scale(56)),
+			style::margins(margin, scale(8), margin, scale(12)));
+		const auto user = controller->session().user();
+		const auto view = preview->lifetime().make_state<Ui::PeerUserpicView>();
+		preview->paintRequest() | rpl::on_next([=] {
+			auto p = Painter(preview);
+			auto quality = PainterHighQualityEnabler(p);
+			const auto width = preview->width();
+			const auto height = preview->height();
+			const auto size = scale(36);
+			const auto skip = scale(8);
+			const auto bubbleLeft = size + 2 * skip;
+			const auto left = bubbleLeft + skip;
+			const auto badgeSize = scale(15);
+			user->paintUserpicLeft(p, *view, skip, (height - size) / 2, width, size);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::windowBgOver);
+			p.drawRoundedRect(style::rtlrect(bubbleLeft, 0, width - bubbleLeft,
+				height, width), scale(16), scale(16));
+			const auto color = st::windowActiveTextFg->c;
+			const auto badgeY = skip + (st::semiboldFont->height - badgeSize) / 2;
+			Ui::PaintTelegaBadge(
+				p,
+				style::rtlrect(left, badgeY, badgeSize, badgeSize, width),
+				Api::TelegaBadges::Type::Supporter,
+				color);
+			const auto nameLeft = left + badgeSize + scale(4);
+			const auto nameWidth = std::max(0, width - nameLeft - skip);
+			const auto name = st::semiboldFont->elided(user->name(), nameWidth);
+			p.setFont(st::semiboldFont);
+			p.setPen(color);
+			p.drawTextLeft(nameLeft, skip, width, name);
+			p.setFont(st::normalFont);
+			p.setPen(st::windowFg);
+			p.drawTextLeft(left, skip + st::semiboldFont->height, width,
+				Text(u"Так выглядит бейдж."_q, u"Badge preview."_q));
+		}, preview->lifetime());
+		controller->session().downloaderTaskFinished() | rpl::on_next([=] {
+			preview->update();
+		}, preview->lifetime());
+		box->addRow(object_ptr<Ui::FlatLabel>(box,
+			Text(u"С вашего согласия Telegram ID и тип бейджа появятся "
+				u"в публичном реестре."_q,
+				u"With your consent, your Telegram ID and badge type will appear "
+				u"in the public registry."_q), st::boxDividerLabel),
+			style::margins(margin, 0, margin, scale(12)));
+
+		box->addButton(rpl::single(Text(u"Открыть CloudTips"_q, u"Open CloudTips"_q)),
+			[=] { OpenTelegaCloudTips(controller); });
+		box->addButton(rpl::single(Text(
+			u"Написать разработчику"_q,
+			u"Message the developer"_q)), [=] {
+			box->closeBox();
+			controller->showPeerByLink({
+				.usernameOrId = kTelegaDeveloperUsername,
+			});
+		});
+	}));
+}
+
+void ShowTelegaBadgeManagement(
+		not_null<Window::SessionController*> controller) {
+	using BadgeType = Api::TelegaBadges::Type;
+	using BadgeResult = Api::TelegaBadges::Result;
+	enum class Action { Sponsor, Developer, Revoke };
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(rpl::single(Text(u"Управление бейджами"_q, u"Manage badges"_q)));
+		box->setWidth(style::ConvertScale(440));
+		const auto id = AddSettingsInput(
+			box,
+			u"Telegram ID"_q,
+			QString::number(controller->session().userId().bare),
+			20);
+		const auto row = box->addRow(object_ptr<Ui::RpWidget>(box));
+		const auto token = new Ui::PasswordInput(
+			row,
+			st::defaultInputField,
+			rpl::single(Text(u"Токен GitHub"_q, u"GitHub token"_q)));
+		const auto height = token->sizeHint().height();
+		row->resize(row->width(), height);
+		row->widthValue() | rpl::on_next([=](int width) {
+			token->resize(width, height);
+		}, row->lifetime());
+		token->setMaxLength(512);
+		token->setAccessibleName(Text(u"Токен GitHub"_q, u"GitHub token"_q));
+		box->addSkip(style::ConvertScale(8));
+		box->addRow(object_ptr<Ui::FlatLabel>(box,
+			Text(u"Тип бейджа"_q, u"Badge type"_q), st::boxDividerLabel));
+		const auto actions = std::make_shared<Ui::RadioenumGroup<Action>>(Action::Sponsor);
+		box->addRow(object_ptr<Ui::Radioenum<Action>>(box, actions, Action::Sponsor,
+			Text(u"Спонсор"_q, u"Sponsor"_q), st::settingsSendType),
+			st::settingsSendTypePadding);
+		box->addRow(object_ptr<Ui::Radioenum<Action>>(box, actions, Action::Developer,
+			Text(u"Разработчик"_q, u"Developer"_q), st::settingsSendType),
+			st::settingsSendTypePadding);
+		box->addRow(object_ptr<Ui::Radioenum<Action>>(box, actions, Action::Revoke,
+			Text(u"Забрать"_q, u"Revoke"_q), st::settingsSendType),
+			st::settingsSendTypePadding);
+		box->addSkip(style::ConvertScale(8));
+		const auto comment = AddSettingsInput(box,
+			Text(u"Комментарий (необязательно)"_q, u"Comment (optional)"_q),
+			QString(),
+			Api::TelegaBadges::kCommentLimit);
+		const auto duration = AddSettingsInput(box,
+			Text(u"Срок в днях (пусто — навсегда)"_q,
+				u"Duration in days (empty means forever)"_q),
+			QString(),
+			10);
+		duration->setValidator(new QIntValidator(1, std::numeric_limits<int>::max(),
+			duration.get()));
+		const auto consent = box->addRow(object_ptr<Ui::Checkbox>(
+			box,
+			Text(u"Получатель согласился на публикацию"_q,
+				u"The recipient agreed to publication"_q),
+			false,
+			st::defaultBoxCheckbox));
+		QObject::connect(id, &Ui::MaskedInputField::changed, consent, [=] {
+			consent->setChecked(false);
+		});
+		QObject::connect(comment, &Ui::MaskedInputField::changed, consent, [=] {
+			consent->setChecked(false);
+		});
+		QObject::connect(duration, &Ui::MaskedInputField::changed, consent, [=] {
+			consent->setChecked(false);
+		});
+		actions->value() | rpl::on_next([=](Action action) {
+			const auto revoking = (action == Action::Revoke);
+			comment->setDisabled(revoking);
+			duration->setDisabled(revoking);
+			consent->setDisabled(revoking);
+			if (revoking) {
+				consent->setChecked(false);
+			}
+		}, box->lifetime());
+		const auto status = box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			Text(
+				u"Telegram ID и данные бейджа попадут в публичный реестр "
+				u"poweredoutside/telega-badges. Токен хранится только в этом окне."_q,
+				u"The Telegram ID and badge details are published to poweredoutside/telega-badges. "
+				u"The token is kept only in this window."_q),
+			st::boxDividerLabel));
+		const auto busy = box->lifetime().make_state<bool>(false);
+		const auto onResult = [=](BadgeResult result, bool revoking) {
+			*busy = false;
+			switch (result) {
+			case BadgeResult::Saved:
+				consent->setChecked(false);
+				status->setText(revoking
+					? Text(u"Бейдж забран."_q, u"Badge revoked."_q)
+					: Text(u"Изменение сохранено."_q, u"Change saved."_q));
+				break;
+			case BadgeResult::Unchanged:
+				status->setText(revoking
+					? Text(u"У пользователя нет бейджа."_q, u"This user has no badge."_q)
+					: Text(u"Список уже в этом состоянии."_q, u"No change needed."_q));
+				break;
+			case BadgeResult::Conflict:
+				status->setText(Text(
+					u"Список изменился. Нажмите кнопку ещё раз."_q,
+					u"The list changed. Try the action again."_q));
+				break;
+			case BadgeResult::Failed:
+				status->setText(Text(
+					u"GitHub не сохранил изменение. Проверьте токен и репозиторий."_q,
+					u"GitHub did not save the change. Check the token and repository."_q));
+				break;
+			}
+		};
+		const auto change = [=](std::optional<BadgeType> type) {
+			if (*busy) {
+				return;
+			}
+			if (controller->session().userId() != kTelegaBadgeOwner) {
+				box->closeBox();
+				return;
+			}
+			const auto text = id->getLastText().trimmed();
+			const auto value = text.toULongLong();
+			if (!value || text != QString::number(value)) {
+				id->showError();
+				return;
+			}
+			auto days = std::optional<int>();
+			const auto durationText = duration->getLastText().trimmed();
+			if (type && !durationText.isEmpty()) {
+				const auto parsed = durationText.toInt();
+				if (parsed <= 0) {
+					duration->showError();
+					status->setText(Text(u"Укажите положительное число дней."_q,
+						u"Enter a positive number of days."_q));
+					return;
+				}
+				days = parsed;
+			}
+			if (type && !consent->checked()) {
+				status->setText(Text(
+					u"Подтверди согласие получателя на публикацию Telegram ID и данных бейджа."_q,
+					u"Confirm the recipient agreed to publish the Telegram ID and badge details."_q));
+				return;
+			}
+			const auto access = token->text().trimmed();
+			if (!access.startsWith(u"github_pat_"_q)) {
+				token->showError();
+				status->setText(Text(
+					u"Введите fine-grained токен GitHub с правом записи Contents."_q,
+					u"Enter a fine-grained GitHub token with Contents write access."_q));
+				return;
+			}
+			*busy = true;
+			status->setText(Text(u"Сохранение в GitHub…"_q, u"Saving to GitHub…"_q));
+			Api::TelegaBadges::Set(
+				box.get(),
+				UserId{ value },
+				type,
+				type ? comment->getLastText() : QString(),
+				days,
+				access.toUtf8(),
+				[=](BadgeResult result) { onResult(result, !type); });
+		};
+		box->addButton(actions->value() | rpl::map([](Action action) {
+			return (action == Action::Revoke)
+				? Text(u"Забрать"_q, u"Revoke"_q)
+				: Text(u"Выдать"_q, u"Grant"_q);
+		}), [=] {
+			const auto action = actions->current();
+			change((action == Action::Revoke)
+				? std::nullopt
+				: std::optional(action == Action::Developer
+					? BadgeType::Developer
+					: BadgeType::Supporter));
+		});
+	}));
+}
+
 class SupportProject final : public TelegaPage<SupportProject> {
 public:
 	SupportProject(
@@ -3080,13 +3731,31 @@ public:
 			st::macSettingsPageButton,
 			{ &st::menuIconPayment }
 		)->setClickedCallback([=] {
-			if (!QDesktopServices::openUrl(QUrl(u"https://pay.cloudtips.ru/p/141b036a"_q))) {
-				controller->showToast(Text(u"Не удалось открыть CloudTips."_q,
-					u"Could not open CloudTips."_q));
-			}
+			OpenTelegaCloudTips(controller);
 		});
 		addGroupFooter(Text(u"Пожертвования идут на разработку Telega Desktop."_q,
 			u"Donations support the development of Telega Desktop."_q));
+		const auto badges = addGroup(
+			Text(u"Бейдж Telega"_q, u"Telega badge"_q),
+			u"бейдж badge значок"_q);
+		AddButtonWithIcon(
+			badges,
+			rpl::single(Text(u"Получить бейдж"_q, u"Get a badge"_q)),
+			st::macSettingsPageButton,
+			{ &st::menuIconStar }
+		)->setClickedCallback([=] {
+			ShowTelegaBadgeRequest(controller);
+		});
+		if (controller->session().userId() == kTelegaBadgeOwner) {
+			AddButtonWithIcon(
+				badges,
+				rpl::single(Text(u"Управление бейджами"_q, u"Manage badges"_q)),
+				st::macSettingsPageButton,
+				{ &st::menuIconEdit }
+			)->setClickedCallback([=] {
+				ShowTelegaBadgeManagement(controller);
+			});
+		}
 		const auto contacts = addGroup(
 			u"Telega Desktop"_q, u"разработчик канал developer channel dev_outside windows_custom"_q);
 		const auto addContact = [&](
@@ -3108,7 +3777,9 @@ public:
 			});
 		};
 		addContact(Text(u"Разработчик"_q, u"Developer"_q),
-			u"dev_outside"_q, st::menuIconProfile, Window::ResolveType::Profile);
+			kTelegaDeveloperUsername,
+			st::menuIconProfile,
+			Window::ResolveType::Profile);
 		addContact(Text(u"Канал"_q, u"Channel"_q),
 			u"windows_custom"_q, st::menuIconChannel, Window::ResolveType::Default);
 		finishGroups();
@@ -3823,14 +4494,20 @@ public:
 		_version->setForegroundRole(QPalette::PlaceholderText);
 		_empty->setAlignment(Qt::AlignCenter);
 		auto categories = std::vector<Category>{
-			{ Text(u"Оформление"_q, u"Appearance"_q), Text(u"Логотип, шрифт, папки"_q, u"Logo, font, folders"_q), u"stories историй аватар avatar radius скругление style macos windows стиль шрифт font папки folders статус status стикеры stickers timestamps emoji эмодзи logo логотип icon иконка значок zalgo шум"_q, &st::menuIconPalette, Appearance::Id() },
-			{ Text(u"Темы и фон"_q, u"Themes and wallpaper"_q), Text(u"Создание, импорт и экспорт тем"_q, u"Create, import and export themes"_q), u"custom локальные хранение цвет акцент яркость wallpaper background brightness theme colors"_q, &st::menuIconImportTheme, Themes::Id() },
+			{ Text(u"Оформление"_q, u"Appearance"_q), Text(u"Логотип, шрифт, папки"_q, u"Logo, font, folders"_q), u"stories историй аватар avatar radius скругление шрифт font папки folders статус status стикеры stickers timestamps emoji эмодзи logo логотип icon иконка значок zalgo шум"_q, &st::menuIconPalette, Appearance::Id() },
+			{
+				Text(u"Настройки стилей"_q, u"Style settings"_q),
+				Text(u"Выбор стиля интерфейса"_q, u"Choose an interface style"_q),
+				u"macos telegram windows material design 3 unigram дизайн темы фон обои яркость импорт экспорт themes wallpaper background brightness import export"_q,
+				&st::menuIconCustomize,
+				StyleSettings::Id(),
+			},
 			{ Text(u"Сообщения"_q, u"Messages"_q), Text(u"Жесты, ввод, стикеры, медиа"_q, u"Gestures, input, stickers, media"_q), u"emoji reactions реакции send запятая упоминание копирование comma mention copy toast hd video перемотка видео хвостиков bubble tails пауза pause клик click секунды seconds просмотр views пересылка forward цитата quote count символы gifs голосовые voice калькулятор calculator меню menu online сведения details quick actions быстрые действия poll опрос gemini расшифровка"_q, &st::menuIconChatBubble, Messages::Id() },
 			{ Text(u"Перевод"_q, u"Translation"_q), Text(u"Сервис, язык, чаты"_q, u"Service, language, chats"_q), u"language переводчик google встроенный"_q, &st::menuIconTranslate, Translation::Id() },
-			{ Text(u"Приватность"_q, u"Privacy"_q), Text(u"Профиль и сохранение сообщений"_q, u"Profile and message retention"_q), u"номер phone профиль profile dc дата-центр last seen посещения password capture скриншот захват music обложка печатает typing прочитано read receipt истории stories online offline ghost авторы участники authors members удалённые удаленные изменения deleted edited message retention"_q, &st::menuIconLock, Privacy::Id() },
+			{ Text(u"Приватность"_q, u"Privacy"_q), Text(u"Профиль и сохранение сообщений"_q, u"Profile and message retention"_q), u"номер phone профиль profile dc дата-центр last seen посещения password capture скриншот захват стрим streamer music обложка печатает typing прочитано read receipt истории stories online offline ghost авторы участники authors members удалённые удаленные изменения deleted edited message retention"_q, &st::menuIconLock, Privacy::Id() },
 			{ Text(u"Сеть"_q, u"Network"_q), Text(u"Прокси, загрузки"_q, u"Proxy and downloads"_q), u"tg-ws-proxy connection memory папка загрузок download folder upload ускорение speed cloudflare http/2 домены worker"_q, &st::menuIconNetwork, Network::Id() },
 			{ Text(u"Обновления"_q, u"Updates"_q), Text(u"GitHub, резервная копия"_q, u"GitHub, preferences backup"_q), u"auto версия импорт экспорт установить install restart перезапуск"_q, &st::menuIconRestore, Updates::Id() },
-			{ Text(u"Поддержать"_q, u"Support"_q), Text(u"CloudTips, разработчик, канал"_q, u"CloudTips, developer, channel"_q), u"донат пожертвования donate dev_outside windows_custom"_q, &st::menuIconLike, SupportProject::Id() },
+			{ Text(u"Поддержать"_q, u"Support"_q), Text(u"Бейдж, CloudTips, контакты"_q, u"Badge, CloudTips, contacts"_q), u"бейдж badge значок донат пожертвования donate разработчик developer канал channel dev_outside windows_custom"_q, &st::menuIconLike, SupportProject::Id() },
 		};
 		for (auto &category : categories) {
 			const auto target = category.section;
@@ -3900,6 +4577,15 @@ private:
 
 } // namespace
 
+rpl::producer<bool> MainSettingsItemShownValue(MainSettingsItem item) {
+	return MainSettingsVisibilityChanges().events_starting_with_copy(item)
+		| rpl::filter([=](MainSettingsItem changed) { return changed == item; })
+		| rpl::map([=] {
+			return !Core::App().settings().readPref<bool>(
+				MainSettingsHiddenKey(item), false);
+		});
+}
+
 Type TelegaId() {
 	return Telega::Id();
 }
@@ -3924,6 +4610,14 @@ void ShowTelegaAiChat(not_null<Window::SessionController*> controller) {
 
 QString TelegaSettingsLabel() {
 	return Text(u"Настройки Telega Desktop"_q, u"Telega Desktop Settings"_q);
+}
+
+QString StreamerModeLabel() {
+	return Text(u"Режим стримера"_q, u"Streamer mode"_q);
+}
+
+QString GhostModeLabel() {
+	return Text(u"Режим призрака"_q, u"Ghost mode"_q);
 }
 
 QString TelegaAiChatLabel() {

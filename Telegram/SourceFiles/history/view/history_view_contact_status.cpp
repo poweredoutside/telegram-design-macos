@@ -26,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "chat_helpers/message_field.h" // PaidSendButtonText
 #include "core/click_handler_types.h"
+#include "core/core_telega_preferences.h"
 #include "core/ui_integration.h"
 #include "history/history.h"
 #include "data/business/data_business_chatbots.h"
@@ -49,6 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/section_widget.h"
 #include "window/window_session_controller.h"
 #include "window/themes/window_theme_glass.h"
+#include "window/themes/window_theme_live_wallpaper.h"
 #include "mainwidget.h"
 #include "apiwrap.h"
 #include "api/api_blocked_peers.h"
@@ -69,6 +71,15 @@ namespace {
 constexpr auto kAddTooltipDelay = crl::time(1000);
 constexpr auto kBusinessBotInset = 12;
 constexpr auto kBusinessBotVerticalInset = 2;
+
+[[nodiscard]] QMargins BusinessBotMargins() {
+	const auto unigram = Core::Telega::UseWindows11Style();
+	const auto edge = style::ConvertScale(unigram ? 8 : kBusinessBotInset);
+	const auto vertical = style::ConvertScale(kBusinessBotVerticalInset);
+	return unigram
+		? QMargins(edge, 0, edge, style::ConvertScale(4))
+		: QMargins(edge, vertical, edge, vertical);
+}
 
 [[nodiscard]] bool BarCurrentlyHidden(not_null<PeerData*> peer) {
 	const auto settings = peer->barSettings();
@@ -1116,6 +1127,7 @@ private:
 	const style::UserpicButton _photoStyle;
 	const style::RoundButton _toggleStyle;
 	const style::IconButton _settingsStyle;
+	const style::FlatLabel _statusStyle;
 	object_ptr<Ui::UserpicButton> _userpic = { nullptr };
 	object_ptr<Ui::FlatLabel> _name;
 	object_ptr<Ui::FlatLabel> _status;
@@ -1137,28 +1149,38 @@ BusinessBotStatus::Bar::Bar(
 , _backgroundHost(backgroundHost)
 , _photoStyle([] {
 	auto result = st::historyBusinessBotPhoto;
-	const auto size = style::ConvertScale(30);
+	const auto size = style::ConvertScale(
+		Core::Telega::UseWindows11Style() ? 36 : 30);
 	result.size = QSize(size, size);
 	result.photoSize = size;
 	return result;
 }())
 , _toggleStyle([] {
 	auto result = st::historyBusinessBotToggle;
-	result.width = -style::ConvertScale(16);
-	result.height = style::ConvertScale(24);
+	const auto unigram = Core::Telega::UseWindows11Style();
+	result.width = -style::ConvertScale(unigram ? 26 : 16);
+	result.height = style::ConvertScale(unigram ? 28 : 24);
 	result.textTop = (result.height - result.style.font->height) / 2;
 	return result;
 }())
 , _settingsStyle([] {
 	auto result = st::historyBusinessBotSettings;
-	result.width = result.height = style::ConvertScale(40);
+	result.width = result.height = style::ConvertScale(
+		Core::Telega::UseWindows11Style() ? 48 : 40);
 	result.rippleAreaSize = style::ConvertScale(32);
 	const auto inset = (result.width - result.rippleAreaSize) / 2;
 	result.rippleAreaPosition = QPoint(inset, inset);
 	return result;
 }())
+, _statusStyle([] {
+	auto result = st::historyBusinessBotStatus;
+	if (Core::Telega::UseWindows11Style()) {
+		result.maxHeight = result.style.font->height;
+	}
+	return result;
+}())
 , _name(this, st::historyBusinessBotName)
-, _status(this, st::historyBusinessBotStatus)
+, _status(this, _statusStyle)
 , _togglePaused(this, rpl::single(QString()), _toggleStyle)
 , _settings(this, _settingsStyle) {
 	_name->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -1264,15 +1286,37 @@ void BusinessBotStatus::Bar::showMenu() {
 
 void BusinessBotStatus::Bar::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
+	const auto area = rect().marginsRemoved(BusinessBotMargins());
+	if (Core::Telega::UseWindows11Style()) {
+		Window::Theme::ObserveLiveWallpaper(this);
+		const auto content = _window->content();
+		const auto origin = mapTo(_backgroundHost.get(), QPoint())
+			- QPoint(0, content->backgroundFromY());
+		p.fillRect(e->rect(), st::topBarBg->c);
+		p.save();
+		p.translate(-origin);
+		Window::SectionWidget::PaintBackground(
+			p,
+			_window->currentChatTheme(),
+			QSize(_backgroundHost->width(), content->height()),
+			e->rect().translated(origin),
+			_window->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+		p.restore();
+		if (!area.isEmpty() && e->rect().intersects(area)) {
+			p.setRenderHint(QPainter::Antialiasing);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::topBarBg->c);
+			const auto radius = area.height() / 2.;
+			p.drawRoundedRect(area, radius, radius);
+		}
+		return;
+	}
 	const auto glass = Window::Theme::GlassStyle();
 	const auto tint = st::historyContactStatusButton.bgColor->c;
 	if (!glass.enabled) {
 		p.fillRect(e->rect(), tint);
 		return;
 	}
-	const auto edge = style::ConvertScale(kBusinessBotInset);
-	const auto vertical = style::ConvertScale(kBusinessBotVerticalInset);
-	const auto area = rect().marginsRemoved({ edge, vertical, edge, vertical });
 	if (area.isEmpty() || !e->rect().intersects(area)) {
 		return;
 	}
@@ -1303,37 +1347,45 @@ void BusinessBotStatus::Bar::paintEvent(QPaintEvent *e) {
 }
 
 int BusinessBotStatus::Bar::resizeGetHeight(int newWidth) {
-	const auto edge = style::ConvertScale(kBusinessBotInset);
-	const auto vertical = style::ConvertScale(kBusinessBotVerticalInset);
-	const auto height = _settingsStyle.height + 2 * vertical;
-	const auto photoLeft = edge + style::ConvertScale(25);
+	const auto unigram = Core::Telega::UseWindows11Style();
+	const auto margins = BusinessBotMargins();
+	const auto panelHeight = _settingsStyle.height;
+	const auto center = [&](int childHeight) {
+		return margins.top() + (panelHeight - childHeight) / 2;
+	};
+	const auto height = panelHeight + margins.top() + margins.bottom();
+	const auto photoLeft = margins.left()
+		+ style::ConvertScale(unigram ? 12 : 25);
 	const auto textLeft = photoLeft + _photoStyle.photoSize
-		+ style::ConvertScale(11);
-	const auto textInset = vertical + style::ConvertScale(4);
-	_settings->moveToRight(edge, vertical, newWidth);
+		+ style::ConvertScale(unigram ? 12 : 11);
+	_settings->moveToRight(margins.right(), margins.top(), newWidth);
 	if (_userpic) {
 		_userpic->moveToLeft(
 			photoLeft,
-			(height - _photoStyle.photoSize) / 2,
+			center(_photoStyle.photoSize),
 			newWidth);
 	}
-	auto right = edge + _settings->width();
+	auto right = margins.right() + _settings->width();
 	if (!_togglePaused->isHidden()) {
 		_togglePaused->moveToRight(
 			right,
-			(height - _togglePaused->height()) / 2,
+			center(_togglePaused->height()),
 			newWidth);
 		right += _togglePaused->width();
 	}
 	const auto available = std::max(
 		1, newWidth - textLeft - right - style::ConvertScale(10));
 	_name->resizeToWidth(available);
-	_name->moveToLeft(textLeft, textInset, newWidth);
 	_status->resizeToWidth(available);
-	_status->moveToLeft(
-		textLeft,
-		height - _status->height() - textInset,
-		newWidth);
+	const auto textInset = margins.top() + style::ConvertScale(4);
+	const auto textTop = unigram
+		? center(_name->height() + _status->height())
+		: textInset;
+	const auto statusTop = unigram
+		? textTop + _name->height()
+		: height - _status->height() - textInset;
+	_name->moveToLeft(textLeft, textTop, newWidth);
+	_status->moveToLeft(textLeft, statusTop, newWidth);
 	return height;
 }
 

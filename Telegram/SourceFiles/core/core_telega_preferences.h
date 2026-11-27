@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QtCore/QStringList>
+#include <string>
+#include <string_view>
 
 class QTime;
 class HistoryItem;
@@ -27,6 +29,7 @@ enum class DisplayOption {
 	CountCharacters,
 	SelectServiceMessages,
 	HideAllChatsFolder,
+	HideArchiveFolders,
 	PauseVoiceInBackground,
 	PauseRoundVideoInBackground,
 	ProfileMusicCover,
@@ -52,6 +55,8 @@ enum class DisplayOption {
 	SetOfflineAfterSending,
 	HideSponsoredMessages,
 	WideChannelPosts,
+	HideMacNavigationContacts,
+	HideMacNavigationCalls,
 };
 
 enum class ChannelBottomAction { Mute, Discussion, Hidden };
@@ -90,6 +95,8 @@ void SetTransferDownloadMode(DownloadMode mode);
 [[nodiscard]] InterfaceStyle PreferredInterfaceStyle();
 void SetPreferredInterfaceStyle(InterfaceStyle style);
 void InitInterfaceStyle();
+[[nodiscard]] InterfaceStyle ActiveInterfaceStyle();
+[[nodiscard]] std::string StyleThemePreference(std::string_view key);
 [[nodiscard]] bool UseMacOSStyle();
 [[nodiscard]] bool UseMaterial3Style();
 [[nodiscard]] bool UseWindows11Style();

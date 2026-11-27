@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/vertical_layout.h"
 #include "ui/vertical_list.h"
 #include "ui/rect_part.h"
+#include "ui/style/style_core_scale.h"
 #include "ui/ui_utility.h"
 
 #include "styles/style_info.h"
@@ -21,14 +22,19 @@ namespace Info::Profile {
 namespace {
 
 [[nodiscard]] not_null<Ui::SlideWrap<>*> CreatePlainSeparator(
-		not_null<Ui::VerticalLayout*> layout) {
+		not_null<Ui::VerticalLayout*> layout,
+		bool cards) {
 	auto inner = object_ptr<Ui::VerticalLayout>(layout);
-	Ui::AddSkip(inner.data(), st::infoProfileSkip);
-	inner->add(object_ptr<Ui::BoxContentDivider>(
-		inner.data(),
-		st::boxDividerHeight,
-		st::defaultDividerBar));
-	Ui::AddSkip(inner.data(), st::infoProfileSkip);
+	if (cards) {
+		Ui::AddSkip(inner.data(), style::ConvertScale(14));
+	} else {
+		Ui::AddSkip(inner.data(), st::infoProfileSkip);
+		inner->add(object_ptr<Ui::BoxContentDivider>(
+			inner.data(),
+			st::boxDividerHeight,
+			st::defaultDividerBar));
+		Ui::AddSkip(inner.data(), st::infoProfileSkip);
+	}
 	return layout->add(object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 		layout,
 		std::move(inner)));
@@ -64,8 +70,9 @@ namespace {
 
 } // namespace
 
-SectionStack::SectionStack(not_null<Ui::VerticalLayout*> layout)
-: _layout(layout) {
+SectionStack::SectionStack(not_null<Ui::VerticalLayout*> layout, bool cards)
+: _layout(layout)
+, _cards(cards) {
 }
 
 void SectionStack::add(Section section) {
@@ -180,7 +187,7 @@ void SectionStack::finalize() {
 
 	_finalized = true;
 
-	Ui::AddSkip(_layout, st::infoProfileSkip);
+	Ui::AddSkip(_layout, _cards ? style::ConvertScale(24) : st::infoProfileSkip);
 
 	const auto count = int(_rows.size());
 	auto kinds = std::vector<RowType>();
@@ -202,7 +209,7 @@ void SectionStack::finalize() {
 			intrinsic.push_back(shownOrTrue(std::move(row.shown)));
 			break;
 		case RowType::PlainSeparator:
-			separators[i] = CreatePlainSeparator(_layout);
+			separators[i] = CreatePlainSeparator(_layout, _cards);
 			intrinsic.push_back(rpl::single(true));
 			break;
 		case RowType::TextSeparator:

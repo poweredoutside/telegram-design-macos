@@ -12,6 +12,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QStringList>
 
+namespace style {
+struct PopupMenu;
+} // namespace style
+
 namespace Data {
 class Session;
 struct ReactionId;
@@ -57,6 +61,8 @@ struct ContextMenuRequest {
 	PointState pointState = PointState();
 };
 
+[[nodiscard]] const style::PopupMenu &MessageContextMenuStyle();
+
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 	not_null<ListWidget*> list,
 	const ContextMenuRequest &request);
@@ -98,9 +104,10 @@ void FillPollOptionPage(
 	not_null<Window::SessionController*> controller,
 	Fn<void()> replyToOption = nullptr);
 
-void AttachPollOptionTabs(
+[[nodiscard]] bool ShowMessageContextMenu(
 	not_null<Ui::PopupMenu*> menu,
-	QPoint desiredPosition);
+	QPoint desiredPosition,
+	bool prepared);
 
 [[nodiscard]] std::optional<QString> CurrentVoiceTimecode(FullMsgId itemId);
 [[nodiscard]] rpl::producer<QString> VoiceTimecodeUpdates(FullMsgId itemId);

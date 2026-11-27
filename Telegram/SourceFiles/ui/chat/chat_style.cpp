@@ -26,6 +26,47 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Ui {
 namespace {
 
+[[nodiscard]] QColor UnigramForeground(
+		const QColor &background,
+		const QColor &preferred) {
+	constexpr auto kContrast = 4.25;
+	auto opaque = preferred;
+	opaque.setAlpha(255);
+	if (CountContrast(background, opaque) >= kContrast) {
+		return opaque;
+	}
+	const auto white = QColor(Qt::white);
+	return (CountContrast(background, white) >= kContrast)
+		? white
+		: QColor(Qt::black);
+}
+
+void SetUnigramColor(const style::color &target, const QColor &value) {
+	target.set(uchar(value.red()), uchar(value.green()), uchar(value.blue()), 255);
+}
+
+void ApplyUnigramMediaColors(
+		const MessageStyle &message,
+		const style::color &fileIcon,
+		bool dark) {
+	const auto bubble = message.msgBg->c;
+	const auto labels = UnigramForeground(bubble, message.mediaFg->c);
+	const auto waveform = UnigramForeground(bubble, message.historyTextFg->c);
+	const auto quiet = BlendColors(bubble, waveform, .76);
+	const auto circle = dark
+		? message.msgFileBg->c.darker(165)
+		: message.msgFileBg->c;
+	const auto control = UnigramForeground(circle, fileIcon->c);
+	SetUnigramColor(message.msgFileBg, circle);
+	SetUnigramColor(fileIcon, control);
+	SetUnigramColor(message.historyFileRadialFg, control);
+	SetUnigramColor(message.mediaFg, labels);
+	SetUnigramColor(message.msgDateFg, labels);
+	SetUnigramColor(message.msgWaveformActive, waveform);
+	SetUnigramColor(message.msgWaveformInactive,
+		(CountContrast(bubble, quiet) >= 3.) ? quiet : waveform);
+}
+
 void EnsureCorners(
 		CornersPixmaps &corners,
 		int radius,
@@ -703,6 +744,22 @@ void ChatStyle::clearColorIndexCaches() {
 
 void ChatStyle::assignPalette(not_null<const style::palette*> palette) {
 	*static_cast<style::palette*>(this) = *palette;
+	if (Core::Telega::UseWindows11Style()) {
+		const auto dark = IsDarkPalette(*this);
+		ApplyUnigramMediaColors(messageIn(), historyFileInIconFg(), dark);
+		ApplyUnigramMediaColors(
+			messageInSelected(),
+			historyFileInIconFgSelected(),
+			dark);
+		ApplyUnigramMediaColors(messageOut(), historyFileOutIconFg(), dark);
+		ApplyUnigramMediaColors(
+			messageOutSelected(),
+			historyFileOutIconFgSelected(),
+			dark);
+		SetUnigramColor(historyOutIconFg(), msgOutDateFg()->c);
+		SetUnigramColor(historyOutIconFgSelected(), msgOutDateFgSelected()->c);
+		SetUnigramColor(historySendingOutIconFg(), msgOutDateFg()->c);
+	}
 
 	// Only our own icons. style::internal::ResetIcons() would instead reset
 	// every icon in the process - including the app's, which this palette has

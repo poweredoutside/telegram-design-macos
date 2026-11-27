@@ -86,6 +86,12 @@ foldersPooActive: icon {{ "folders/folders_poo", sideBarIconFgActive }};
 
 filtersEdit: icon {{ "folders/folders_edit", sideBarIconFg }};
 
+foldersMaterialAll: icon {{ "folders/material/all", sideBarIconFg }};
+foldersMaterialAllActive: icon {{ "folders/material/all_active", sideBarIconFgActive }};
+foldersMaterialFolder: icon {{ "folders/material/folder", sideBarIconFg }};
+foldersMaterialFolderActive: icon {{ "folders/material/folder_active", sideBarIconFgActive }};
+foldersMaterialEdit: icon {{ "folders/material/edit", sideBarIconFg }};
+
 foldersTabsCat: icon {{ "folders/svg/folders_cat-18x18", windowSubTextFg }};
 foldersTabsBook: icon {{ "folders/svg/folders_book-18x18", windowSubTextFg }};
 foldersTabsMoney: icon {{ "folders/svg/folders_money-18x18", windowSubTextFg }};

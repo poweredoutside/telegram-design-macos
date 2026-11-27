@@ -19,6 +19,7 @@ struct TopBarActionButtonStyle {
 	QColor bgColor;
 	std::optional<QColor> fgColor;
 	std::optional<QColor> shadowColor;
+	int radius = 0;
 };
 
 class TopBarActionButton final : public Ui::RippleButton {
@@ -70,6 +71,7 @@ private:
 	QColor _bgColor;
 	std::optional<QColor> _fgColor;
 	std::optional<QColor> _rippleColor;
+	int _radius = 0;
 	Ui::Animations::Simple _overAnimation;
 
 };

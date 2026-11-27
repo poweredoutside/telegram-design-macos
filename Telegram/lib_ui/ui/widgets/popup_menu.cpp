@@ -115,7 +115,11 @@ struct PopupMenu::SubmenuAim {
 PopupMenu::PopupMenu(QWidget *parent, const style::PopupMenu &st)
 : RpWidget(parent)
 , _st(st)
-, _roundRect(PopupRadius(_st), _st.menu.itemBg)
+, _roundRect(
+	PopupRadius(_st),
+	_st.menu.itemBg->c.alpha()
+		? _st.menu.itemBg
+		: st::defaultPopupMenu.menu.itemBg)
 , _boxShadow(_st.shadow)
 , _scroll(this, st::defaultMultiSelect.scroll)
 , _menu(_scroll->setOwnedWidget(
@@ -129,7 +133,11 @@ PopupMenu::PopupMenu(QWidget *parent, const style::PopupMenu &st)
 PopupMenu::PopupMenu(QWidget *parent, QMenu *menu, const style::PopupMenu &st)
 : RpWidget(parent)
 , _st(st)
-, _roundRect(PopupRadius(_st), _st.menu.itemBg)
+, _roundRect(
+	PopupRadius(_st),
+	_st.menu.itemBg->c.alpha()
+		? _st.menu.itemBg
+		: st::defaultPopupMenu.menu.itemBg)
 , _boxShadow(_st.shadow)
 , _scroll(this, st::defaultMultiSelect.scroll)
 , _menu(_scroll->setOwnedWidget(

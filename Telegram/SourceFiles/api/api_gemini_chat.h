@@ -15,6 +15,8 @@ struct AiChatMessage {
 
 [[nodiscard]] int Preference(std::string_view name, int fallback);
 void SetPreference(std::string_view name, int value);
+[[nodiscard]] bool VoiceTranscriptionEnabled();
+[[nodiscard]] rpl::producer<> VoiceTranscriptionChanges();
 void SetKey(QByteArray key, Provider provider);
 [[nodiscard]] bool HasKey();
 [[nodiscard]] bool HasKey(Provider provider);

@@ -15,13 +15,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "main/main_session.h"
+#include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "settings/sections/settings_premium.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/chat/chat_style.h"
 #include "ui/effects/radial_animation.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
+#include "api/api_gemini_chat.h"
 #include "api/api_transcribes.h"
 #include "apiwrap.h"
 #include "styles/style_chat.h"
@@ -50,7 +53,101 @@ void ClipPainterForLock(QPainter &p, bool roundview, const QRect &r) {
 	p.setClipPath(clipPath);
 }
 
+[[nodiscard]] bool TranscribeLocked(
+		not_null<HistoryItem*> item,
+		bool summarize) {
+	const auto session = &item->history()->session();
+	if (session->premium()) {
+		return false;
+	}
+	const auto transcribes = &session->api().transcribes();
+	if (summarize) {
+		return transcribes->summary(item).premiumRequired;
+	}
+	if (Api::Transcribes::geminiVoiceAvailable(item)
+		|| transcribes->freeFor(item)
+		|| transcribes->trialsCount()) {
+		return false;
+	}
+	return transcribes->trialsRefreshAt() > base::unixtime::now();
+}
+
 } // namespace
+
+void ShowGeminiVoiceTranscription(
+		not_null<HistoryItem*> item,
+		not_null<Window::SessionController*> controller) {
+	auto &transcribes = controller->session().api().transcribes();
+	if (!Api::Transcribes::geminiVoiceAvailable(item)
+		|| transcribes.toggleGeminiVoice(item)) {
+		return;
+	}
+	const auto text = [russian = Lang::GetInstance().id().startsWith(u"ru"_q)](
+			QString ru, QString en) {
+		return russian ? std::move(ru) : std::move(en);
+	};
+	const auto weak = base::make_weak(controller.get());
+	using Error = Api::Transcribes::GeminiVoiceError;
+	const auto showError = [=](Error error) {
+		const auto strong = weak.get();
+		if (!strong) {
+			return;
+		}
+		switch (error) {
+		case Error::Key:
+			strong->showToast(text(
+				u"Добавьте ключ Gemini в разделе «Оформление → Telegram Premium»."_q,
+				u"Add a Gemini key under Appearance → Telegram Premium."_q));
+			break;
+		case Error::Download:
+			strong->showToast(text(
+				u"Не удалось загрузить голосовое сообщение."_q,
+				u"Could not download the voice message."_q));
+			break;
+		case Error::Format:
+			strong->showToast(text(
+				u"Этот формат записи не поддерживается."_q,
+				u"This recording format is not supported."_q));
+			break;
+		case Error::Size:
+			strong->showToast(text(
+				u"Для расшифровки размер записи должен быть не более 8 МиБ."_q,
+				u"Transcription supports recordings up to 8 MiB."_q));
+			break;
+		case Error::Transcription:
+			strong->showToast(text(
+				u"Gemini не смог расшифровать запись."_q,
+				u"Gemini could not transcribe the recording."_q));
+			break;
+		}
+	};
+	if (!Api::GeminiChat::HasKey()) {
+		showError(Error::Key);
+		return;
+	}
+	const auto messageId = item->fullId();
+	const auto documentId = item->media()->document()->id;
+	controller->show(Ui::MakeConfirmBox({
+		.text = rpl::single(text(
+			u"Отправить это голосовое сообщение в Google Gemini для расшифровки?"_q,
+			u"Send this voice message to Google Gemini for transcription?"_q)),
+		.confirmed = [=](Fn<void()> &&close) {
+			close();
+			if (const auto strong = weak.get()) {
+				auto &session = strong->session();
+				if (const auto item = session.data().message(messageId)) {
+					if (Api::Transcribes::geminiVoiceAvailable(item)
+						&& item->media()->document()->id == documentId) {
+						session.api().transcribes().transcribeGeminiVoice(
+							item,
+							showError);
+					}
+				}
+			}
+		},
+		.confirmText = rpl::single(text(u"Расшифровать"_q, u"Transcribe"_q)),
+	}));
+}
 
 TranscribeButton::TranscribeButton(
 	not_null<HistoryItem*> item,
@@ -135,7 +232,7 @@ void TranscribeButton::paint(
 
 		p.drawEllipse(r);
 		if (_summarize) {
-			if (hasLock()) {
+			if (TranscribeLocked(_item, _summarize)) {
 				context.st->historyFastTranscribeLock().paint(
 					p,
 					r.topLeft() + st::historyFastSummaryLockPos,
@@ -223,7 +320,7 @@ void TranscribeButton::paint(
 					p.restore();
 				}
 			}
-		} else if (!_loading && hasLock()) {
+		} else if (!_loading && TranscribeLocked(_item, _summarize)) {
 			ClipPainterForLock(p, true, r);
 			context.st->historyFastTranscribeIcon().paintInCenter(p, r);
 			p.setClipping(false);
@@ -310,7 +407,7 @@ void TranscribeButton::paint(
 			p.translate(-r.center());
 		}
 
-		if (!_loading && hasLock()) {
+		if (!_loading && TranscribeLocked(_item, _summarize)) {
 			ClipPainterForLock(p, false, r);
 			stm->historyTranscribeIcon.paintInCenter(p, r);
 			p.setClipping(false);
@@ -327,25 +424,6 @@ void TranscribeButton::paint(
 		}
 	}
 	p.setOpacity(1.);
-}
-
-bool TranscribeButton::hasLock() const {
-	const auto session = &_item->history()->session();
-	if (session->premium()) {
-		return false;
-	}
-	const auto transcribes = &session->api().transcribes();
-	if (_summarize) {
-		return transcribes->summary(_item).premiumRequired;
-	}
-	if (transcribes->freeFor(_item) || transcribes->trialsCount()) {
-		return false;
-	}
-	const auto until = transcribes->trialsRefreshAt();
-	if (!until || base::unixtime::now() >= until) {
-		return false;
-	}
-	return true;
 }
 
 void TranscribeButton::setOpened(bool opened, Fn<void()> update) {
@@ -378,14 +456,20 @@ ClickHandlerPtr TranscribeButton::link() {
 		if (!item) {
 			return;
 		}
+		const auto my = context.other.value<ClickHandlerContext>();
+		if (!summarize && Api::Transcribes::geminiVoiceAvailable(item)) {
+			if (const auto controller = my.sessionWindow.get()) {
+				ShowGeminiVoiceTranscription(item, controller);
+			}
+			return;
+		}
 		if (session->premium()) {
 			auto &transcribes = session->api().transcribes();
 			return summarize
 				? transcribes.toggleSummary(item)
 				: transcribes.toggle(item);
 		}
-		const auto my = context.other.value<ClickHandlerContext>();
-		if (hasLock()) {
+		if (TranscribeLocked(item, summarize)) {
 			if (const auto controller = my.sessionWindow.get()) {
 				if (summarize) {
 					Settings::ShowPremium(controller, u"summary"_q);
@@ -397,8 +481,8 @@ ClickHandlerPtr TranscribeButton::link() {
 			}
 		} else {
 			const auto max = session->api().transcribes().trialsMaxLengthMs();
-			const auto doc = _item->media()
-				? _item->media()->document()
+			const auto doc = item->media()
+				? item->media()->document()
 				: nullptr;
 			if (doc && (doc->isVoiceMessage() || doc->isVideoMessage())) {
 				if (doc->duration() > max) {

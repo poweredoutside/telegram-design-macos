@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_message_reactions.h"
 #include "history/view/reactions/history_view_reactions_strip.h"
 #include "ui/effects/animation_value.h"
+#include "ui/effects/liquid_glass.h"
 #include "ui/effects/round_area_with_shadow.h"
 #include "ui/rp_widget.h"
 
@@ -104,6 +105,7 @@ public:
 	void setBubbleUp(bool bubbleUp);
 	void setExpandDown(bool expandDown);
 	void initGeometry(int innerTop);
+	void setupCollapsedGlass(not_null<QWidget*> source);
 	void beforeDestroy();
 
 	void setOpaqueHeightExpand(int expand, Fn<void(int)> apply);
@@ -158,6 +160,8 @@ private:
 
 	void paintAppearing(QPainter &p);
 	void paintCollapsed(QPainter &p);
+	void paintCollapsedGlass(QPainter &p, QRect area);
+	[[nodiscard]] QRect collapsedSurface() const;
 	void paintExpanding(Painter &p, float64 progress);
 	void paintExpandingBg(QPainter &p, const ExpandingRects &rects);
 	void paintFadingExpandIcon(QPainter &p, float64 progress);
@@ -211,6 +215,9 @@ private:
 	bool _showEmptySearch = false;
 
 	QImage _paintBuffer;
+	Ui::LiquidGlassStyle _collapsedGlass{ .enabled = false };
+	QImage _glassBackdrop;
+	Ui::LiquidGlassBackdropCache _glassCache;
 	Ui::Animations::Simple _expanding;
 	float64 _appearProgress = 0.;
 	float64 _appearOpacity = 0.;

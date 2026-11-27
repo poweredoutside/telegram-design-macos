@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace style {
 struct ComposeControls;
+struct HistoryFileLayout;
 } // namespace style
 
 namespace Ui {
@@ -26,7 +27,8 @@ public:
 		QWidget *parent,
 		const style::ComposeControls &st,
 		AttachControls::Type type,
-		const Text::MarkedContext &captionContext);
+		const Text::MarkedContext &captionContext,
+		bool macFileRow = false);
 	~AbstractSingleFilePreview();
 
 	[[nodiscard]] rpl::producer<> deleteRequests() const override;
@@ -47,6 +49,7 @@ protected:
 	struct Data {
 		QPixmap fileThumb;
 		QString name;
+		QString elidedName;
 		QString statusText;
 		Text::String caption;
 		int nameWidth = 0;
@@ -74,6 +77,9 @@ private:
 
 	void updateTextWidthFor(Data &data);
 	void updateDataGeometry();
+	[[nodiscard]] QMargins rowMargins() const;
+	[[nodiscard]] const style::HistoryFileLayout &fileLayout(
+		const Data &data) const;
 	[[nodiscard]] QRect captionRect() const;
 	[[nodiscard]] QRect nameRect() const;
 	[[nodiscard]] bool isOverName(QPoint point) const;
@@ -83,6 +89,7 @@ private:
 
 	const style::ComposeControls &_st;
 	const AttachControls::Type _type;
+	const bool _macFileRow;
 	Text::MarkedContext _captionContext;
 
 	Data _data;

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "calls/group/calls_group_common.h"
 #include "chat_helpers/spellchecker_locale_ids.h"
+#include "core/core_telega_preferences.h"
 #include "history/view/history_view_quick_action.h"
 #include "lang/lang_keys.h"
 #include "platform/platform_notifications_manager.h"
@@ -28,6 +29,7 @@ constexpr auto kInitialVideoQuality = 480; // Start with SD.
 constexpr auto kMinIvZoom = 25;
 constexpr auto kMaxIvZoom = 400;
 constexpr auto kLanguageCodesFormat = qint32(1);
+constexpr auto kMacChatFiltersHorizontal = "telega.macos.folders-horizontal";
 
 [[nodiscard]] QString SerializeLanguage(QLocale::Language language) {
 	return (language > QLocale::C)
@@ -1486,6 +1488,7 @@ void Settings::addFromSerialized(
 	_recordVideoMessages = (recordVideoMessages == 1);
 	_videoQuality = DeserializeVideoQuality(videoQuality);
 	_chatFiltersHorizontal = (chatFiltersHorizontal == 1);
+	_macChatFiltersHorizontal = readPref<bool>(kMacChatFiltersHorizontal, true);
 	_quickDialogAction = Dialogs::Ui::QuickDialogAction(quickDialogAction);
 	_notificationsVolume = notificationsVolume;
 }
@@ -1905,6 +1908,7 @@ void Settings::resetOnLastLogout() {
 	_recordVideoMessages = false;
 	_videoQuality = {};
 	_chatFiltersHorizontal = false;
+	_macChatFiltersHorizontal = true;
 	_chatFiltersTabsMode = Ui::ChatsFiltersTabsMode::Default;
 	_pullToNextChannel = true;
 	_quickDialogAction = Dialogs::Ui::QuickDialogAction::Disabled;
@@ -2115,15 +2119,24 @@ void Settings::setVideoQuality(Media::VideoQuality value) {
 }
 
 bool Settings::chatFiltersHorizontal() const {
-	return _chatFiltersHorizontal.current();
+	return Telega::UseMacOSStyle()
+		? _macChatFiltersHorizontal.current()
+		: _chatFiltersHorizontal.current();
 }
 
 rpl::producer<bool> Settings::chatFiltersHorizontalChanges() const {
-	return _chatFiltersHorizontal.changes();
+	return Telega::UseMacOSStyle()
+		? _macChatFiltersHorizontal.changes()
+		: _chatFiltersHorizontal.changes();
 }
 
 void Settings::setChatFiltersHorizontal(bool value) {
-	_chatFiltersHorizontal = value;
+	if (Telega::UseMacOSStyle()) {
+		writePref<bool>(kMacChatFiltersHorizontal, value);
+		_macChatFiltersHorizontal = value;
+	} else {
+		_chatFiltersHorizontal = value;
+	}
 }
 
 Ui::ChatsFiltersTabsMode Settings::chatFiltersTabsMode() const {

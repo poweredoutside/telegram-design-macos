@@ -990,9 +990,18 @@ void ListWidget::restoreState(not_null<Memento*> memento) {
 	});
 }
 
+void ListWidget::setProfileStoriesGrid() {
+	_profileStoriesGrid = true;
+}
+
 int ListWidget::resizeGetHeight(int newWidth) {
 	if (newWidth > 0) {
-		const auto gridSize = _zoom->minGridSize();
+		const auto gridSize = _profileStoriesGrid
+			? std::max(
+				style::ConvertScale(132),
+				(newWidth - 2 * st::infoMediaLeft + st::infoMediaSkip) / 5
+					- st::infoMediaSkip)
+			: _zoom->minGridSize();
 		for (auto &section : _sections) {
 			section.setCanReorder(canReorder());
 			section.setMinGridSize(gridSize);

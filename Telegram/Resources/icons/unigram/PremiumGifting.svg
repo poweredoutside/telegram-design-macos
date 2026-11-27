@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/PremiumGifting.cs -->
+<defs>
+<linearGradient id="LinearGradientBrush" gradientUnits="userSpaceOnUse" x1="0" y1="-8" x2="0" y2="8"><stop offset="0" stop-color="#73d865" stop-opacity="1"/><stop offset="1" stop-color="#439e36" stop-opacity="1"/></linearGradient>
+</defs>
+<g transform="translate(100 100)">
+<g transform="translate(0 0) rotate(0) scale(10 10) translate(0 0)">
+<path d="M -3.5 -5.5 C -3.5 -6.328 -2.828 -7 -2 -7 C -1.22 -7 -0.58 -6.405 -0.507 -5.644 L -0.5 -5.5 L -0.5 -4 L -2 -4 L -2.144 -4.007 C -2.905 -4.08 -3.5 -4.72 -3.5 -5.5 Z M 0.5 -5.5 C 0.5 -6.328 1.172 -7 2 -7 C 2.828 -7 3.5 -6.328 3.5 -5.5 C 3.5 -4.672 2.828 -4 2 -4 L 0.5 -4 L 0.5 -5.5 Z M 4.5 -5.5 C 4.5 -6.881 3.381 -8 2 -8 C 1.182 -8 0.455 -7.607 0.001 -6.999 C -0.455 -7.607 -1.182 -8 -2 -8 C -3.381 -8 -4.5 -6.881 -4.5 -5.5 C -4.5 -4.937 -4.313 -4.417 -3.999 -3.999 L -6 -4 C -6.552 -4 -7 -3.552 -7 -3 L -7 -1 C -7 -0.448 -6.552 0 -6 0 L -0.5 0 L -0.5 -4 L 0.5 -4 L 0.5 0 L 6 0 C 6.552 0 7 -0.448 7 -1 L 7 -3 C 7 -3.552 6.552 -4 6 -4 L 3.999 -3.999 C 4.313 -4.417 4.5 -4.937 4.5 -5.5 Z M 6 5.5 L 6 1 L 0.5 1 L 0.5 8 L 3.5 8 L 3.664 7.995 C 4.968 7.91 6 6.825 6 5.5 Z M -0.5 8 L -0.5 1 L -6 1 L -6 5.5 L -5.995 5.664 C -5.91 6.968 -4.825 8 -3.5 8 L -0.5 8 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush)" fill-opacity="1"/>
+</g>
+</g>
+</svg>

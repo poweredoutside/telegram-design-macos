@@ -265,6 +265,8 @@ PRIVATE
     api/api_stickers_creator.h
     api/api_suggest_post.cpp
     api/api_suggest_post.h
+    api/api_telega_badges.cpp
+    api/api_telega_badges.h
     api/api_text_entities.cpp
     api/api_text_entities.h
     api/api_rich_tasks.cpp
@@ -631,6 +633,7 @@ PRIVATE
     core/core_screenshot_protection.cpp
     core/core_screenshot_protection.h
     core/core_telega_material.h
+    core/core_telega_menu.h
     core/core_telega_preferences.cpp
     core/core_telega_preferences.h
     core/core_settings.cpp
@@ -1504,6 +1507,8 @@ PRIVATE
     info/stories/info_stories_inner_widget.cpp
     info/stories/info_stories_inner_widget.h
     info/stories/info_stories_provider.cpp
+    info/stories/info_stories_publish.cpp
+    info/stories/info_stories_publish.h
     info/stories/info_stories_provider.h
     info/stories/info_stories_widget.cpp
     info/stories/info_stories_widget.h

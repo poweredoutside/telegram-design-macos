@@ -319,6 +319,7 @@ void SectionWidget::showAnimated(
 		myContentCache);
 	_showAnimation->setTopBarShadow(params.withTopBarShadow);
 	_showAnimation->setWithFade(params.withFade);
+	_showAnimation->setProfileTransition(params.profileTransition);
 	_showAnimation->setTopSkip(params.topSkip);
 	_showAnimation->setTopBarMask(params.topMask);
 	_showAnimation->start();

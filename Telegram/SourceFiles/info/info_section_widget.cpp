@@ -99,7 +99,9 @@ void SectionWidget::showFinishedHook() {
 
 void SectionWidget::showAnimatedHook(
 		const Window::SectionSlideParams &params) {
-	_topBarSurrogate = _content->createTopBarSurrogate(this);
+	if (!params.profileTransition) {
+		_topBarSurrogate = _content->createTopBarSurrogate(this);
+	}
 }
 
 void SectionWidget::paintEvent(QPaintEvent *e) {
@@ -119,6 +121,15 @@ bool SectionWidget::isSettingsOrOwnProfile() const {
 	const auto key = _content->key();
 	const auto storiesPeer = key.storiesPeer();
 	return key.settingsSelf() || (storiesPeer && storiesPeer->isSelf());
+}
+
+bool SectionWidget::isProfilePage() const {
+	const auto type = _content->controller()->section().type();
+	const auto key = _content->key();
+	const auto stories = key.storiesPeer();
+	return (type == Section::Type::Profile)
+		|| key.savedMessages()
+		|| (stories && stories->isSelf());
 }
 
 bool SectionWidget::showBackInternal() {

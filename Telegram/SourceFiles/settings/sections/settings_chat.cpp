@@ -1385,7 +1385,6 @@ void BuildAppearanceScale(SectionBuilder &builder) {
 void BuildChatSectionContent(SectionBuilder &builder) {
 	BuildAppearanceScale(builder);
 	BuildThemeOptionsSection(builder);
-	BuildGlassSection(builder);
 	BuildThemeSettingsSection(builder);
 	BuildCloudThemesSection(builder);
 	BuildChatBackgroundSection(builder);
@@ -1915,7 +1914,9 @@ void SetupChatBackground(
 		not_null<Window::SessionController*> controller,
 		not_null<Ui::VerticalLayout*> container,
 		HighlightRegistry *highlights) {
-	Ui::AddDivider(container);
+	if (!Core::Telega::UseWindows11Style()) {
+		Ui::AddDivider(container);
+	}
 	Ui::AddSkip(container);
 
 	const auto title = Ui::AddSubsectionTitle(
@@ -2534,7 +2535,9 @@ void SetupCloudThemes(
 	)->setDuration(0);
 	const auto inner = wrap->entity();
 
-	Ui::AddDivider(inner);
+	if (!Core::Telega::UseWindows11Style()) {
+		Ui::AddDivider(inner);
+	}
 	Ui::AddSkip(inner, st::settingsPrivacySkip);
 
 	const auto title = AddSubsectionTitle(
@@ -2640,7 +2643,9 @@ void SetupThemeSettings(
 		container,
 		controller->uiShow(),
 		controller->session().user(),
-		st::settingsColorButton);
+		Core::Telega::UseWindows11Style()
+			? st::settingsButton
+			: st::settingsColorButton);
 
 	const auto settings = &Core::App().settings();
 	if (settings->systemDarkMode().has_value()) {

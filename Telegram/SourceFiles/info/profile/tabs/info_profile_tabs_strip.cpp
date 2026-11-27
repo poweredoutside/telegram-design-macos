@@ -71,6 +71,13 @@ void TabsStrip::setTextContext(Ui::Text::MarkedContext context) {
 	_context.repaint = [=] { invalidate(); };
 }
 
+void TabsStrip::setCentered(bool centered) {
+	if (_centered != centered) {
+		_centered = centered;
+		invalidate();
+	}
+}
+
 void TabsStrip::invalidate() {
 	_contentValid = false;
 	update();
@@ -167,7 +174,13 @@ rpl::producer<QString> TabsStrip::contextMenuRequests() const {
 }
 
 QRect TabsStrip::islandRect() const {
-	return rect() - _st.margin;
+	const auto island = rect() - _st.margin;
+	if (!_centered) {
+		return island;
+	}
+	const auto contentWidth = std::min(island.width(), _fullWidth + 2 * _st.skip);
+	const auto left = island.x() + (island.width() - contentWidth) / 2;
+	return QRect(left, island.y(), contentWidth, island.height());
 }
 
 int TabsStrip::islandInteriorWidth() const {

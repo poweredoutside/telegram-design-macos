@@ -35,6 +35,10 @@ namespace Info::Media {
 class ListWidget;
 } // namespace Info::Media
 
+namespace Info::Profile {
+class MediaTabContent;
+} // namespace Info::Profile
+
 namespace Window {
 class SessionNavigation;
 } // namespace Window
@@ -119,6 +123,7 @@ private:
 	void setupAlbums();
 	void createButtons();
 	void createProfileTop();
+	void selectProfileTab(const QString &id);
 	void createAboutArchive();
 
 	void startTop();
@@ -156,6 +161,10 @@ private:
 	object_ptr<Ui::VerticalLayout> _top = { nullptr };
 	object_ptr<Media::ListWidget> _list = { nullptr };
 	object_ptr<Ui::RpWidget> _empty = { nullptr };
+	std::unique_ptr<Profile::MediaTabContent> _profileGifts;
+	std::unique_ptr<Profile::MediaTabContent> _profileArchive;
+	Profile::MediaTabContent *_profileMedia = nullptr;
+	rpl::variable<bool> _profilePosts = true;
 	int _lastNonLoadingHeight = 0;
 	bool _emptyLoading = false;
 

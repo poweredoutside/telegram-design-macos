@@ -5,6 +5,7 @@
 #include <QtGui/QColor>
 
 class QPainter;
+class QWidget;
 
 namespace Ui {
 
@@ -35,6 +36,11 @@ private:
 	int _refraction = 0;
 
 };
+
+[[nodiscard]] QImage CaptureLiquidGlassBackdrop(
+	QWidget &source,
+	QRect globalRect,
+	QColor fallback);
 
 void PaintLiquidGlass(
 	QPainter &p,

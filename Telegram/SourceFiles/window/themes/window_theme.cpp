@@ -1460,7 +1460,8 @@ void Uninitialize() {
 
 static int &BackgroundBrightnessValue() {
 	static auto result = std::clamp(
-		Core::App().settings().readPref<int>("telega.wallpaper.brightness", 100),
+		Core::App().settings().readPref<int>(Core::Telega::StyleThemePreference(
+			"telega.wallpaper.brightness"), 100),
 		25,
 		150);
 	return result;
@@ -1491,7 +1492,8 @@ void SetChatBackgroundBrightness(int percent) {
 		return;
 	}
 	BackgroundBrightnessValue() = percent;
-	Core::App().settings().writePref<int>("telega.wallpaper.brightness", percent);
+	Core::App().settings().writePref<int>(Core::Telega::StyleThemePreference(
+		"telega.wallpaper.brightness"), percent);
 	Core::App().saveSettingsDelayed();
 }
 
@@ -1726,7 +1728,9 @@ rpl::producer<bool> IsThemeDarkValue() {
 }
 
 QString EditingPalettePath() {
-	return cWorkingDir() + "tdata/editing-theme.tdesktop-palette";
+	return cWorkingDir() + u"tdata/"_q
+		+ QString::fromStdString(Core::Telega::StyleThemePreference("editing-theme"))
+		+ u".tdesktop-palette"_q;
 }
 
 bool ReadPaletteValues(const QByteArray &content, Fn<bool(QLatin1String name, QLatin1String value)> callback) {

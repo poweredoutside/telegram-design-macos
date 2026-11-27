@@ -799,7 +799,7 @@ ListWidget::ListWidget(
 
 	_delegate->listChatWideValue(
 	) | rpl::on_next([=](bool wide) {
-		_isChatWide = wide;
+		_isChatWide = wide && !Core::Telega::UseWindows11Style();
 		if (_overlayHost) {
 			_overlayHost->hide();
 		}
@@ -4706,11 +4706,12 @@ void ListWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		_menu = nullptr;
 		return;
 	}
-	HistoryView::AttachPollOptionTabs(_menu.get(), desiredPosition);
-	if (attached == AttachSelectorResult::Attached) {
-		_menu->popupPrepared();
-	} else {
-		_menu->popup(desiredPosition);
+	if (!HistoryView::ShowMessageContextMenu(
+			_menu.get(),
+			desiredPosition,
+			attached == AttachSelectorResult::Attached)) {
+		_menu = nullptr;
+		return;
 	}
 	e->accept();
 }

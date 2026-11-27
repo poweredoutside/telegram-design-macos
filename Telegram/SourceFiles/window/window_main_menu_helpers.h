@@ -14,9 +14,33 @@ class SettingsButton;
 class VerticalLayout;
 } // namespace Ui
 
+namespace Main {
+class Session;
+} // namespace Main
+
 namespace Window {
 
 class SessionController;
+
+enum class MainMenuStyle {
+	Unigram,
+	Material3,
+};
+
+struct MainMenuOption {
+	QString id;
+	QString title;
+	bool shownByDefault = true;
+};
+
+[[nodiscard]] std::vector<MainMenuOption> MainMenuOptions(
+	MainMenuStyle style,
+	not_null<Main::Session*> session);
+[[nodiscard]] bool MainMenuOptionShown(
+	MainMenuStyle style,
+	const QString &id,
+	bool shownByDefault = true);
+void SetMainMenuOptionShown(MainMenuStyle style, const QString &id, bool shown);
 
 [[nodiscard]] not_null<Ui::FlatLabel*> AddVersionLabel(
 	not_null<Ui::RpWidget*>);

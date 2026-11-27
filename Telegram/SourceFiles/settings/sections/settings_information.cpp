@@ -213,10 +213,12 @@ class AccountsList final {
 public:
 	AccountsList(
 		not_null<Ui::VerticalLayout*> container,
-		not_null<Window::SessionController*> controller);
+		not_null<Window::SessionController*> controller,
+		AccountsListOptions options);
 
 	[[nodiscard]] rpl::producer<> closeRequests() const;
 	[[nodiscard]] Ui::RpWidget *addAccountButton() const;
+	[[nodiscard]] rpl::producer<bool> hasRows() const;
 
 private:
 	void setup();
@@ -226,6 +228,7 @@ private:
 
 	const not_null<Window::SessionController*> _controller;
 	const not_null<Ui::VerticalLayout*> _outer;
+	const AccountsListOptions _options;
 	int _outerIndex = 0;
 
 	Ui::SlideWrap<Ui::SettingsButton> *_addAccount = nullptr;
@@ -234,10 +237,12 @@ private:
 		base::unique_qptr<Ui::SettingsButton>> _watched;
 
 	base::unique_qptr<Ui::PopupMenu> _contextMenu;
+	base::unique_qptr<Ui::VerticalLayout> _filteredRows;
 	std::unique_ptr<Ui::VerticalLayoutReorder> _reorder;
 	int _reordering = 0;
 
 	rpl::event_stream<> _closeRequests;
+	rpl::variable<bool> _hasRows = false;
 
 	base::binary_guard _accountSwitchGuard;
 
@@ -968,9 +973,11 @@ void SetupAccountsWrap(
 
 AccountsList::AccountsList(
 	not_null<Ui::VerticalLayout*> container,
-	not_null<Window::SessionController*> controller)
+	not_null<Window::SessionController*> controller,
+	AccountsListOptions options)
 : _controller(controller)
 , _outer(container)
+, _options(std::move(options))
 , _outerIndex(container->count()) {
 	setup();
 }
@@ -983,8 +990,14 @@ Ui::RpWidget *AccountsList::addAccountButton() const {
 	return _addAccount ? _addAccount->entity() : nullptr;
 }
 
+rpl::producer<bool> AccountsList::hasRows() const {
+	return _hasRows.value();
+}
+
 void AccountsList::setup() {
-	_addAccount = setupAdd();
+	if (_options.showAddAccount) {
+		_addAccount = setupAdd();
+	}
 
 	rpl::single(rpl::empty) | rpl::then(
 		Core::App().domain().accountsChanges()
@@ -1099,9 +1112,17 @@ not_null<Ui::SlideWrap<Ui::SettingsButton>*> AccountsList::setupAdd() {
 }
 
 void AccountsList::rebuild() {
+	if (_options.showAccount) {
+		_reorder.reset();
+		_filteredRows = nullptr;
+		_reordering = 0;
+	}
 	const auto inner = _outer->insert(
 		_outerIndex,
 		object_ptr<Ui::VerticalLayout>(_outer.get()));
+	if (_options.showAccount) {
+		_filteredRows.reset(inner);
+	}
 
 	_reorder = std::make_unique<Ui::VerticalLayoutReorder>(inner);
 	_reorder->updates(
@@ -1123,6 +1144,20 @@ void AccountsList::rebuild() {
 						}
 					}
 				}
+				if (_options.showAccount) {
+					auto visible = order.begin();
+					auto fullOrder = std::vector<uint64>();
+					const auto accounts = _controller->session().domain()
+						.orderedAccounts();
+					for (const auto &account : accounts) {
+						if (const auto session = account->maybeSession()) {
+							const auto id = session->uniqueId();
+							const auto shown = ranges::contains(order, id);
+							fullOrder.push_back(shown ? *visible++ : id);
+						}
+					}
+					order = std::move(fullOrder);
+				}
 				Core::App().settings().setAccountsOrder(order);
 				Core::App().saveSettings();
 			}
@@ -1131,15 +1166,29 @@ void AccountsList::rebuild() {
 
 	const auto premiumLimit = _controller->session().domain().maxAccounts();
 	const auto list = _controller->session().domain().orderedAccounts();
+	auto accountIndex = 0;
+	auto visibleCount = 0;
+	auto visibleUnlocked = 0;
 	for (const auto &account : list) {
 		auto i = _watched.find(account);
 		Assert(i != _watched.end());
 
 		auto &button = i->second;
-		if (!account->sessionExists() || list.size() == 1) {
+		const auto session = account->maybeSession();
+		const auto locked = session && (accountIndex++ >= premiumLimit);
+		if (!session || list.size() == 1
+			|| (_options.showAccount && !_options.showAccount(session))) {
 			button = nullptr;
-		} else if (!button) {
-			const auto nextIsLocked = (inner->count() >= premiumLimit);
+			continue;
+		}
+		++visibleCount;
+		if (!locked) {
+			++visibleUnlocked;
+		}
+		if (!button) {
+			const auto nextIsLocked = _options.showAccount
+				? locked
+				: (inner->count() >= premiumLimit);
 			auto callback = [=](Qt::KeyboardModifiers modifiers) {
 				if (_reordering) {
 					return;
@@ -1182,15 +1231,17 @@ void AccountsList::rebuild() {
 
 	const auto count = int(list.size());
 
-	_reorder->addPinnedInterval(
-		premiumLimit,
-		std::max(1, count - premiumLimit));
+	const auto unlocked = _options.showAccount ? visibleUnlocked : premiumLimit;
+	const auto total = _options.showAccount ? visibleCount : count;
+	_reorder->addPinnedInterval(unlocked, std::max(1, total - unlocked));
 
-	_addAccount->toggle(
-		(count < ::Main::Domain::kPremiumMaxAccounts),
-		anim::type::instant);
-
+	const auto canAdd = _addAccount
+		&& (count < ::Main::Domain::kPremiumMaxAccounts);
+	if (_addAccount) {
+		_addAccount->toggle(canAdd, anim::type::instant);
+	}
 	_reorder->start();
+	_hasRows = (canAdd || visibleCount > 0);
 }
 
 void BuildInformationSection(SectionBuilder &builder) {
@@ -1465,13 +1516,16 @@ Type InformationId() {
 
 AccountsEvents SetupAccounts(
 		not_null<Ui::VerticalLayout*> container,
-		not_null<Window::SessionController*> controller) {
+		not_null<Window::SessionController*> controller,
+		AccountsListOptions options) {
 	const auto list = container->lifetime().make_state<AccountsList>(
 		container,
-		controller);
+		controller,
+		std::move(options));
 	return {
 		.closeRequests = list->closeRequests(),
 		.addAccountButton = list->addAccountButton(),
+		.hasRows = list->hasRows(),
 	};
 }
 

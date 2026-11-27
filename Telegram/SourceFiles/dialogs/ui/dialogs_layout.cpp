@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/dialogs_row.h"
 #include "dialogs/dialogs_row_style.h"
 
+#include "api/api_telega_badges.h"
 #include "base/options.h"
 #include "base/platform/base_platform_info.h"
 #include "core/core_telega_preferences.h"
@@ -46,6 +47,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/rect.h"
 #include "ui/power_saving.h"
+#include "ui/telega_badge.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
@@ -1001,6 +1003,25 @@ void PaintRow(
 	}
 
 	p.setFont(st::dialogsNameFont);
+	const auto nameColor = context.active
+		? st::dialogsNameFgActive
+		: context.selected ? st::dialogsNameFgOver : st::dialogsNameFg;
+	const auto paintTelegaPrefix = [&](
+			std::optional<Api::TelegaBadges::Type> badge) {
+		const auto side = style::ConvertScale(15);
+		if (!badge || rectForName.width() < 3 * side) {
+			return;
+		}
+		const auto y = rectForName.top()
+			+ (st::dialogsNameFont->height - side) / 2;
+		::Ui::PaintTelegaBadge(
+			p,
+			style::rtlrect(rectForName.left(), y, side, side, context.width),
+			*badge,
+			nameColor->c);
+		rectForName.setLeft(
+			rectForName.left() + side + style::ConvertScale(3));
+	};
 	const auto paintPeerBadge = [&](int rowNameWidth) {
 		const auto badgeWidth = rowBadge.drawGetWidth(p, {
 			.peer = from,
@@ -1056,14 +1077,14 @@ void PaintRow(
 		if (!context.search && (flags & Flag::VerifyCodes)) {
 			paintPeerBadge(textWidth);
 		}
+		const auto ownBadge = (!context.search && (flags & Flag::SavedMessages))
+			? Api::TelegaBadges::CurrentType(entry->session().userId())
+			: std::nullopt;
+		paintTelegaPrefix(ownBadge);
 		if (textWidth > rectForName.width()) {
 			text = st::dialogsNameFont->elided(text, rectForName.width());
 		}
-		p.setPen(context.active
-			? st::dialogsNameFgActive
-			: context.selected
-			? st::dialogsNameFgOver
-			: st::dialogsNameFg);
+		p.setPen(nameColor);
 		p.drawTextLeft(
 			rectForName.left(),
 			rectForName.top(),
@@ -1085,15 +1106,14 @@ void PaintRow(
 		}
 		auto badgeWidth = 0;
 		if ((history || sublist) && !context.search) {
+			paintTelegaPrefix(from->isUser()
+				? Api::TelegaBadges::CurrentType(peerToUser(from->id))
+				: std::nullopt);
 			const auto widthBefore = rectForName.width();
 			paintPeerBadge(rowName.maxWidth());
 			badgeWidth = widthBefore - rectForName.width();
 		}
-		p.setPen(context.active
-			? st::dialogsNameFgActive
-			: context.selected
-			? st::dialogsNameFgOver
-			: st::dialogsNameFg);
+		p.setPen(nameColor);
 		rowName.draw(p, {
 			.position = rectForName.topLeft(),
 			.availableWidth = rectForName.width(),

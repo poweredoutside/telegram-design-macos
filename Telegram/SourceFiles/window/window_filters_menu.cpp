@@ -51,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_window.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_dialogs.h"
+#include "styles/style_filter_icons.h"
 #include "styles/style_info.h"
 #include "ui/widgets/buttons.h"
 
@@ -303,11 +304,12 @@ void FiltersMenu::updateActiveIndicator() {
 		return;
 	}
 	const auto active = _filters.find(_session->activeChatsFilterCurrent());
-	if (active == end(_filters) || active->second->isHidden()) {
+	const auto button = (active == end(_filters)) ? nullptr : active->second.get();
+	if (!button || button->isHidden()) {
 		_activeIndicator->hide();
 		return;
 	}
-	const auto rect = active->second->geometry();
+	const auto rect = button->geometry();
 	const auto inset = style::ConvertScale(4);
 	const auto width = style::ConvertScale(3);
 	const auto height = std::min(style::ConvertScale(24), rect.height());
@@ -455,7 +457,9 @@ void FiltersMenu::refresh() {
 			nextIsLocked);
 		now.emplace(filter.id(), std::move(button));
 	}
+	auto previous = base::take(_filters);
 	_filters = std::move(now);
+	previous.clear();
 	if (_allChatsHidden && (!currentFilter || !_filters.contains(currentFilter))
 		&& pinnedFrom > 0 && !_session->openedFolder().current()) {
 		const auto first = ranges::find_if(list, [](const Data::ChatFilter &filter) {
@@ -474,8 +478,8 @@ void FiltersMenu::refresh() {
 		}
 		if (i != end(_filters)) {
 			setListTabStop(i->second.get());
-			// setListTabStop only fixes the Tab order; the std::move above
-			// destroyed the focused button, so Qt also dropped keyboard focus
+			// setListTabStop only fixes the Tab order; destroying the old
+			// focused button also caused Qt to drop keyboard focus
 			// (to the menu, the edit button or nowhere). If a folder held it,
 			// restore focus to the replacement - or the active fallback - below,
 			// once the scroll is restored, so it lands focused and visible and a
@@ -671,10 +675,23 @@ base::unique_qptr<Ui::SideBarButton> FiltersMenu::prepareButton(
 	const auto nameText = id
 		? title.text.text
 		: tr::lng_filters_all(tr::now);
-	const auto &icons = Ui::LookupFilterIcon(id
-		? icon
-		: Ui::FilterIcon::All);
-	raw->setIconOverride(icons.normal, icons.active);
+	using Icon = Ui::FilterIcon;
+	const auto chosenIcon = id ? icon : Icon::All;
+	const auto &icons = Ui::LookupFilterIcon(chosenIcon);
+	const auto material = Core::Telega::UseMaterial3Style();
+	if (material && chosenIcon == Icon::All) {
+		raw->setIconOverride(
+			&st::foldersMaterialAll,
+			&st::foldersMaterialAllActive);
+	} else if (material && chosenIcon == Icon::Custom) {
+		raw->setIconOverride(
+			&st::foldersMaterialFolder,
+			&st::foldersMaterialFolderActive);
+	} else if (material && chosenIcon == Icon::Edit) {
+		raw->setIconOverride(&st::foldersMaterialEdit, &st::foldersMaterialEdit);
+	} else {
+		raw->setIconOverride(icons.normal, icons.active);
+	}
 	if (id >= 0) {
 		if (locked) {
 			// Surface a locked folder's premium-gated status and what pressing

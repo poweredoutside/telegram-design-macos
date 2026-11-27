@@ -22,6 +22,8 @@
 namespace Ui {
 namespace {
 
+Fn<BoxBackground(not_null<LayerWidget*>)> BackgroundFactory;
+
 int BoxRadius() {
 	return style::MaterialDesign().enabled
 		? style::ConvertScale(20)
@@ -29,6 +31,28 @@ int BoxRadius() {
 }
 
 } // namespace
+
+void SetBoxBackgroundFactory(
+		Fn<BoxBackground(not_null<LayerWidget*>)> factory) {
+	BackgroundFactory = std::move(factory);
+}
+
+void AllowBoxBackgroundWithScroll(not_null<BoxContent*> box) {
+	if (const auto layer = dynamic_cast<BoxLayerWidget*>(box->parentWidget())) {
+		layer->allowCustomBackgroundWithScroll();
+	}
+}
+
+bool BoxUsesCustomBackground(not_null<const QWidget*> child) {
+	for (auto parent = child->parentWidget()
+		; parent
+		; parent = parent->parentWidget()) {
+		if (const auto box = dynamic_cast<const BoxLayerWidget*>(parent)) {
+			return box->usesCustomBackground();
+		}
+	}
+	return false;
+}
 
 struct BoxLayerWidget::LoadingProgress {
 	LoadingProgress(
@@ -52,6 +76,7 @@ BoxLayerWidget::BoxLayerWidget(
 : LayerWidget(parent)
 , _layer(delegate)
 , _content(std::move(content))
+, _background(BackgroundFactory ? BackgroundFactory(this) : BoxBackground())
 , _roundRect(BoxRadius(), st().bg) {
 	_content->setParent(this);
 
@@ -63,9 +88,24 @@ BoxLayerWidget::BoxLayerWidget(
 
 	updateMaxRealHeight();
 	_content->setDelegate(this);
+	if (usesCustomBackground()) {
+		_content->setAttribute(Qt::WA_OpaquePaintEvent, false);
+	}
 }
 
 BoxLayerWidget::~BoxLayerWidget() = default;
+
+void BoxLayerWidget::allowCustomBackgroundWithScroll() {
+	_allowCustomBackgroundWithScroll = true;
+}
+
+bool BoxLayerWidget::usesCustomBackground() const {
+	return (!_layerType || _allowCustomBackgroundWithScroll)
+		&& !_customCornersFilling
+		&& _background.enabled
+		&& _background.image
+		&& _background.enabled();
+}
 
 void BoxLayerWidget::setLayerType(bool layerType) {
 	if (_layerType == layerType) {
@@ -140,24 +180,32 @@ QRect BoxLayerWidget::loadingRect() const {
 }
 
 void BoxLayerWidget::paintEvent(QPaintEvent *e) {
-	Painter p(this);
-
-	const auto clip = e->rect();
 	const auto radius = BoxRadius();
-	const auto paintTopRounded = !(_customCornersFilling & RectPart::FullTop)
-		&& clip.intersects(QRect(0, 0, width(), radius));
-	const auto paintBottomRounded = !(_customCornersFilling
-		& RectPart::FullBottom)
-		&& clip.intersects(
-			QRect(0, height() - radius, width(), radius));
-	if (paintTopRounded || paintBottomRounded) {
-		_roundRect.paint(p, rect(), RectPart::None
-			| (paintTopRounded ? RectPart::FullTop : RectPart::None)
-			| (paintBottomRounded ? RectPart::FullBottom : RectPart::None));
+	const auto weak = QPointer<BoxLayerWidget>(this);
+	const auto backdrop = usesCustomBackground()
+		? _background.image(st().bg->c, radius)
+		: QImage();
+	if (!weak) {
+		return;
 	}
-	const auto other = e->region().intersected(
-		QRect(0, radius, width(), height() - 2 * radius));
-	if (!other.isEmpty()) {
+	Painter p(this);
+	const auto clip = e->rect();
+	if (!backdrop.isNull()) {
+		p.drawImage(QPoint(), backdrop);
+	} else {
+		const auto paintTopRounded = !(_customCornersFilling & RectPart::FullTop)
+			&& clip.intersects(QRect(0, 0, width(), radius));
+		const auto paintBottomRounded = !(_customCornersFilling
+			& RectPart::FullBottom)
+			&& clip.intersects(
+				QRect(0, height() - radius, width(), radius));
+		if (paintTopRounded || paintBottomRounded) {
+			_roundRect.paint(p, rect(), RectPart::None
+				| (paintTopRounded ? RectPart::FullTop : RectPart::None)
+				| (paintBottomRounded ? RectPart::FullBottom : RectPart::None));
+		}
+		const auto other = e->region().intersected(
+			QRect(0, radius, width(), height() - 2 * radius));
 		for (const auto &rect : other) {
 			p.fillRect(rect, st().bg);
 		}

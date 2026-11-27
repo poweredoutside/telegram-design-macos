@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/attach/attach_single_file_preview.h"
 
 #include "lang/lang_keys.h"
+#include "core/core_telega_preferences.h"
 #include "ui/chat/attach/attach_prepare.h"
 #include "ui/text/format_song_name.h"
 #include "ui/text/format_values.h"
@@ -26,7 +27,12 @@ SingleFilePreview::SingleFilePreview(
 	const PreparedFile &file,
 	const Text::MarkedContext &captionContext,
 	AttachControls::Type type)
-: AbstractSingleFilePreview(parent, st, type, captionContext) {
+: AbstractSingleFilePreview(
+	parent,
+	st,
+	type,
+	captionContext,
+	type == AttachControls::Type::Full && Core::Telega::UseMacOSStyle()) {
 	preparePreview(file);
 }
 

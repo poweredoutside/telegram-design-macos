@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/chat_filters_tabs_strip.h"
+#include "ui/widgets/popup_menu.h"
 #include "ui/widgets/elastic_scroll.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/wrap/fade_wrap.h"
@@ -110,6 +111,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_dialogs_widget.h"
 #include "styles/style_info.h"
+#include "styles/style_menu_icons.h"
 #include "styles/style_window.h"
 
 #include <QtCore/QMimeData>
@@ -659,8 +661,30 @@ Widget::Widget(
 	if (_layout == Layout::Main && (_navigation || Core::Telega::UseWindows11Style())) {
 		_compose.create(_searchControls, st::macCompose);
 		_compose->setAccessibleName(tr::lng_no_conversations_button(tr::now));
+		using Menu = base::unique_qptr<Ui::PopupMenu>;
+		const auto composeMenu = _compose->lifetime().make_state<Menu>();
 		_compose->setClickedCallback([=] {
-			controller->show(PrepareContactsBox(controller));
+			if (!Core::Telega::UseMacOSStyle()) {
+				controller->show(PrepareContactsBox(controller));
+				return;
+			}
+			(*composeMenu) = base::make_unique_q<Ui::PopupMenu>(
+				_compose,
+				st::popupMenuWithIcons);
+			(*composeMenu)->addAction(
+				tr::lng_menu_contacts(tr::now),
+				[=] { controller->show(PrepareContactsBox(controller)); },
+				&st::menuIconUserShow);
+			(*composeMenu)->addAction(
+				tr::lng_create_group_title(tr::now),
+				[=] { controller->showNewGroup(); },
+				&st::menuIconGroups);
+			(*composeMenu)->addAction(
+				tr::lng_create_channel_title(tr::now),
+				[=] { controller->showNewChannel(); },
+				&st::menuIconChannel);
+			(*composeMenu)->popup(_compose->mapToGlobal(
+				QPoint(0, _compose->height())));
 		});
 		_compose->show();
 		controller->activeChatsFilter() | rpl::skip(1) | rpl::on_next([=] {
@@ -1962,9 +1986,7 @@ void Widget::updateControlsVisibility(bool fast) {
 	if (_frozenAccountBar) {
 		_frozenAccountBar->show();
 	}
-	if (_chatFilters) {
-		_chatFilters->setVisible(!_openedForum);
-	}
+	updateChatFiltersVisibility();
 	updateCommunityOverlaysVisibility();
 	if (_openedFolder || _openedForum || _openedCommunity) {
 		_subsectionTopBar->show();
@@ -2037,6 +2059,28 @@ void Widget::updateHasFocus(not_null<QWidget*> focused) {
 	}
 }
 
+bool Widget::chatFiltersShownInCurrentView() const {
+	return _chatFilters
+		&& (!_openedFolder
+			|| (Core::Telega::UseMacOSStyle()
+				&& !Core::Telega::DisplayEnabled(
+					Core::Telega::DisplayOption::HideArchiveFolders)))
+		&& !_openedForum
+		&& !_openedCommunity
+		&& _searchState.query.isEmpty()
+		&& !_searchState.community
+		&& !searchInPeer();
+}
+
+void Widget::updateChatFiltersVisibility() {
+	if (_chatFilters) {
+		_chatFilters->setVisible(chatFiltersShownInCurrentView()
+			&& !_showAnimation
+			&& _widthAnimationCache.isNull()
+			&& !suggestionsCoverList());
+	}
+}
+
 void Widget::toggleFiltersMenu(bool enabled) {
 	if (_layout == Layout::Child) {
 		enabled = false;
@@ -2077,13 +2121,16 @@ void Widget::toggleFiltersMenu(bool enabled) {
 			Window::GifPauseReason::Any,
 			controller(),
 			true);
-		raw->setVisible(_searchState.query.isEmpty()
-			&& !_openedForum
-			&& !_searchState.community
-			&& !searchInPeer());
+		updateChatFiltersVisibility();
 		raw->stackUnder(_scroll);
 		raw->resizeToWidth(width());
-		const auto shadow = Ui::CreateChild<Ui::PlainShadow>(raw);
+		const auto macFolders = Core::Telega::UseMacOSStyle();
+		const auto shadow = macFolders
+			? Ui::CreateChild<Ui::PlainShadow>(raw, st::shadowFg)
+			: Ui::CreateChild<Ui::PlainShadow>(raw);
+		if (macFolders) {
+			inner->raise();
+		}
 		shadow->show();
 		inner->sizeValue() | rpl::on_next([=, this](const QSize &s) {
 			raw->resize(s);
@@ -2094,10 +2141,18 @@ void Widget::toggleFiltersMenu(bool enabled) {
 				shadow->height());
 			updateControlsGeometry();
 		}, _chatFilters->lifetime());
-		updateControlsGeometry();
+		Core::Telega::DisplayValue(
+			Core::Telega::DisplayOption::HideArchiveFolders
+		) | rpl::skip(1) | rpl::on_next([=] {
+			if (_openedFolder) {
+				updateChatFiltersVisibility();
+				updateControlsGeometry();
+			}
+		}, raw->lifetime());
 	} else {
 		_chatFilters = nullptr;
 	}
+	updateControlsGeometry();
 }
 
 bool Widget::cancelSearchByMouseBack() {
@@ -2297,16 +2352,27 @@ void Widget::openBotMainApp(not_null<UserData*> bot) {
 void Widget::changeOpenedSubsection(
 		FnMut<void()> change,
 		bool fromRight,
-		anim::type animated) {
+		anim::type animated,
+		bool folderCarousel) {
 	if (isHidden()) {
 		animated = anim::type::instant;
 	}
+	const auto carousel = folderCarousel
+		&& Core::Telega::UseWindows11Style();
+	if (carousel && (anim::Disabled() || !_scroll->isVisible())) {
+		animated = anim::type::instant;
+	}
+	auto oldContentCache = (carousel && animated == anim::type::normal)
+		? (_chatsFilterSlideCanvas
+			? Ui::GrabOpaque(_chatsFilterSlideCanvas.get(),
+				_chatsFilterSlideCanvas->rect(), st::dialogsBg->c)
+			: grabForChatsFilterSlide())
+		: QPixmap();
 	_chatsFilterSlideCanvas = nullptr;
-	auto oldContentCache = QPixmap();
 	const auto showDirection = fromRight
 		? Window::SlideDirection::FromRight
 		: Window::SlideDirection::FromLeft;
-	if (animated == anim::type::normal) {
+	if (animated == anim::type::normal && !carousel) {
 		if (_connecting) {
 			_connecting->setForceHidden(true);
 		}
@@ -2321,7 +2387,15 @@ void Widget::changeOpenedSubsection(
 	updateControlsVisibility(true);
 	_peerSearch.clear();
 	_api.request(base::take(_topicSearchRequest)).cancel();
-	if (animated == anim::type::normal) {
+	if (animated == anim::type::normal && carousel) {
+		if (_scroll->isVisible()) {
+			startChatsFilterSlide(
+				std::move(oldContentCache),
+				grabForChatsFilterSlide(),
+				(!fromRight) != rtl(),
+				st::dialogsFilterSlideDuration);
+		}
+	} else if (animated == anim::type::normal) {
 		if (_connecting) {
 			_connecting->setForceHidden(true);
 		}
@@ -2357,7 +2431,7 @@ void Widget::changeOpenedFolder(Data::Folder *folder, anim::type animated) {
 		}
 		updateFrozenAccountBar();
 		updateTopBarSuggestions();
-	}, (folder != nullptr), animated);
+	}, (folder != nullptr), animated, true);
 }
 
 void Widget::storiesExplicitCollapse() {
@@ -2656,6 +2730,27 @@ void Widget::startChatsFilterSlide(
 	const auto finish = [=] {
 		InvokeQueued(canvas, [=] { _chatsFilterSlideCanvas = nullptr; });
 	};
+	if (Core::Telega::UseWindows11Style()) {
+		const auto animation = canvas->lifetime().make_state<Ui::Animations::Simple>();
+		canvas->paintOn([
+			=,
+			wasCache = std::move(wasCache),
+			nowCache = std::move(nowCache)
+		](QPainter &p) {
+			const auto remaining = 1. - animation->value(1.);
+			const auto width = canvas->width();
+			const auto gap = std::min(style::ConvertScale(72), width / 3);
+			const auto incoming = width * (width / float64(std::max(1, width - gap)));
+			const auto direction = slideLeft ? -1 : 1;
+			p.fillRect(canvas->rect(), st::dialogsBg);
+			p.drawPixmap(qRound(direction * incoming * remaining), 0, nowCache);
+			p.drawPixmap(qRound(-direction * width * (1. - remaining)), 0, wasCache);
+		});
+		showCanvas();
+		animation->start([=] { canvas->update(); }, 0., 1., duration, anim::easeOutCubic);
+		animation->setFinishedCallback(finish);
+		return;
+	}
 	if (Core::Telega::UseMaterial3Style() && style::MaterialDesign().expressive) {
 		const auto animation = canvas->lifetime().make_state<Ui::Animations::Simple>();
 		const auto offset = style::ConvertScale(24) * (slideLeft ? -1 : 1);
@@ -2883,11 +2978,7 @@ void Widget::scrollToDefault(bool verytop) {
 			this,
 			QPoint(),
 			QRect(0, top, wideGeometry.width(), skip));
-		if (_chatFilters
-			&& _searchState.query.isEmpty()
-			&& !_openedForum
-			&& !_searchState.community
-			&& !searchInPeer()) {
+		if (chatFiltersShownInCurrentView()) {
 			Ui::RenderWidget(
 				p,
 				_chatFilters,
@@ -2925,9 +3016,7 @@ void Widget::stopWidthAnimation() {
 		if (_frozenAccountBar) {
 			_frozenAccountBar->setVisible(!suggestionsCoverList());
 		}
-		if (_chatFilters) {
-			_chatFilters->setVisible(!suggestionsCoverList() && !_openedForum);
-		}
+		updateChatFiltersVisibility();
 	}
 	updateStoriesVisibility();
 	update();
@@ -4412,10 +4501,7 @@ bool Widget::applySearchState(SearchState state) {
 	}
 	if (_chatFilters
 		&& (queryEmptyChanged || inChatChanged || communityChanged)) {
-		_chatFilters->setVisible(_searchState.query.isEmpty()
-			&& !_openedForum
-			&& !_searchState.community
-			&& !searchInPeer());
+		updateChatFiltersVisibility();
 		updateControlsGeometry();
 	}
 	if (queryEmptyChanged) {
@@ -4944,11 +5030,7 @@ void Widget::updateControlsGeometry() {
 			_chatFilters->move(0, chatFiltersTop);
 		}
 		const auto scrollTop = chatFiltersTop
-			+ ((_chatFilters
-				&& _searchState.query.isEmpty()
-				&& !_openedForum
-				&& !_searchState.community
-				&& !searchInPeer())
+			+ (chatFiltersShownInCurrentView()
 				? (_chatFilters->height() * (1. - narrowRatio))
 				: 0);
 		const auto tabsSkip = (_suggestions && _suggestions->tabsOnly())

@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "ui/chat/message_bar.h"
 #include "ui/effects/spoiler_mess.h"
+#include "ui/painter.h"
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/fade_wrap.h"
@@ -22,26 +23,39 @@ namespace Ui {
 PinnedBar::PinnedBar(
 	not_null<QWidget*> parent,
 	Fn<bool()> customEmojiPaused,
-	rpl::producer<> customEmojiPausedChanges)
-: _wrap(parent, object_ptr<RpWidget>(parent))
+	rpl::producer<> customEmojiPausedChanges,
+	bool unigramCard)
+: _sideInset(unigramCard ? style::ConvertScale(8) : 0)
+, _wrap(parent, object_ptr<RpWidget>(parent))
 , _shadow(std::make_unique<PlainShadow>(_wrap.parentWidget()))
 , _customEmojiPaused(std::move(customEmojiPaused)) {
 	_wrap.hide(anim::type::instant);
 	_shadow->hide();
 
-	_shadow->showOn(rpl::combine(
-		_wrap.shownValue(),
-		_wrap.heightValue(),
-		rpl::mappers::_1 && rpl::mappers::_2 > 0
-	) | rpl::filter([=](bool shown) {
-		return (shown == _shadow->isHidden());
-	}));
+	if (!_sideInset) {
+		_shadow->showOn(rpl::combine(
+			_wrap.shownValue(),
+			_wrap.heightValue(),
+			rpl::mappers::_1 && rpl::mappers::_2 > 0
+		) | rpl::filter([=](bool shown) {
+			return (shown == _shadow->isHidden());
+		}));
+		_wrap.setAttribute(Qt::WA_OpaquePaintEvent);
+	}
 
 	_wrap.entity()->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
-		QPainter(_wrap.entity()).fillRect(clip, st::historyPinnedBg);
+		auto p = QPainter(_wrap.entity());
+		if (_sideInset) {
+			const auto radius = style::ConvertScale(16);
+			auto hq = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::historyPinnedBg);
+			p.drawRoundedRect(_wrap.entity()->rect(), radius, radius);
+		} else {
+			p.fillRect(clip, st::historyPinnedBg);
+		}
 	}, lifetime());
-	_wrap.setAttribute(Qt::WA_OpaquePaintEvent);
 
 	if (customEmojiPausedChanges) {
 		std::move(
@@ -75,7 +89,9 @@ void PinnedBar::setContent(rpl::producer<Ui::MessageBarContent> content) {
 
 		// In most cases the new right button should arrive
 		// before we want to get its width.
-		const auto right = _right.button ? _right.button->width() : 0;
+		const auto right = _right.button
+			? (_right.button->width() + _sideInset)
+			: _sideInset;
 		content.margins = { 0, 0, right, 0 };
 
 		_bar->set(std::move(content));
@@ -135,7 +151,7 @@ void PinnedBar::setRightButton(object_ptr<Ui::RpWidget> button) {
 void PinnedBar::updateControlsGeometry(QRect wrapGeometry) {
 	_bar->widget()->resizeToWidth(wrapGeometry.width());
 	if (_right.button) {
-		_right.button->moveToRight(0, 0);
+		_right.button->moveToRight(_sideInset, 0);
 	}
 }
 
@@ -252,10 +268,11 @@ void PinnedBar::finishAnimating() {
 }
 
 void PinnedBar::move(int x, int y) {
-	_wrap.move(x, y);
+	_wrap.move(x + _sideInset, y);
 }
 
 void PinnedBar::resizeToWidth(int width) {
+	width = std::max(0, width - 2 * _sideInset);
 	_wrap.entity()->resizeToWidth(width);
 	if (!_wrap.width()) {
 		_wrap.resizeToWidth(width);

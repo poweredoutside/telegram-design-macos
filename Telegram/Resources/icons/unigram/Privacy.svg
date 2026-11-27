@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<!-- Copyright Fela Ameghino 2015-2026. Distributed under GPL-3.0.
+     Adapted from the Unigram WinUI composition as a static SVG.
+     https://github.com/TelegramMessenger/Unigram/blob/07fb6ffb3d1c466ba8eb0aaaa10a2c0d738faec3/Telegram/Assets/Icons/Privacy.cs -->
+<defs>
+<linearGradient id="LinearGradientBrush" gradientUnits="userSpaceOnUse" x1="41.504" y1="89.629" x2="42.68" y2="-3.795"><stop offset="0" stop-color="#6c7178" stop-opacity="1"/><stop offset="1" stop-color="#c5c6c8" stop-opacity="1"/></linearGradient>
+</defs>
+<g transform="translate(100 100)">
+<path d="M 42.837 -8.777 C 48.231 -3.148 53.942 0.926 60 3.471 C 63.233 4.829 66.565 5.753 70 6.245 C 71.966 6.526 73.966 6.667 76 6.667 C 77.933 6.667 79.546 8.095 79.919 9.994 L 80 10.833 L 80 35.844 C 80 62.663 66.87 80.896 41.265 89.786 C 40.444 90.071 39.556 90.071 38.735 89.786 C 31.482 87.268 25.231 84 19.995 80 C 16.146 77.06 12.847 73.724 10.102 70 C 3.835 61.498 0.459 50.97 0.044 38.497 L 0 35.844 L 0 10.833 C 0 8.532 1.791 6.667 4 6.667 C 16.234 6.667 27.233 1.575 37.178 -8.78 C 38.741 -10.408 41.276 -10.407 42.837 -8.777 Z" fill-rule="nonzero" fill="url(#LinearGradientBrush)" fill-opacity="1"/>
+</g>
+<g transform="translate(100 100)">
+<path d="M 40 -40 C 51.046 -40 60 -31.046 60 -20 L 60 -7.683 C 56.694 -9.602 53.378 -12.231 50.057 -15.696 C 44.563 -21.43 35.468 -21.436 29.966 -15.707 C 21.569 -6.964 13.06 -3.333 4 -3.333 C -4.113 -3.333 -10 3.398 -10 10.833 L -10 35.926 L -9.954 38.746 L -9.951 38.83 C -9.566 50.372 -6.915 60.874 -1.782 70 L -40 70 C -51.046 70 -60 61.046 -60 50 L -60 -20 C -60 -31.046 -51.046 -40 -40 -40 L 40 -40 Z" fill-rule="nonzero" fill="#6abee2" fill-opacity="1"/>
+</g>
+<g transform="translate(100 45)">
+<path d="M -20 15 L -20 5 C -20 -5 -12.223 -15 0 -15 C 12.223 -15 20 -5 20 5 L 20 15" fill-rule="evenodd" fill="none" fill-opacity="1" stroke="#6abee2" stroke-opacity="1" stroke-width="20" stroke-linecap="round" stroke-linejoin="miter"/>
+</g>
+</svg>

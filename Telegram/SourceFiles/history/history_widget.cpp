@@ -36,7 +36,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/edit_peer_requests_box.h"
 #include "core/core_settings.h"
 #include "core/core_telega_preferences.h"
-#include "ui/style/style_material.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
 #include "history/view/history_view_draw_to_reply.h"
@@ -253,12 +252,26 @@ constexpr auto kCommonModifiers = 0
 	| Qt::ControlModifier;
 const auto kPsaAboutPrefix = "cloud_lng_about_psa_";
 
+using HistoryView::Controls::MaterialComposeHasSeparateSend;
+using HistoryView::Controls::MaterialComposeInset;
+using HistoryView::Controls::MaterialComposeSendStyle;
+using HistoryView::Controls::MaterialComposeVerticalInset;
+using HistoryView::Controls::PaintMaterialComposeField;
+using HistoryView::Controls::PaintMaterialComposeHeader;
+using HistoryView::Controls::UseMaterialComposeField;
+
+[[nodiscard]] const style::SendButton &ComposeSendStyle() {
+	if (Core::Telega::UseMacOSStyle()) {
+		return st::historySendMac;
+	}
+	return UseMaterialComposeField() ? MaterialComposeSendStyle() : st::historySend;
+}
+
 [[nodiscard]] const style::InputField &ComposeFieldStyle() {
 	if (Core::Telega::UseMacOSStyle()) {
 		return st::historyComposeFieldMac;
 	} else if (!Core::Telega::UseWindows11Style()
-		&& !(Core::Telega::UseMaterial3Style()
-			&& style::MaterialDesign().floatingField)) {
+		&& !UseMaterialComposeField()) {
 		return st::historyComposeField;
 	}
 	static const auto material = [] {
@@ -268,6 +281,27 @@ const auto kPsaAboutPrefix = "cloud_lng_about_psa_";
 		return result;
 	}();
 	return material;
+}
+
+[[nodiscard]] const style::EmojiButton &ComposeEmojiStyle() {
+	if (Core::Telega::UseMacOSStyle()) {
+		return st::historyAttachEmojiMac;
+	} else if (!Core::Telega::UseWindows11Style()
+		&& !UseMaterialComposeField()) {
+		return st::historyAttachEmoji;
+	}
+	static const auto transparent = [] {
+		auto result = st::historyAttachEmoji;
+		result.bg = st::transparent;
+		return result;
+	}();
+	return transparent;
+}
+
+[[nodiscard]] int ComposeSidePadding() {
+	return Core::Telega::UseMacOSStyle()
+		? st::historyComposeMacInset
+		: UseMaterialComposeField() ? MaterialComposeInset() : st::historySendRight;
 }
 
 [[nodiscard]] int ComposePadding() {
@@ -332,8 +366,7 @@ HistoryWidget::HistoryWidget(
 , _supportAutocomplete(session().supportMode()
 	? object_ptr<Support::Autocomplete>(this, &session())
 	: nullptr)
-, _send(std::make_shared<Ui::SendButton>(this,
-	Core::Telega::UseMacOSStyle() ? st::historySendMac : st::historySend))
+, _send(std::make_shared<Ui::SendButton>(this, ComposeSendStyle()))
 , _aiButton(Ui::CreateChild<HistoryView::Controls::ComposeAiButton>(
 	this,
 	st::historyAiComposeButton))
@@ -365,8 +398,7 @@ HistoryWidget::HistoryWidget(
 , _reportMessages(this, QString(), st::historyComposeButton)
 , _attachToggle(this,
 	Core::Telega::UseMacOSStyle() ? st::historyAttachMac : st::historyAttach)
-, _tabbedSelectorToggle(this, Core::Telega::UseMacOSStyle()
-	? st::historyAttachEmojiMac : st::historyAttachEmoji)
+, _tabbedSelectorToggle(this, ComposeEmojiStyle())
 , _botKeyboardShow(this, st::historyBotKeyboardShow)
 , _botKeyboardHide(this, st::historyBotKeyboardHide)
 , _botCommandStart(this, st::historyBotCommandStart)
@@ -651,8 +683,7 @@ HistoryWidget::HistoryWidget(
 	});
 	if (!Core::Telega::UseMacOSStyle()
 		&& !Core::Telega::UseWindows11Style()
-		&& !(Core::Telega::UseMaterial3Style()
-			&& style::MaterialDesign().floatingField)) {
+		&& !UseMaterialComposeField()) {
 		InitMessageFieldFade(_field, st::historyComposeField.textBg);
 	}
 
@@ -684,6 +715,9 @@ HistoryWidget::HistoryWidget(
 	_send->widthValue() | rpl::skip(1) | rpl::on_next([=] {
 		updateFieldSize();
 		moveFieldControls();
+		if (UseMaterialComposeField()) {
+			updateField();
+		}
 	}, _send->lifetime());
 	if (Core::Telega::UseMacOSStyle()) {
 		Window::Theme::GlassStyleValue() | rpl::on_next([=] {
@@ -6476,7 +6510,7 @@ void HistoryWidget::showAnimated(
 		_topShadow->show();
 	}
 
-	if (_history && !fromBottom) {
+	if (_history && !fromBottom && !params.profileTransition) {
 		_topBar->show();
 		_topBar->setAnimatingMode(true);
 	}
@@ -6486,6 +6520,7 @@ void HistoryWidget::showAnimated(
 	_showAnimation->setRepaintCallback([=] { update(); });
 	_showAnimation->setFinishedCallback([=] { showFinished(); });
 	_showAnimation->setPixmaps(params.oldContentCache, newContentCache);
+	_showAnimation->setProfileTransition(params.profileTransition);
 	_showAnimation->start();
 
 	activate();
@@ -7118,6 +7153,7 @@ void HistoryWidget::updateSendButtonType() {
 	using Type = Ui::SendButton::Type;
 
 	const auto wasInField = sendButtonInField();
+	const auto wasSeparate = MaterialComposeHasSeparateSend(*_send);
 	const auto type = showStopButton()
 		? Type::Stop
 		: computeSendButtonType();
@@ -7177,6 +7213,9 @@ void HistoryWidget::updateSendButtonType() {
 			|| type == Type::Round));
 	if (wasInField != sendButtonInField()) {
 		updateFieldSize();
+		updateField();
+	} else if (UseMaterialComposeField()
+		&& wasSeparate != MaterialComposeHasSeparateSend(*_send)) {
 		updateField();
 	}
 
@@ -7797,9 +7836,11 @@ void HistoryWidget::moveFieldControls() {
 // (_botStart|_unblock|_joinChannel|_muteUnmute|_reportMessages)
 
 	const auto mac = Core::Telega::UseMacOSStyle();
-	auto buttonsBottom = bottom - _attachToggle->height()
-		- (mac ? ComposePadding() : 0);
-	auto left = mac ? st::historyComposeMacInset : st::historySendRight;
+	const auto buttonsBottom = bottom - _attachToggle->height()
+		- (mac
+			? ComposePadding()
+			: UseMaterialComposeField() ? MaterialComposeVerticalInset() : 0);
+	auto left = ComposeSidePadding();
 	if (_botMenu) {
 		const auto skip = st::historyBotMenuSkip;
 		_botMenu->moveToLeft(left + skip, buttonsBottom + skip);
@@ -7825,17 +7866,19 @@ void HistoryWidget::moveFieldControls() {
 			left,
 			bottom - fieldHeight() - ComposePadding());
 	}
-	auto right = mac
-		? st::historyComposeMacInset
-			+ (sendButtonInField() ? st::historyComposeMacSendInset : 0)
-		: st::historySendRight;
+	auto right = ComposeSidePadding()
+		+ (sendButtonInField() ? st::historyComposeMacSendInset : 0);
 	_send->moveToRight(right, buttonsBottom);
 	right += _send->width();
 	if (mac) {
 		right += sendButtonInField()
 			? st::historyComposeMacSendGap : st::historyComposeMacGap;
 	}
-	_voiceRecordBar->moveToLeft(0, bottom - _voiceRecordBar->height());
+	_voiceRecordBar->moveToLeft(
+		0,
+		mac
+			? _send->y() + (_send->height() - _voiceRecordBar->height()) / 2
+			: bottom - _voiceRecordBar->height());
 	_tabbedSelectorToggle->moveToRight(right, buttonsBottom);
 	_botKeyboardHide->moveToRight(right, buttonsBottom);
 	right += _botKeyboardHide->width();
@@ -7869,7 +7912,7 @@ void HistoryWidget::moveFieldControls() {
 	updateDiscardRichDraftGeometry();
 
 	_fieldBarCancel->moveToRight(
-		0,
+		Core::Telega::UseWindows11Style() ? style::ConvertScale(6) : 0,
 		_field->y() - ComposeTopPadding() - _fieldBarCancel->height());
 	if (_inlineResults) {
 		_inlineResults->moveBottom(_field->y() - ComposeTopPadding());
@@ -7902,11 +7945,13 @@ void HistoryWidget::updateFieldSize() {
 	const auto kbShowShown = _history && !_kbShown && _keyboard->hasMarkup();
 	auto fieldWidth = width()
 		- _attachToggle->width()
-		- st::historySendRight
+		- (UseMaterialComposeField()
+			? 2 * ComposeSidePadding()
+			: st::historySendRight)
 		- _send->width()
 		- _tabbedSelectorToggle->width();
 	if (Core::Telega::UseMacOSStyle()) {
-		fieldWidth -= 2 * st::historyComposeMacInset
+		fieldWidth -= 2 * ComposeSidePadding()
 			+ st::historyComposeMacGap
 			+ (sendButtonInField()
 				? st::historyComposeMacSendInset + st::historyComposeMacSendGap
@@ -10027,7 +10072,8 @@ void HistoryWidget::checkPinnedBarState() {
 	_pinnedBar = std::make_unique<Ui::PinnedBar>(_topBars.get(), [=] {
 		return controller()->isGifPausedAtLeastFor(
 			Window::GifPauseReason::Any);
-	}, controller()->gifPauseLevelChanged());
+	}, controller()->gifPauseLevelChanged(),
+		Core::Telega::UseWindows11Style());
 	auto pinnedRefreshed = Info::Profile::SharedMediaCountValue(
 		_peer,
 		MsgId(0), // topicRootId
@@ -11670,29 +11716,40 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	const auto replyArea = myrtlrect(0, backy, width(),
 		_field->y() - ComposeTopPadding() - backy);
 	const auto composer = myrtlrect(0, backy, width(), backh);
-	const auto fluent = Core::Telega::UseWindows11Style();
-	if ((fluent || (Core::Telega::UseMaterial3Style()
-			&& style::MaterialDesign().floatingField))
-		&& !_field->isHidden()
+	const auto macRecording = Core::Telega::UseMacOSStyle()
+		&& !_voiceRecordBar->isHidden()
+		&& !_voiceRecordBar->isListenState();
+	if (macRecording
+		|| (_voiceRecordBar->isActive() && _voiceRecordBar->usesUnigramRecordingStyle())) {
+		p.fillRect(replyArea, st::historyReplyBg);
+	} else if (UseMaterialComposeField()
+		&& (!_field->isHidden() || !_richDraftPreview->isHidden())
 		&& !isRecording()) {
-		const auto inset = style::ConvertScale(fluent ? 6 : 4);
+		const auto fieldTop = _field->y() - ComposeTopPadding();
+		PaintMaterialComposeHeader(p, replyArea, st::historyReplyBg);
+		PaintMaterialComposeField(
+			p,
+			QRect(0, fieldTop, width(), composer.bottom() + 1 - fieldTop),
+			st::historyComposeAreaBg,
+			*_send);
+	} else if (Core::Telega::UseWindows11Style()
+		&& (!_field->isHidden() || !_richDraftPreview->isHidden())
+		&& !isRecording()) {
+		const auto inset = style::ConvertScale(6);
 		const auto area = composer.marginsRemoved({ inset, inset, inset, inset });
-		const auto radius = fluent ? area.height() / 2. : style::ConvertScale(22);
+		const auto radius = style::ConvertScale(replyArea.isEmpty() ? 14 : 24);
 		p.save();
 		{
 			auto hq = PainterHighQualityEnabler(p);
 			p.setPen(Qt::NoPen);
-			p.setBrush(fluent
-				? st::historyReplyBg->c
-				: style::MaterialTone(
-					st::historyReplyBg->c, st::windowActiveTextFg->c, .14));
+			p.setBrush(st::historyReplyBg);
 			p.drawRoundedRect(area, radius, radius);
 		}
 		p.restore();
 	} else if (!Core::Telega::UseMacOSStyle() || _field->isHidden() || isRecording()) {
 		p.fillRect(composer, st::historyReplyBg);
 	}
-	if (Core::Telega::UseMacOSStyle() && !_field->isHidden()) {
+	if (Core::Telega::UseMacOSStyle() && !_field->isHidden() && !macRecording) {
 		const auto glass = Window::Theme::GlassStyle();
 		const auto edge = st::historyComposeMacInset;
 		const auto right = edge + (sendButtonInField()
@@ -11744,6 +11801,9 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 		}
 	}
 
+	const auto replyRight = _fieldBarCancel->width()
+		+ st::msgReplyPadding.right()
+		+ (Core::Telega::UseWindows11Style() ? style::ConvertScale(6) : 0);
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
 		: nullptr;
@@ -11797,8 +11857,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 		p.setPen(st::historyReplyNameFg);
 		const auto elidedWidth = width()
 			- previewLeft
-			- _fieldBarCancel->width()
-			- st::msgReplyPadding.right();
+			- replyRight;
 
 		_previewTitle.drawElided(
 			p,
@@ -11881,8 +11940,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 						backy + st::msgReplyPadding.top(),
 						width()
 							- replyLeft
-							- _fieldBarCancel->width()
-							- st::msgReplyPadding.right());
+							- replyRight);
 				}
 				p.setPen(st::historyComposeAreaFg);
 				_replyEditMsgText.draw(p, {
@@ -11893,8 +11951,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 							+ backy),
 					.availableWidth = width()
 						- replyLeft
-						- _fieldBarCancel->width()
-						- st::msgReplyPadding.right(),
+						- replyRight,
 					.palette = &st::historyComposeAreaPalette,
 					.spoiler = Ui::Text::DefaultSpoilerCache(),
 					.now = now,
@@ -11915,8 +11972,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 					tr::lng_profile_loading(tr::now),
 					width()
 						- replyLeft
-						- _fieldBarCancel->width()
-						- st::msgReplyPadding.right()));
+						- replyRight));
 		}
 	} else if (hasForward) {
 		st::historyForwardIcon.paint(
@@ -11925,8 +11981,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 		const auto x = st::historyReplySkip;
 		const auto available = width()
 			- x
-			- _fieldBarCancel->width()
-			- st::msgReplyPadding.right();
+			- replyRight;
 		_forwardPanel->paint(p, x, backy, available, width());
 	} else if (_suggestOptions) {
 		_suggestOptions->paintBar(p, 0, backy, width());

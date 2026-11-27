@@ -12,6 +12,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class ApiWrap;
 
+namespace Data {
+class DocumentMedia;
+} // namespace Data
+
 namespace Main {
 class Session;
 } // namespace Main
@@ -41,6 +45,30 @@ public:
 		mtpRequestId requestId = 0;
 	};
 
+	struct GeminiVoiceEntry {
+		DocumentId document = 0;
+		QString result;
+		bool shown = false;
+		bool loading = false;
+	};
+
+	enum class GeminiVoiceError {
+		Download,
+		Format,
+		Key,
+		Size,
+		Transcription,
+	};
+
+	[[nodiscard]] static bool geminiVoiceAvailable(
+		not_null<HistoryItem*> item);
+	[[nodiscard]] const GeminiVoiceEntry &geminiVoiceEntry(
+		not_null<HistoryItem*> item) const;
+	[[nodiscard]] bool toggleGeminiVoice(not_null<HistoryItem*> item);
+	void transcribeGeminiVoice(
+		not_null<HistoryItem*> item,
+		Fn<void(GeminiVoiceError)> onError);
+
 	void toggle(not_null<HistoryItem*> item);
 	[[nodiscard]] const Entry &entry(not_null<HistoryItem*> item) const;
 
@@ -63,6 +91,11 @@ public:
 private:
 	void load(not_null<HistoryItem*> item);
 	void summarize(not_null<HistoryItem*> item);
+	void sendGeminiVoice(
+		FullMsgId id,
+		const std::shared_ptr<Data::DocumentMedia> &media,
+		Fn<void(GeminiVoiceError)> onError);
+	void finishGeminiVoice(FullMsgId id, QString result);
 
 	const not_null<Main::Session*> _session;
 	MTP::Sender _api;
@@ -72,6 +105,8 @@ private:
 	TimeId _trialsRefreshAt = -1;
 
 	base::flat_map<FullMsgId, Entry> _map;
+	base::flat_map<FullMsgId, GeminiVoiceEntry> _geminiVoices;
+	base::flat_map<FullMsgId, rpl::lifetime> _geminiVoiceDownloads;
 	base::flat_map<uint64, FullMsgId> _ids;
 
 	base::flat_map<FullMsgId, SummaryEntry> _summaries;

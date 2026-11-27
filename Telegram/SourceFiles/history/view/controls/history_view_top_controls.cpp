@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/call_delayed.h"
 #include "boxes/peers/edit_peer_requests_box.h"
 #include "calls/calls_instance.h"
+#include "core/core_telega_preferences.h"
 #include "core/application.h"
 #include "data/components/sponsored_messages.h"
 #include "data/data_channel.h"
@@ -837,7 +838,8 @@ void TopControls::checkPinnedBarState() {
 	_pinnedBar = std::make_unique<Ui::PinnedBar>(_topBars.get(), [=] {
 		return _controller->isGifPausedAtLeastFor(
 			Window::GifPauseReason::Any);
-	}, _controller->gifPauseLevelChanged());
+	}, _controller->gifPauseLevelChanged(),
+		Core::Telega::UseWindows11Style());
 	auto pinnedRefreshed = Info::Profile::SharedMediaCountValue(
 		_history->peer,
 		topicRootId,

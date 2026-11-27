@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_top_bar_widget.h"
 
+#include "api/api_telega_badges.h"
 #include "history/history.h"
 #include "base/platform/base_platform_info.h"
 #include "history/view/history_view_send_action.h"
@@ -40,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text.h"
 #include "ui/text/text_options.h"
 #include "ui/painter.h"
+#include "ui/telega_badge.h"
 #include "ui/unread_badge.h"
 #include "ui/unread_counter_format.h"
 #include "ui/controls/button_context_menu.h"
@@ -93,6 +95,14 @@ constexpr auto kHeaderInnerPadding = 4;
 constexpr auto kHeaderAvatar = 32;
 constexpr auto kHeaderAvatarGap = 8;
 constexpr auto kHeaderTitlePadding = 14;
+constexpr auto kTelegaTitleBadgeSize = 15;
+constexpr auto kTelegaTitleBadgeGap = 3;
+
+std::optional<Api::TelegaBadges::Type> TelegaTitleBadge(PeerData *peer) {
+	return (peer && peer->isUser())
+		? Api::TelegaBadges::CurrentType(peerToUser(peer->id))
+		: std::nullopt;
+}
 
 int TopBarHeight() {
 	return Core::Telega::UseMaterial3Style()
@@ -119,6 +129,26 @@ int MaterialTitleTop() {
 		const style::IconButton &original,
 		const style::IconButton &windows) {
 	return Core::Telega::UseMacOSStyle() ? windows : original;
+}
+
+[[nodiscard]] style::RoundButton UnigramSelectionButtonStyle(
+		style::RoundButton result) {
+	result.textBg = st::windowBg;
+	result.textBgOver = st::windowBgOver;
+	result.textFg = result.textFgOver = st::windowFg;
+	result.numbersTextFg = result.numbersTextFgOver = st::windowFg;
+	result.ripple.color = st::windowBgRipple;
+	return result;
+}
+
+[[nodiscard]] const style::RoundButton &SelectionButtonStyle(
+		const style::RoundButton &original) {
+	if (!Core::Telega::UseWindows11Style()) {
+		return original;
+	}
+	static const auto action = UnigramSelectionButtonStyle(st::defaultActiveButton);
+	static const auto clear = UnigramSelectionButtonStyle(st::topBarClearButton);
+	return (&original == &st::topBarClearButton) ? clear : action;
 }
 
 struct HeaderButtons {
@@ -198,10 +228,10 @@ TopBarWidget::TopBarWidget(
 , _floatingHeader(Core::Telega::UseMacOSStyle()
 	? std::make_unique<FloatingHeader>()
 	: nullptr)
-, _clear(this, tr::lng_selected_clear(), st::topBarClearButton)
-, _forward(this, tr::lng_selected_forward(), st::defaultActiveButton)
-, _sendNow(this, tr::lng_selected_send_now(), st::defaultActiveButton)
-, _delete(this, tr::lng_selected_delete(), st::defaultActiveButton)
+, _clear(this, tr::lng_selected_clear(), SelectionButtonStyle(st::topBarClearButton))
+, _forward(this, tr::lng_selected_forward(), SelectionButtonStyle(st::defaultActiveButton))
+, _sendNow(this, tr::lng_selected_send_now(), SelectionButtonStyle(st::defaultActiveButton))
+, _delete(this, tr::lng_selected_delete(), SelectionButtonStyle(st::defaultActiveButton))
 , _back(this, HeaderButton(st::historyTopBarBack, WindowsHeaderButtons().back))
 , _cancelChoose(this, st::topBarCloseChoose)
 , _call(this, HeaderButton(st::topBarCall, WindowsHeaderButtons().call))
@@ -214,6 +244,7 @@ TopBarWidget::TopBarWidget(
 	Core::Telega::DisplayValue(
 		Core::Telega::DisplayOption::RelativeLastSeen
 	) | rpl::skip(1) | rpl::on_next([=] { updateOnlineDisplay(); }, lifetime());
+	Api::TelegaBadges::Changes() | rpl::on_next([=] { update(); }, lifetime());
 	setAttribute(Qt::WA_OpaquePaintEvent);
 	if (_floatingHeader) {
 		Window::Theme::GlassStyleValue() | rpl::skip(1) | rpl::on_next([=] {
@@ -624,6 +655,10 @@ QRect TopBarWidget::floatingTitleRect() const {
 			+ style::ConvertScale(kHeaderBubbleGap));
 	const auto available = std::max(0, width() - left - _rightTaken);
 	const auto peer = titleNamePeer();
+	const auto titleBadgeWidth = TelegaTitleBadge(peer)
+		? (style::ConvertScale(kTelegaTitleBadgeSize)
+			+ style::ConvertScale(kTelegaTitleBadgeGap))
+		: 0;
 	const auto preferred = (peer && peer->businessBot())
 		? available
 		: (_leftTaken - left)
@@ -632,7 +667,9 @@ QRect TopBarWidget::floatingTitleRect() const {
 				style::ConvertScale(160),
 				_titlePeerText.maxWidth(),
 				peer ? st::msgNameStyle.font->width(
-					TopBarNameText(peer, _activeChat)) + style::ConvertScale(20) : 0,
+					TopBarNameText(peer, _activeChat))
+						+ style::ConvertScale(20) + titleBadgeWidth
+					: 0,
 			});
 	return QRect(
 		left,
@@ -783,6 +820,22 @@ void TopBarWidget::paintTopBar(Painter &p, QRect floatingTitle) {
 		}
 	}
 	auto statuswidth = namewidth;
+	const auto paintTelegaPrefix = [&](
+			std::optional<Api::TelegaBadges::Type> badge,
+			int centerY) {
+		const auto side = style::ConvertScale(kTelegaTitleBadgeSize);
+		if (!badge || namewidth < 3 * side) {
+			return;
+		}
+		Ui::PaintTelegaBadge(
+			p,
+			style::rtlrect(nameleft, centerY - side / 2, side, side, width()),
+			*badge,
+			st::dialogsNameFg->c);
+		const auto prefix = side + style::ConvertScale(kTelegaTitleBadgeGap);
+		nameleft += prefix;
+		namewidth -= prefix;
+	};
 
 	if (_chooseForReportReason) {
 		const auto text = _chooseForReportReason->optionText;
@@ -856,10 +909,15 @@ void TopBarWidget::paintTopBar(Painter &p, QRect floatingTitle) {
 		const auto opacity = folder ? _titleShownRatio : 1.;
 		if (opacity > 0.) {
 			const auto textWidth = st::historySavedFont->width(text);
+			const auto ownBadge = (peer && peer->isSelf()
+				&& !folder && _activeChat.section == Section::History)
+				? TelegaTitleBadge(peer)
+				: std::nullopt;
+			p.setOpacity(opacity);
+			paintTelegaPrefix(ownBadge, height() / 2);
 			if (namewidth < textWidth) {
 				text = st::historySavedFont->elided(text, namewidth);
 			}
-			p.setOpacity(opacity);
 			p.setPen(st::dialogsNameFg);
 			p.setFont(st::historySavedFont);
 			p.drawTextLeft(
@@ -911,6 +969,9 @@ void TopBarWidget::paintTopBar(Painter &p, QRect floatingTitle) {
 			nameleft += skip + st::dialogsChatTypeSkip;
 			namewidth -= skip + st::dialogsChatTypeSkip;
 		}
+		paintTelegaPrefix(
+			TelegaTitleBadge(namePeer),
+			nametop + st::msgNameStyle.font->height / 2);
 		const auto badgeWidth = _titleBadge.drawGetWidth(p, {
 			.peer = namePeer,
 			.rectForName = QRect(
@@ -1098,18 +1159,21 @@ void TopBarWidget::infoClicked() {
 	const auto key = _activeChat.key;
 	if (!key) {
 		return;
-	} else if (const auto topic = key.topic()) {
-		_controller->showSection(std::make_shared<Info::Memento>(topic));
+	}
+	auto params = Window::SectionShow();
+	params.forbidLayer = Core::Telega::UseWindows11Style();
+	if (const auto topic = key.topic()) {
+		_controller->showSection(std::make_shared<Info::Memento>(topic), params);
 	} else if (const auto sublist = key.sublist()) {
-		_controller->showSection(std::make_shared<Info::Memento>(sublist));
+		_controller->showSection(std::make_shared<Info::Memento>(sublist), params);
 	} else if (key.peer()->savedSublistsInfo()) {
-		_controller->showSection(Info::Memento::Default(key.peer()));
+		_controller->showSection(Info::Memento::Default(key.peer()), params);
 	} else if (key.peer()->sharedMediaInfo()) {
 		_controller->showSection(std::make_shared<Info::Memento>(
 			key.peer(),
-			Info::Section(Storage::SharedMediaType::Photo)));
+			Info::Section(Storage::SharedMediaType::Photo)), params);
 	} else {
-		_controller->showPeerInfo(key.peer());
+		_controller->showPeerInfo(key.peer(), params);
 	}
 }
 

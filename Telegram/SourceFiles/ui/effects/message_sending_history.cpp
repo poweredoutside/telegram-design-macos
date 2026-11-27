@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/effects/message_sending_history.h"
 
+#include "core/core_telega_preferences.h"
+
 #include "history/view/history_view_element.h"
 #include "history/history_item.h"
 
@@ -38,6 +40,7 @@ bool TooWideForTextSending(
 		int width,
 		not_null<HistoryItem*> item) {
 	return (mode == HistoryView::ElementChatMode::Default)
+		&& !Core::Telega::UseWindows11Style()
 		&& (width > st::columnMaximalWidthLeft)
 		&& !item->media();
 }

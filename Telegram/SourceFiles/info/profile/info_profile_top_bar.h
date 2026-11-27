@@ -262,6 +262,7 @@ private:
 	const style::InfoTopBar &_st;
 	const Source _source;
 	const bool _savedMessages = false;
+	const bool _unigram;
 
 	std::unique_ptr<base::Timer> _badgeTooltipHide;
 	const std::unique_ptr<Badge> _botVerify;
@@ -280,6 +281,7 @@ private:
 	uint64 _badgeCollectibleId = 0;
 
 	object_ptr<Ui::MarqueeLabel> _title;
+	object_ptr<Ui::AbstractButton> _telegaBadge = { nullptr };
 	std::unique_ptr<Ui::StarsRating> _starsRating;
 	std::unique_ptr<Ui::AnimatedString> _tabSubtitle;
 	QString _tabSubtitleText;
@@ -359,6 +361,7 @@ private:
 	Ui::Controls::SwipeBackResult _swipeBackData;
 
 	base::unique_qptr<Ui::IconButton> _topBarButton;
+	base::unique_qptr<Ui::RoundButton> _unigramEdit;
 	base::unique_qptr<Ui::FadeWrap<Ui::IconButton>> _tabMenuToggle;
 	base::unique_qptr<Ui::FadeWrap<Ui::IconButton>> _tabSearchToggle;
 	base::unique_qptr<Ui::FadeWrap<Ui::IconButton>> _tabGroupToggle;
